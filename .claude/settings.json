@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(grep -v \"^$\")",
+      "Bash(python3 -c ' *)",
+      "Bash(awk '{print $NF, $6, $7, $8}')"
+    ],
+    "additionalDirectories": [
+      "/home/matthewscott/Development/Quantum-Computing"
+    ]
+  }
+}

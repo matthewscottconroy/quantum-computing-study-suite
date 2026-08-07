@@ -1,0 +1,362 @@
+# Quantum Computing: A Complete Learning Ladder
+
+This documentation covers quantum computing from mathematical foundations to cutting-edge research
+topics. Whether you are a graduate student starting fresh, a physicist transitioning to quantum
+information, or an engineer wanting to understand the theory behind quantum hardware, follow the
+ladder from bottom to top. Each rung builds on the ones below.
+
+---
+
+## The Ladder
+
+### Rung 0: Prerequisites
+**No file — just a checklist.**
+
+Before starting, you should be comfortable with:
+- **Linear algebra**: vectors, matrices, eigenvalues, inner products, tensor products.
+  (Review: Strang's *Introduction to Linear Algebra*, Chapters 1–6.)
+- **Complex numbers**: polar form, Euler's formula `e^{iθ} = cosθ + i sinθ`.
+- **Probability**: conditional probability, expectations, variance.
+- **Python**: basic syntax helpful but not required (the companion apps use Python).
+
+Optional but helpful:
+- Differential equations (for time evolution in Chapter 2).
+- Classical information theory (for Chapter 8).
+- Basic chemistry concepts (for Chapter 6 VQE discussions).
+
+---
+
+### Rung 1: Mathematical Foundations (Chapter 1)
+**Files**: `01_mathematical_foundations/` | **Time**: 1–2 weeks
+
+The mathematical language of quantum mechanics: linear algebra in Dirac notation, complex Hilbert
+spaces, linear operators, spectral theorem, tensor products.
+
+**Key concepts you will master**:
+- Dirac bra-ket notation `|ψ⟩`, `⟨φ|`, `⟨φ|ψ⟩`
+- Hermitian operators and their physical meaning
+- Unitary operators (quantum gates) and their properties
+- Tensor product `|a⟩ ⊗ |b⟩` for multi-qubit systems
+- Change of basis and spectral decomposition
+
+**Why it matters**: Every quantum computing concept, from the simplest qubit to topological
+quantum computation, is phrased in this mathematical language. Skipping this chapter leads to
+confusion when Hamiltonians, stabilizers, and density matrices appear in later chapters.
+
+---
+
+### Rung 2: Quantum Mechanics Foundations (Chapter 2)
+**Files**: `02_quantum_mechanics/` | **Time**: 2–3 weeks
+
+The four postulates of quantum mechanics as applied to quantum computing: state spaces,
+evolution, measurement, and composition. Qubits, the Bloch sphere, entanglement, density
+matrices, quantum channels.
+
+**Key concepts you will master**:
+- The qubit `|ψ⟩ = α|0⟩ + β|1⟩` and Bloch sphere representation
+- Measurement: Born rule, projective measurement, POVMs
+- Entanglement: Bell states, EPR, Schmidt decomposition
+- Density matrices `ρ`: mixed states, partial trace, reduced states
+- Quantum channels (CPTP maps): Kraus representation, Lindblad equation
+
+**Why it matters**: All quantum algorithms operate on the structures defined here. Without
+understanding measurement collapse, entanglement, and mixed states, quantum error correction
+and variational algorithms are unmotivated abstractions.
+
+---
+
+### Rung 3: Quantum Circuits and Gates (Chapter 3)
+**Files**: `03_quantum_circuits/` | **Time**: 1–2 weeks
+
+The quantum circuit model: single- and two-qubit gates, universal gate sets, circuit complexity,
+the Clifford group, measurement-based quantum computing.
+
+**Key concepts you will master**:
+- Standard gates: H, S, T, CNOT, CZ, Toffoli
+- Universal gate sets: `{H, S, T, CNOT}` is universal
+- The Clifford group and Gottesman-Knill theorem
+- Circuit depth and width as computational resources
+- Quantum teleportation circuit
+
+**Why it matters**: Quantum algorithms are specified as circuits. Hardware implementations,
+error correction circuits, and variational ansätze are all circuits. The Clifford/non-Clifford
+distinction is the foundation of fault tolerance.
+
+---
+
+### Rung 4: Core Quantum Algorithms (Chapter 4)
+**Files**: `04_quantum_algorithms/` | **Time**: 2–4 weeks
+
+The landmark algorithms that establish quantum advantage: QFT and phase estimation, Shor's
+factoring algorithm, Grover's search, HHL for linear systems, and quantum simulation.
+
+**Key concepts you will master**:
+- Quantum Fourier Transform (QFT) and phase kickback
+- Quantum phase estimation (QPE) and its role in algorithms
+- Shor's algorithm: period finding → factoring, beating RSA
+- Grover's search: quadratic speedup for unstructured search
+- Amplitude amplification as a general technique
+
+**Why it matters**: These algorithms define what quantum computers can do that classical
+computers cannot. Shor's algorithm is the reason quantum-resistant cryptography is being deployed
+now. QPE is the subroutine underlying most fault-tolerant algorithms.
+
+---
+
+### Rung 5: Quantum Error Correction (Chapter 5)
+**Files**: `05_quantum_error_correction/` | **Time**: 3–4 weeks
+
+Why quantum computers need error correction, and how it works. From the repetition code to the
+surface code; from the threshold theorem to magic state distillation.
+
+**Key concepts you will master**:
+- Why QEC is hard (no-cloning, continuous errors, measurement collapse)
+- Classical linear codes and their quantum generalization
+- The 3-qubit repetition code and Shor's 9-qubit code
+- Stabilizer formalism: the unified language of QEC
+- CSS codes and the Steane `[[7,1,3]]` code
+- Surface code: `[[d²,1,d]]`, ~1% threshold, MWPM decoding
+- Fault tolerance: threshold theorem, magic state distillation
+- Bosonic codes: cat qubits, GKP codes
+
+**Why it matters**: Without error correction, quantum computers cannot scale beyond ~100 qubits
+with useful circuit depth. The surface code and fault tolerance are the engineering path to
+large-scale quantum computing. Magic state distillation and bosonic codes are central to
+current hardware roadmaps.
+
+**File map**:
+| File | Topic |
+|------|-------|
+| `01_why_qec_is_hard.md` | No-cloning, continuous errors, the syndrome idea |
+| `02_classical_error_correction.md` | Linear codes, Hamming, dual codes |
+| `03_repetition_code.md` | 3-qubit codes, Shor 9-qubit code, `[[n,k,d]]` notation |
+| `04_stabilizer_formalism.md` | Pauli group, stabilizer codes, Clifford group |
+| `05_css_codes_and_steane.md` | CSS construction, `[[7,1,3]]` Steane code |
+| `06_surface_code.md` | Toric/surface code, MWPM, ~1% threshold |
+| `07_fault_tolerance.md` | Threshold theorem, magic state distillation |
+| `08_bosonic_codes.md` | Cat qubits, GKP codes, binomial codes |
+
+---
+
+### Rung 6: Variational Quantum Algorithms (Chapter 6)
+**Files**: `06_variational_quantum_algorithms/` | **Time**: 2–3 weeks
+
+Near-term quantum algorithms for chemistry and optimization. VQE, QAOA, the parameter-shift
+gradient, barren plateaus, error mitigation, and quantum optimal control.
+
+**Key concepts you will master**:
+- The variational principle and VQE algorithm loop
+- Hamiltonian encoding: Pauli decomposition, JW and BK mappings
+- Ansatz design: HEA, UCCSD, HVA, ADAPT-VQE
+- Parameter-shift rule for exact quantum gradients
+- QAOA for combinatorial optimization
+- Barren plateaus: exponentially vanishing gradients
+- Error mitigation: ZNE, PEC, CDR
+- Quantum optimal control: GRAPE, CRAB, quantum speed limit
+
+**Why it matters**: These algorithms are being run on hardware today. Understanding their
+capabilities and limitations is essential for assessing quantum advantage claims in chemistry and
+optimization, and for designing experiments on real hardware.
+
+**File map**:
+| File | Topic |
+|------|-------|
+| `01_vqe_fundamentals.md` | VQE loop, Hamiltonian encoding, UCCSD, chemical accuracy |
+| `02_ansatz_design.md` | HEA, UCCSD, HVA, ADAPT-VQE, symmetry |
+| `03_parameter_shift_gradient.md` | Parameter shift rule, QNG, SPSA, shot noise |
+| `04_qaoa.md` | MaxCut, QAOA circuit, p=1 guarantee, adiabatic limit |
+| `05_barren_plateaus.md` | Exponential gradient decay, mitigation strategies |
+| `06_noise_and_error_mitigation.md` | ZNE, PEC, CDR, virtual distillation |
+| `07_quantum_optimal_control.md` | GRAPE, CRAB, QSL, VQAs as control problems |
+
+---
+
+### Rung 7: Quantum Hardware (Chapter 7)
+**Files**: `07_quantum_hardware/` | **Time**: 1–2 weeks
+
+How quantum computers are physically built. Superconducting qubits (transmon, Josephson
+junction), trapped ions (Paul trap, MS gate), photonic and other platforms, and how to
+benchmark and characterize hardware.
+
+**Key concepts you will master**:
+- Transmon qubit: Josephson junction, `E_J/E_C` ratio, anharmonicity
+- Qubit control: microwave drive, IQ channels, DRAG pulses
+- Two-qubit gates: cross-resonance (IBM), CZ (Google), √iSWAP
+- Trapped ion qubits: Lamb-Dicke, Mølmer-Sørensen gate, all-to-all connectivity
+- Photonic QC: LOQC, KLM, boson sampling, Rydberg arrays
+- Benchmarking: T1/T2, randomized benchmarking, GST, quantum volume, CLOPS
+
+**Why it matters**: Algorithm performance depends critically on hardware characteristics.
+Understanding gate fidelity, coherence times, connectivity, and benchmarking metrics is
+essential for choosing hardware and interpreting experimental results.
+
+**File map**:
+| File | Topic |
+|------|-------|
+| `01_superconducting_qubits.md` | Transmon, Josephson junction, dilution refrigerator |
+| `02_trapped_ion_qubits.md` | Paul trap, Jaynes-Cummings, MS gate, QCCD |
+| `03_photonic_and_other_platforms.md` | Photonics, NV centers, Rydberg, Majorana |
+| `04_benchmarking_and_characterization.md` | T1/T2, RB, GST, quantum volume, CLOPS |
+
+---
+
+### Rung 8: Advanced Topics (Chapter 8)
+**Files**: `08_advanced_topics/` | **Time**: 3–6 weeks (ongoing reference)
+
+The research frontier: quantum complexity theory (BQP, QMA, QPCP conjecture), quantum information
+theory (Von Neumann entropy, channel capacity, teleportation), many-body physics and quantum
+simulation (Ising, Heisenberg, Hubbard models, FeMoco), and topological quantum computation
+(anyons, Fibonacci anyons, Majorana zero modes).
+
+**Key concepts you will master**:
+- BQP and its relationship to NP, PSPACE
+- QMA-completeness of the Local Hamiltonian problem
+- Von Neumann entropy, Holevo bound, quantum channel capacity
+- Teleportation and superdense coding resource accounting
+- Key many-body models: TFIM, Heisenberg, Hubbard
+- Trotter simulation and qubitization
+- Anyons, non-Abelian statistics, Fibonacci anyons → universal TQC
+- Majorana zero modes and topological protection
+
+**Why it matters**: These topics define the theoretical boundaries of quantum computing and
+the ultimate targets for quantum advantage (FeMoco, quantum chemistry). Complexity theory tells
+you what can and cannot be efficiently computed. Topological QC is the physical basis for
+intrinsically fault-tolerant hardware.
+
+**File map**:
+| File | Topic |
+|------|-------|
+| `01_quantum_complexity_theory.md` | BQP, QMA, query complexity, QPCP |
+| `02_quantum_information_theory.md` | Von Neumann entropy, Holevo, teleportation |
+| `03_many_body_physics_and_simulation.md` | Models, Trotter, JW/BK, FeMoco |
+| `04_topological_quantum_computation.md` | Anyons, Fibonacci TQC, Kitaev chain |
+
+---
+
+## Quick Reference by Topic
+
+| Topic | Chapter/File |
+|-------|-------------|
+| Qubit notation and Bloch sphere | 02 |
+| Quantum gates (H, CNOT, T) | 03 |
+| Entanglement and Bell states | 02 |
+| Shor's algorithm | 04 |
+| Grover's search | 04 |
+| Quantum error correction basics | 05/01 |
+| Surface code | 05/06 |
+| VQE algorithm | 06/01 |
+| Parameter-shift gradients | 06/03 |
+| QAOA | 06/04 |
+| Barren plateaus | 06/05 |
+| Transmon qubit physics | 07/01 |
+| Trapped ion qubits | 07/02 |
+| Randomized benchmarking | 07/04 |
+| Quantum complexity (BQP, QMA) | 08/01 |
+| Von Neumann entropy | 08/02 |
+| Hubbard model simulation | 08/03 |
+| Majorana zero modes | 08/04 |
+| Fault tolerance threshold | 05/07 |
+| Magic state distillation | 05/07 |
+| Bosonic/cat qubits | 05/08 |
+| Quantum optimal control (GRAPE) | 06/07 |
+
+---
+
+## Time Estimates
+
+| Chapter | Casual reading (surveys) | Active learning (all examples) | Research level |
+|---------|--------------------------|-------------------------------|----------------|
+| 1: Math | 1 week | 2 weeks | — |
+| 2: QM | 1 week | 3 weeks | — |
+| 3: Circuits | 3 days | 1 week | — |
+| 4: Algorithms | 1 week | 3 weeks | — |
+| 5: QEC | 1 week | 4 weeks | 2+ months |
+| 6: VQA | 1 week | 3 weeks | 2+ months |
+| 7: Hardware | 3 days | 2 weeks | 1+ month |
+| 8: Advanced | 1 week | 4 weeks | ongoing |
+| **Total** | **~7 weeks** | **~4 months** | **ongoing** |
+
+---
+
+## How to Use These Notes
+
+### For Self-Study
+
+1. **Read actively**: Don't just read — work every derivation yourself on paper.
+2. **Do the worked examples**: Before reading the worked example, try the problem yourself.
+3. **Write code**: Use the companion `circuit-trainer` app (Qiskit) to implement gates and
+   circuits from each chapter. Use the `quantum-quiz` app to test your understanding.
+4. **Follow the prerequisites**: The prerequisites listed at the top of each file are real.
+   If a concept is unclear, follow the link back to the prerequisite file.
+
+### For a Course
+
+Chapters 1–4 form a solid one-semester "Introduction to Quantum Computing" course.
+Chapters 5–8 form an advanced graduate seminar on "Quantum Error Correction, Hardware, and
+Algorithms."
+
+A 10-week intensive covering the full curriculum:
+- Weeks 1–2: Chapters 1–2 (math and QM foundations)
+- Weeks 3–4: Chapters 3–4 (circuits and algorithms)
+- Weeks 5–6: Chapter 5 (error correction)
+- Weeks 7–8: Chapter 6 (variational algorithms)
+- Week 9: Chapter 7 (hardware)
+- Week 10: Chapter 8 (advanced topics, selective deep dives)
+
+### For Reference
+
+Each file is self-contained as a reference document. The "Key Formulas" section at the end of
+each file summarizes the essential equations. The "Further Reading" section gives the 5 most
+important papers or books for deeper study.
+
+---
+
+## Notation Conventions Used Throughout
+
+| Symbol | Meaning |
+|--------|---------|
+| `\|ψ⟩` | Ket (quantum state vector) |
+| `⟨φ\|` | Bra (dual vector) |
+| `\|0⟩`, `\|1⟩` | Computational basis states |
+| `\|+⟩`, `\|-⟩` | Hadamard basis states `(|0⟩±|1⟩)/√2` |
+| `X, Y, Z` | Pauli matrices |
+| `H` | Hadamard gate (also Hamiltonian — context dependent) |
+| `ρ` | Density matrix |
+| `S(ρ)` | Von Neumann entropy |
+| `[[n, k, d]]` | Quantum code: n physical, k logical, distance d |
+| `[n, k, d]` | Classical code: n bits, k data bits, distance d |
+| `E_J`, `E_C` | Josephson energy, charging energy (Chapter 7) |
+| `T₁`, `T₂` | Qubit relaxation and coherence times |
+| `p_th` | Error correction threshold |
+| `BQP`, `QMA` | Quantum complexity classes (Chapter 8) |
+
+---
+
+## Companion Software
+
+These notes are part of the Quantum Computing Learning Suite:
+
+- **`quantum-quiz/`**: Claude API-powered PyQt6 GUI for testing your knowledge. Questions are
+  generated by Claude based on the chapter content. Run `python main.py` in that directory.
+- **`circuit-trainer/`**: Local Qiskit PyQt6 app for building and simulating quantum circuits.
+  Hands-on practice for Chapters 3–6. Run `python main.py` in that directory.
+- **`lesson-plans/`**: 10 structured lesson plan markdown files for course instructors.
+
+---
+
+## A Note on Mathematical Notation in These Files
+
+Mathematical expressions are written in backtick notation for inline expressions:
+`|ψ⟩ = α|0⟩ + β|1⟩`. Display equations are written out clearly in text blocks when complex.
+This format renders well in any markdown viewer without requiring LaTeX.
+
+For a LaTeX-rendered version, the expressions can be converted straightforwardly:
+- Backtick inline math → `$...$`
+- Text blocks of display equations → `$$...$$`
+
+When studying with a rendering tool (VS Code + Markdown Math, Obsidian, JupyterBook), the
+mathematical notation becomes substantially cleaner.
+
+---
+
+*Documentation version: 2026. For corrections or contributions, see the project repository.*
