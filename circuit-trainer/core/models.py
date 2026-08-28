@@ -63,6 +63,7 @@ class TrainerConfig:
     categories: list[ProblemCategory]
     difficulty: str | None              # None → mixed
     problem_count: int
+    sprint: bool = False                # timed sprint mode (60s per question)
 
 
 @dataclass

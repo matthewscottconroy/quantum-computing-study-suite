@@ -12,14 +12,15 @@ The surface code is currently the leading candidate for large-scale fault-tolera
 computing, and for good reason. It achieves the highest known error threshold (~1%) among
 practically realizable two-dimensional local codes, requires only nearest-neighbor interactions
 on a planar grid, and admits an efficient classical decoding algorithm (minimum-weight perfect
-matching) that scales polynomially. Every major quantum computing company — Google, IBM, Microsoft,
-IonQ — has surface code implementations or surface code-inspired designs at the center of their
-error correction roadmaps.
+matching) that scales polynomially. The surface code is central to several major error
+correction roadmaps — Google's and AWS's architectures are built around it — though not all:
+IBM's roadmap now centers on qLDPC codes, and trapped-ion and neutral-atom roadmaps emphasize
+codes suited to their different connectivities.
 
 The surface code originates from Kitaev's toric code (1997), defined on a torus for theoretical
-elegance, then modified by Freedman and Hastings to a planar geometry with boundaries. The
-planar "surface code" is what appears in experiments, since building a torus in hardware is
-impractical.
+elegance, then modified to a planar geometry with boundaries by Bravyi and Kitaev (1998) —
+with closely related planar constructions by Freedman and Meyer (1998). The planar "surface
+code" is what appears in experiments, since building a torus in hardware is impractical.
 
 This chapter develops the surface code from the lattice geometry, defines the stabilizers and
 logical operators, explains the threshold and why it is so high, and describes minimum-weight
@@ -31,7 +32,7 @@ perfect matching (MWPM) decoding. We include resource estimates for practical qu
 
 ### Lattice and Qubits
 
-Place `L×L` qubits on the edges of an `L×L` square lattice drawn on a torus. There are `2L²`
+Place one qubit on each edge of an `L×L` square lattice drawn on a torus. There are `2L²`
 edge qubits. The lattice has `L²` vertices (stars) and `L²` faces (plaquettes).
 
 **Vertex (star) operators** for vertex `v`:
@@ -84,31 +85,38 @@ symmetry and require distinguishing two types of boundaries:
   3-qubit versions instead of 4-qubit.
 - **Rough boundaries** (top and bottom): exposed plaquette (face) operators.
 
-**Qubits**: Place data qubits on edges of the grid. For a distance-`d` code:
-- `d² + (d-1)² = 2d² - 2d + 1` data qubits in the full surface code geometry,
-- Often described more simply as `d²` data qubits with `d²-1` ancilla qubits for syndrome
-  measurement, totaling `2d²-1` physical qubits.
+**Qubits**: Two standard planar layouts exist, distinguished by how the lattice is cut:
 
-A common, slightly simplified description: `d` rows × `d` columns = `d²` data qubits, with
-`(d-1)²` Z-plaquette stabilizers and `d(d-1)/2 + ... = d²-1` combined stabilizer qubits.
+- **Unrotated planar code**: data qubits on the edges of a `d×d` patch, giving
+  `d² + (d-1)² = 2d² - 2d + 1` data qubits for distance `d`.
+- **Rotated surface code** (Bombín and Martín-Delgado 2007; Fowler et al. 2012): the lattice
+  is tilted 45° and trimmed, cutting the qubit count roughly in half for the same distance.
 
-For simplicity we use the rotated surface code geometry (Bombin-Delgado-Martin 2007; Fowler 2012):
-**`d²` data qubits**, `(d²-1)/2` X-ancillas, `(d²-1)/2` Z-ancillas (for odd `d`), encoding
-**1 logical qubit** with distance `d`.
+The rotated layout is what modern experiments use, and we adopt it from here on. For odd
+distance `d` it has:
+
+- **`d²` data qubits** (a `d×d` grid),
+- **`d² - 1` stabilizers** — `(d²-1)/2` X-type and `(d²-1)/2` Z-type — each measured with one
+  ancilla qubit,
+- **`2d² - 1` physical qubits total** (data + ancillas), encoding **1 logical qubit** with
+  distance `d`.
+
+For example, `d = 3` uses 9 data qubits, 8 ancillas, 17 qubits total; `d = 5` uses 25 data
+qubits, 24 ancillas, 49 total.
 
 ### Stabilizers of the Planar Surface Code
 
-In the rotated (tilted) lattice representation:
+In the rotated (tilted) lattice representation, the star/plaquette distinction of the toric
+code becomes a checkerboard: both stabilizer types are faces of the tilted lattice, colored
+alternately X and Z:
 
-**X stabilizers (plaquettes)**: each X stabilizer acts on 4 (or 2 at boundaries) data qubits
-with X.
+**X stabilizers**: each acts on 4 data qubits with X (2 at the boundary).
 
-**Z stabilizers (vertices)**: each Z stabilizer acts on 4 (or 2 at boundaries) data qubits
-with Z.
+**Z stabilizers**: each acts on 4 data qubits with Z (2 at the boundary).
 
-The number of independent stabilizers is `d² - 1` (since the product of all same-type stabilizers
-is identity on the boundary), giving code space dimension `2^{d²-(d²-1)} = 2^1 = 2`, encoding
-1 logical qubit. ✓
+Unlike the torus, the planar code has no global constraint among its stabilizers: all
+`d² - 1` stabilizers are independent. On `d²` data qubits this gives code space dimension
+`2^{d²-(d²-1)} = 2^1 = 2`, encoding 1 logical qubit. ✓
 
 ### Logical Operators
 
@@ -243,28 +251,34 @@ For a distance-`d` surface code with data error rate `p_data` and measurement er
 p_L ≈ 0.1 · (p / p_th)^{⌈d/2⌉}
 ```
 
-For physical error rate `p = 10^{-3}` and threshold `p_th = 10^{-2}`:
+For physical error rate `p = 10^{-3}` and threshold `p_th = 10^{-2}` (so `p/p_th = 0.1` and
+`⌈d/2⌉ = (d+1)/2` for odd `d`):
 
-| Distance `d` | Physical qubits | `p_L` per logical gate |
+| Distance `d` | Data qubits (`d²`) | `p_L` per logical gate |
 |-------------|----------------|----------------------|
 | 3  | 9   | ~10^{-3}  |
-| 5  | 25  | ~10^{-4.5} |
-| 7  | 49  | ~10^{-6}  |
-| 11 | 121 | ~10^{-9}  |
-| 17 | 289 | ~10^{-14} |
-| 25 | 625 | ~10^{-20} |
+| 5  | 25  | ~10^{-4} |
+| 7  | 49  | ~10^{-5}  |
+| 11 | 121 | ~10^{-7}  |
+| 17 | 289 | ~10^{-10} |
+| 21 | 441 | ~10^{-12} |
+| 25 | 625 | ~10^{-14} |
 
 For fault-tolerant Shor's algorithm on RSA-2048 (requiring ~`10^8` T gates on ~2,000 logical
-qubits), logical error rate per gate must be ~`10^{-12}`. This requires `d ≈ 17`, hence
-~`289 × 4000` ~ `10^6` physical qubits minimum, not counting magic state distillation factories.
-Total estimates: `10^6` to `10^7` physical qubits.
+qubits), the logical error rate per gate must be ~`10^{-12}`. This requires `d ≈ 21`, hence
+~`441 × 4000 ≈ 1.8 × 10^6` physical qubits (data plus ancillas) for the logical registers
+alone, not counting magic state distillation factories. Total estimates: `10^6` to `10^7`
+physical qubits.
 
 ---
 
 ## Key Formulas
 
-- **Surface code parameters**: `[[d², 1, d]]` (rotated lattice; more precisely `[[2d²-1,1,d]]`)
-- **Stabilizers**: X-plaquettes `A_p = ⊗_{j ∈ p} X_j`, Z-vertices `B_v = ⊗_{j ∈ v} Z_j`
+- **Surface code parameters**: `[[d², 1, d]]` for the rotated lattice (the `2d² - 1` figure
+  counts physical hardware qubits including the `d² - 1` measurement ancillas, which are not
+  part of the code block); `[[2d²-2d+1, 1, d]]` for the unrotated planar layout
+- **Stabilizers**: X-stars `A_v = ⊗_{j ∈ star(v)} X_j`, Z-plaquettes `B_f = ⊗_{j ∈ ∂f} Z_j`
+  (on the rotated lattice both types become 4-qubit plaquettes in a checkerboard pattern)
 - **Logical operators**: weight-`d` strings crossing the lattice
 - **Threshold**: `p_th ≈ 1%` (circuit-level depolarizing noise; MWPM decoding)
 - **Logical error rate**: `p_L ≈ C(p/p_th)^{⌈d/2⌉}`
@@ -275,7 +289,8 @@ Total estimates: `10^6` to `10^7` physical qubits.
 ## Worked Example: d=3 Surface Code Error Correction
 
 **Setup.** Use a distance-3 (9 data qubit) rotated surface code. The stabilizers are four
-X-plaquettes and four Z-vertices (8 total for 9 qubits, encoding 1 logical qubit).
+X-type and four Z-type checkerboard plaquettes (8 total for 9 qubits, encoding 1 logical
+qubit).
 
 **Error**: X error on data qubit at position (2,2) (center qubit).
 
@@ -292,14 +307,19 @@ matching connects them with a string of length 1 through qubit (2,2). Decoder ou
 
 **Result**: `X · X = I` at qubit (2,2). Logical state unchanged. ✓
 
-**Decoding failure scenario** (illustration): Suppose X errors occur on all 3 qubits in the
-top row. The syndromes at the plaquettes between those qubits cancel out (each qubit creates two
-syndrome violations, which pair and annihilate with adjacent violations). The syndrome appears
-as two violations at the boundary. The decoder matches them through the interior (short path,
-correct) — or through the boundary (also short path). If it chooses through the interior, it
-applies 1 correction; the remaining 2-qubit error creates a logical error (horizontal string of
-length 3 = logical operator). If it goes through the boundary, no error propagates. The threshold
-corresponds to the crossover where correct decoding probability = 0.5.
+**Decoding failure scenario** (illustration): Let `q₁, q₂, q₃` be the three qubits of a
+horizontal line whose product `X_{q₁}X_{q₂}X_{q₃}` is the logical `X̄` (a string connecting
+the two X-type boundaries). Suppose X errors strike `q₁` and `q₂`. Where two error-string
+segments meet, their syndrome contributions cancel: the Z-stabilizer between `q₁` and `q₂`
+sees two errors and stays `+1`. The visible syndrome is a single defect at the Z-stabilizer
+between `q₂` and `q₃` (the string's other endpoint, at `q₁`, terminates on the boundary and
+produces no defect). The decoder now has two candidate matchings: connect the defect to the
+*near* boundary through `q₃` (weight 1), or to the *far* boundary through `q₂` and `q₁`
+(weight 2). MWPM picks the lighter one and applies `X_{q₃}` — completing
+`X_{q₁}X_{q₂}X_{q₃} = X̄`, a logical error. This is the correct (maximum-likelihood) decision
+that nonetheless fails: two errors exceed the `⌊(d-1)/2⌋ = 1` guarantee of a distance-3 code.
+The threshold is the error rate below which such multi-error patterns become negligible as
+`d` grows.
 
 ---
 
@@ -307,8 +327,8 @@ corresponds to the crossover where correct decoding probability = 0.5.
 
 - The surface code `[[d², 1, d]]` encodes 1 logical qubit in a `d×d` array of physical qubits
   using only nearest-neighbor interactions on a 2D planar grid.
-- X-plaquette and Z-vertex stabilizers detect bit-flip and phase-flip errors respectively;
-  logical operators are weight-`d` strings connecting opposite boundaries.
+- Z-plaquette stabilizers detect bit-flip errors and X-vertex (star) stabilizers detect
+  phase-flip errors; logical operators are weight-`d` strings connecting opposite boundaries.
 - The ~1% threshold is the highest among local 2D codes, arising from the code's mapping to a
   statistical mechanical phase transition.
 - MWPM decoding treats syndrome defects as anyon pairs and finds minimum-weight correction;
@@ -318,10 +338,83 @@ corresponds to the crossover where correct decoding probability = 0.5.
 
 ---
 
+## Exercises
+
+**Exercise 1.** For the toric code with `L = 3`, count: the number of data qubits, the number
+of independent stabilizer generators, and the number of logical qubits. Write the resulting
+`[[n, k, d]]` parameters.
+
+<details><summary>Solution</summary>
+
+Data qubits: `2L² = 18` (one per edge). Star operators: `L² = 9`, but `∏_v A_v = I` removes
+one, leaving 8 independent; likewise 8 independent plaquette operators. Total independent
+generators: `16`. Logical qubits: `k = n - (generators) = 18 - 16 = 2`. Distance: the shortest
+non-contractible loop has length `L = 3`. Parameters: `[[18, 2, 3]]`.
+
+</details>
+
+**Exercise 2.** A distance-5 rotated surface code runs at physical error rate `p = 10^{-3}`
+with `p_th = 10^{-2}`. Count its data qubits, ancilla qubits, and total physical qubits, and
+estimate `p_L` using `p_L ≈ 0.1 (p/p_th)^{⌈d/2⌉}`.
+
+<details><summary>Solution</summary>
+
+Data: `d² = 25`. Stabilizers/ancillas: `d² - 1 = 24` (12 X-type, 12 Z-type). Total: `2d² - 1
+= 49` physical qubits. Logical error rate: `⌈5/2⌉ = 3`, so `p_L ≈ 0.1 × (0.1)³ = 10^{-4}` —
+roughly a 10× improvement over the bare physical error rate per operation.
+
+</details>
+
+**Exercise 3.** Explain why a connected chain of X errors in the bulk produces syndrome
+defects only at its two endpoints, no matter how long the chain is.
+
+<details><summary>Solution</summary>
+
+A Z-stabilizer anticommutes with an X-error chain iff their shared support has odd size. For
+a stabilizer in the *interior* of the chain, the chain enters and exits its support: it shares
+exactly 2 qubits (even) → no defect. Only at the two chain endpoints does a Z-stabilizer share
+exactly 1 qubit (odd) with the chain → defect. Hence errors act like strings whose endpoints
+are the observable "anyons"; the error's interior path is invisible, which is also why any
+correction chain with the same endpoints and the same homology class works equally well.
+
+</details>
+
+**Exercise 4.** Using `p_L ≈ 0.1 (p/p_th)^{(d+1)/2}` at `p/p_th = 0.1`, find the smallest odd
+distance achieving `p_L ≤ 10^{-15}`, and the corresponding physical qubit count (rotated
+layout, including ancillas).
+
+<details><summary>Solution</summary>
+
+Need `0.1 × 10^{-(d+1)/2} ≤ 10^{-15}`, i.e. `(d+1)/2 ≥ 14`, so `d = 27`. Check:
+`0.1 × 10^{-14} = 10^{-15}` ✓. Qubit count: `d² = 729` data qubits plus `d² - 1 = 728`
+ancillas = `1457` physical qubits for a single logical qubit at this fidelity.
+
+</details>
+
+**Exercise 5.** In the toric code, every error pattern produces an even number of syndrome
+defects, yet in the planar surface code an odd number of defects is routinely observed.
+Reconcile these facts, and explain what MWPM does differently in the planar case.
+
+<details><summary>Solution</summary>
+
+On the torus, error chains are closed-support-free: every chain has two endpoints and each
+endpoint creates one defect, so defects come in pairs (total count even). In the planar code,
+a chain may *terminate on a boundary*: a string ending on the appropriate boundary type has
+only one interior endpoint, contributing a single defect. MWPM handles this by adding a
+virtual boundary node for each real defect (edge weight = distance to the nearest compatible
+boundary); defects may then be matched either to each other or to the boundary, and the
+virtual nodes are matched among themselves at zero cost to keep the matching perfect.
+
+</details>
+
+---
+
 ## Further Reading
 
 1. **Kitaev, A. Yu.** — "Fault-tolerant quantum computation by anyons," *Ann. Phys.* 303, 2 (2003).
    arXiv:quant-ph/9707021. Original toric code paper.
+1. **Bravyi, S. B. and Kitaev, A. Yu.** — "Quantum codes on a lattice with boundary,"
+   arXiv:quant-ph/9811052 (1998). Introduces the planar surface code with boundaries.
 2. **Dennis, E. et al.** — "Topological quantum memory," *J. Math. Phys.* 43, 4452 (2002).
    Establishes the 1% threshold; RBIM mapping.
 3. **Fowler, A. G. et al.** — "Surface codes: Towards practical large-scale quantum computation,"

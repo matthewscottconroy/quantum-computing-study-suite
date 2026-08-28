@@ -1,7 +1,10 @@
 """App-wide constants. Change these to tune behaviour without touching logic."""
 
+from pathlib import Path
+
 # ── Claude ───────────────────────────────────────────────────────────────────
 CLAUDE_MODEL = "claude-sonnet-4-6"
+API_KEY_FILE = Path.home() / ".config" / "quantum-study" / "api_key.txt"
 GENERATION_MAX_TOKENS = 900
 EVALUATION_MAX_TOKENS = 1300
 

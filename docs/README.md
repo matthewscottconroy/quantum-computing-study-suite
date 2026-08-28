@@ -46,11 +46,13 @@ confusion when Hamiltonians, stabilizers, and density matrices appear in later c
 ---
 
 ### Rung 2: Quantum Mechanics Foundations (Chapter 2)
-**Files**: `02_quantum_mechanics/` | **Time**: 2–3 weeks
+**Files**: `02_quantum_mechanics/` | **Time**: 3–5 weeks
 
 The four postulates of quantum mechanics as applied to quantum computing: state spaces,
 evolution, measurement, and composition. Qubits, the Bloch sphere, entanglement, density
-matrices, quantum channels.
+matrices, quantum channels — plus a full wave-mechanics track (Schrödinger equation,
+harmonic oscillator, angular momentum, hydrogen, perturbation theory) aligning the chapter
+with a standard university QM course (Griffiths/Shankar level).
 
 **Key concepts you will master**:
 - The qubit `|ψ⟩ = α|0⟩ + β|1⟩` and Bloch sphere representation
@@ -58,15 +60,35 @@ matrices, quantum channels.
 - Entanglement: Bell states, EPR, Schmidt decomposition
 - Density matrices `ρ`: mixed states, partial trace, reduced states
 - Quantum channels (CPTP maps): Kraus representation, Lindblad equation
+- Wave mechanics: Schrödinger equation, square wells, tunneling
+- Harmonic oscillator with ladder operators; coherent states (prerequisite for bosonic codes)
+- Angular momentum algebra, spin-½ as the qubit, hydrogen atom
+- Perturbation theory, Fermi's golden rule, Rabi oscillations (how gates are driven)
+- Distance measures: trace distance, fidelity, diamond norm
 
 **Why it matters**: All quantum algorithms operate on the structures defined here. Without
 understanding measurement collapse, entanglement, and mixed states, quantum error correction
-and variational algorithms are unmotivated abstractions.
+and variational algorithms are unmotivated abstractions. The wave-mechanics files supply the
+continuous-variable QM that bosonic codes (Chapter 5) and hardware physics (Chapter 7) assume.
+
+**File map**:
+| File | Topic |
+|------|-------|
+| `01_postulates_of_quantum_mechanics.md` | State space, evolution, measurement, composition |
+| `02_qubits_and_the_bloch_sphere.md` | Qubit geometry, rotations |
+| `03_quantum_measurements.md` | Born rule, projective, POVM, uncertainty |
+| `04_entanglement_and_nonlocality.md` | Bell states, Schmidt, CHSH |
+| `05_density_matrices_and_open_systems.md` | Mixed states, partial trace, Kraus channels |
+| `06_wave_mechanics_and_schrodinger.md` | TDSE/TISE, wells, wave packets, tunneling |
+| `07_harmonic_oscillator.md` | Ladder operators, Fock states, coherent states |
+| `08_angular_momentum_and_hydrogen.md` | `|j,m⟩` tower, spin-½ ≡ qubit, CG, hydrogen |
+| `09_perturbation_theory.md` | TIPT, Fermi's golden rule, Rabi problem |
+| `10_distance_measures_and_lindblad.md` | Trace distance, fidelity, diamond norm, Lindblad |
 
 ---
 
 ### Rung 3: Quantum Circuits and Gates (Chapter 3)
-**Files**: `03_quantum_circuits/` | **Time**: 1–2 weeks
+**Files**: `03_quantum_gates_and_circuits/` | **Time**: 1–2 weeks
 
 The quantum circuit model: single- and two-qubit gates, universal gate sets, circuit complexity,
 the Clifford group, measurement-based quantum computing.
@@ -81,6 +103,15 @@ the Clifford group, measurement-based quantum computing.
 **Why it matters**: Quantum algorithms are specified as circuits. Hardware implementations,
 error correction circuits, and variational ansätze are all circuits. The Clifford/non-Clifford
 distinction is the foundation of fault tolerance.
+
+**File map**:
+| File | Topic |
+|------|-------|
+| `01_single_qubit_gates.md` | Pauli, Hadamard, phase, rotation gates; identities |
+| `02_multi_qubit_gates.md` | CNOT, CZ, SWAP, Toffoli; teleportation |
+| `03_circuit_model_and_universality.md` | Universal gate sets, Solovay-Kitaev, Clifford group |
+| `04_quantum_circuit_complexity.md` | Depth/width, BQP, resource estimates |
+| `05_measurement_based_qc.md` | Cluster states, one-way computing, fusion-based QC |
 
 ---
 
@@ -100,6 +131,19 @@ factoring algorithm, Grover's search, HHL for linear systems, and quantum simula
 **Why it matters**: These algorithms define what quantum computers can do that classical
 computers cannot. Shor's algorithm is the reason quantum-resistant cryptography is being deployed
 now. QPE is the subroutine underlying most fault-tolerant algorithms.
+
+**File map**:
+| File | Topic |
+|------|-------|
+| `01_quantum_parallelism_and_interference.md` | Oracles, interference, the real source of speedup |
+| `02_deutsch_jozsa_and_bernstein_vazirani.md` | First exact separations, phase kickback |
+| `03_quantum_fourier_transform.md` | QFT circuit and analysis |
+| `04_quantum_phase_estimation.md` | QPE, precision/ancilla tradeoffs |
+| `05_grover_search.md` | Amplitude amplification, optimality |
+| `06_shors_algorithm.md` | Period finding → factoring |
+| `07_hhl_quantum_linear_systems.md` | HHL, caveats, dequantization |
+| `08_quantum_cryptography.md` | BB84, E91, QKD in practice vs post-quantum crypto |
+| `09_quantum_walks.md` | Coined/Szegedy/continuous walks, element distinctness, glued trees |
 
 ---
 
@@ -135,6 +179,7 @@ current hardware roadmaps.
 | `06_surface_code.md` | Toric/surface code, MWPM, ~1% threshold |
 | `07_fault_tolerance.md` | Threshold theorem, magic state distillation |
 | `08_bosonic_codes.md` | Cat qubits, GKP codes, binomial codes |
+| `09_qldpc_codes.md` | Hypergraph/balanced products, bivariate bicycle codes, BP+OSD |
 
 ---
 
@@ -230,6 +275,7 @@ intrinsically fault-tolerant hardware.
 | `02_quantum_information_theory.md` | Von Neumann entropy, Holevo, teleportation |
 | `03_many_body_physics_and_simulation.md` | Models, Trotter, JW/BK, FeMoco |
 | `04_topological_quantum_computation.md` | Anyons, Fibonacci TQC, Kitaev chain |
+| `05_qsvt.md` | Block encodings, QSP, quantum singular value transformation |
 
 ---
 
@@ -240,8 +286,20 @@ intrinsically fault-tolerant hardware.
 | Qubit notation and Bloch sphere | 02 |
 | Quantum gates (H, CNOT, T) | 03 |
 | Entanglement and Bell states | 02 |
+| Schrödinger equation, wells, tunneling | 02/06 |
+| Harmonic oscillator and coherent states | 02/07 |
+| Angular momentum and hydrogen | 02/08 |
+| Perturbation theory, Rabi oscillations | 02/09 |
+| Trace distance, fidelity, diamond norm | 02/10 |
+| Lindblad master equation, T₁/T₂ | 02/10 |
 | Shor's algorithm | 04 |
 | Grover's search | 04 |
+| HHL / quantum linear systems | 04/07 |
+| BB84 and quantum key distribution | 04/08 |
+| Quantum walks | 04/09 |
+| Measurement-based QC / cluster states | 03/05 |
+| qLDPC and bivariate bicycle codes | 05/09 |
+| QSVT and block encodings | 08/05 |
 | Quantum error correction basics | 05/01 |
 | Surface code | 05/06 |
 | VQE algorithm | 06/01 |
@@ -267,14 +325,14 @@ intrinsically fault-tolerant hardware.
 | Chapter | Casual reading (surveys) | Active learning (all examples) | Research level |
 |---------|--------------------------|-------------------------------|----------------|
 | 1: Math | 1 week | 2 weeks | — |
-| 2: QM | 1 week | 3 weeks | — |
+| 2: QM | 2 weeks | 5 weeks | — |
 | 3: Circuits | 3 days | 1 week | — |
-| 4: Algorithms | 1 week | 3 weeks | — |
+| 4: Algorithms | 1 week | 4 weeks | — |
 | 5: QEC | 1 week | 4 weeks | 2+ months |
 | 6: VQA | 1 week | 3 weeks | 2+ months |
 | 7: Hardware | 3 days | 2 weeks | 1+ month |
 | 8: Advanced | 1 week | 4 weeks | ongoing |
-| **Total** | **~7 weeks** | **~4 months** | **ongoing** |
+| **Total** | **~8 weeks** | **~5 months** | **ongoing** |
 
 ---
 
@@ -306,8 +364,10 @@ A 10-week intensive covering the full curriculum:
 ### For Reference
 
 Each file is self-contained as a reference document. The "Key Formulas" section at the end of
-each file summarizes the essential equations. The "Further Reading" section gives the 5 most
-important papers or books for deeper study.
+each file summarizes the essential equations, and every file now carries an "Exercises"
+section (3–5 problems with fully worked solutions in collapsible blocks) bridging reading and
+the quiz apps. The "Further Reading" section gives the 5 most important papers or books for
+deeper study.
 
 ---
 

@@ -30,11 +30,14 @@ distillation), and the resource overhead of fault-tolerant quantum computing.
 ### The Propagation Problem
 
 Consider the simplest possible syndrome measurement circuit for the 3-qubit bit-flip code.
-To measure the syndrome `Z₁Z₂`, we introduce an ancilla qubit `a` in state `|+⟩` and apply:
+To measure the syndrome `Z₁Z₂`, we introduce an ancilla qubit `a` in state `|0⟩` and apply:
 
 ```
-CNOT_{1→a},  CNOT_{2→a},  then measure a in X basis
+CNOT_{1→a},  CNOT_{2→a},  then measure a in the Z basis
 ```
+
+The ancilla accumulates the parity of data qubits 1 and 2, so the measurement outcome is the
+`Z₁Z₂` eigenvalue.
 
 This circuit has multiple points of failure. Crucially, a CNOT with control qubit `c` and
 target qubit `t` satisfies:
@@ -44,9 +47,12 @@ X_c  →  X_c ⊗ X_t  (bit flip on control propagates to target)
 Z_t  →  Z_c ⊗ Z_t  (phase flip on target propagates to control)
 ```
 
-An error on the ancilla qubit `a` *before* the second CNOT propagates backwards to qubit 2.
-Now what was a single fault (one ancilla error) has become a two-qubit error in the data block.
-A distance-3 code can only correct one error; two errors could cause a logical failure.
+Now consider a `Z` error on the ancilla qubit `a` occurring after its preparation but *before*
+the first CNOT. Since the ancilla is the target of both CNOTs, the `Z` propagates backwards
+onto each control in turn: after the two CNOTs the fault has become `Z₁Z₂` on the data block
+(times a leftover `Z_a`, which does not even disturb the Z-basis readout). A single fault has
+become a two-qubit error in the data block. A distance-3 code can only correct one error; two
+errors could cause a logical failure.
 
 This **error propagation through CNOT** is the central adversary of fault tolerance. Every
 multi-qubit gate creates a pathway for faults to spread.
@@ -79,16 +85,18 @@ physical qubits and gates, where each physical gate has error probability `p`.
 
 ### Logical Error Rate Scaling
 
-For a distance-`d` code with concatenation level `l` (or for a single surface code with code
-distance `d ≈ 2l`), the logical error rate scales as:
+For a concatenated code at level `l`, or for a single surface code of distance `d`, the
+logical error rate scales as:
 
 ```
-p_L ≈ (1/p_th) · (p/p_th)^{2^l}   (concatenated codes)
+p_L ≈ p_th · (p/p_th)^{2^l}       (concatenated codes)
 p_L ≈ A · (p/p_th)^{⌈d/2⌉}        (surface code, single level)
 ```
 
 Both expressions show exponential suppression below threshold. The key insight: when `p < p_th`,
-each additional level of concatenation (or larger `d`) squarely reduces the logical error rate.
+each additional level of concatenation *squares* the (sub-unity) ratio `p/p_th`, and each
+increase of the surface code distance by 2 multiplies the logical rate by another factor of
+`p/p_th`.
 
 ### Proof Sketch
 
@@ -116,27 +124,35 @@ independently to corresponding qubits of each code block. Transversal gates are 
 1-fault-tolerant: a fault on any one physical qubit affects at most one qubit in the output
 code block.
 
-For the surface code, transversal gates include:
-- **CNOT**: apply CNOT between corresponding qubits of two surface code blocks.
-- **H and S**: implemented transversally for specific code orientations (or via lattice surgery).
-- **Pauli corrections**: always transversal.
+For the surface code:
+- **CNOT**: transversal between corresponding qubits of two stacked code blocks (in planar
+  hardware it is instead usually performed by lattice surgery; see below).
+- **H**: transversal on the rotated surface code, up to a 90° relabeling of the lattice
+  (X- and Z-boundaries swap), which is tracked in software.
+- **S**: *not* transversal for the surface code; implemented via lattice surgery with twist
+  defects, or by consuming a `|S⟩ = S|+⟩` ancilla state.
+- **Pauli corrections**: always transversal (and usually tracked purely in software as a
+  Pauli frame).
 
 ### Non-Transversal Gates: The Problem
 
 The T gate `T = diag(1, e^{iπ/4})` is not transversal for any code (Eastin-Knill theorem). Yet
-T (combined with H, S, CNOT) is necessary and sufficient for universal quantum computation
-(the Solovay-Kitaev theorem guarantees efficient approximation of any unitary from this gate set).
+adding T to the Clifford gates H, S, CNOT suffices for universal quantum computation — any
+non-Clifford gate would do, but T is the conventional choice (the Solovay-Kitaev theorem
+guarantees efficient approximation of any unitary from this gate set).
 
 Implementing T fault-tolerantly requires one of:
 1. **Magic state injection + distillation** (most common approach)
-2. **Code switching** (switch to a code where T is transversal)
-3. **Flag fault tolerance** (recent, reduces overhead but complex)
+2. **Code switching** (switch to a code where T is transversal, e.g. the `[[15,1,3]]`
+   quantum Reed-Muller code or 3D color codes)
+3. **Distillation-free preparation schemes** (e.g. magic state cultivation; recent proposals
+   that grow a high-fidelity `|T⟩` state directly, reducing overhead)
 
 ### Magic State Distillation
 
 **The idea**: A noisy T gate can be "purified" using only Clifford operations (which are cheap
 to perform fault-tolerantly) by consuming multiple noisy copies of the **magic state**
-`|T⟩ = T|+⟩ = cos(π/8)|0⟩ + e^{iπ/4} sin(π/8)|1⟩` and distilling them into fewer, higher-quality
+`|T⟩ = T|+⟩ = (|0⟩ + e^{iπ/4}|1⟩)/√2` and distilling them into fewer, higher-quality
 copies. The distilled magic state is then consumed (via gate teleportation) to implement one
 high-fidelity T gate.
 
@@ -164,13 +180,16 @@ of physical qubits in large-scale fault-tolerant quantum computers.
 
 For a fault-tolerant quantum algorithm requiring `T` T-gates and logical error rate `ε_target`
 per T gate:
-1. Distillation depth: `l` rounds needed such that `35^{(4^l-1)/3} · ε_phys^{3^l} < ε_target`
+1. Distillation depth: `l` rounds needed such that `ε_l = 35^{(3^l-1)/2} · ε_raw^{3^l} <
+   ε_target` (the closed form of iterating `ε ← 35ε³`: check `l=1` gives `35ε³`, `l=2` gives
+   `35⁴ε⁹`, `l=3` gives `35¹³ε²⁷`)
 2. Physical qubits per factory: `~15^l × (qubits per logical qubit for the distillation code)`
 3. Total factory qubits: `(number of parallel factories) × (qubits per factory)`
 
 For breaking RSA-2048 (needs ~`2.4 × 10^{10}` T gates in optimized implementations):
-- With physical error rate `p = 10^{-3}`, two rounds of distillation (225-to-1) give
-  `ε_out ~ 10^{-10}` per T gate.
+- With raw injected magic states at error rate `ε_raw ~ 10^{-2}` (state injection is noisier
+  than a physical gate at `p = 10^{-3}`), two rounds of distillation (225-to-1) give
+  `ε_out = 35 × (35 × 10^{-6})³ ≈ 1.5 × 10^{-12}` per T gate.
 - Distillation factory: ~`1000` physical qubits per factory.
 - Algorithm requires ~`2000` logical qubits → at least `500` parallel factories → `5 × 10^5`
   physical qubits for factories alone.
@@ -221,8 +240,11 @@ measurements, from which gates are constructed.
 **Merge operation**: Two adjacent surface code patches with rough boundaries can be merged by
 activating the stabilizers at the junction. This performs a logical `Z_L⊗Z_L` measurement.
 
-**Split operation**: The reverse — splitting one patch into two — performs another `Z_L⊗Z_L`
-measurement.
+**Split operation**: The reverse — deactivating the junction stabilizers to split one patch
+into two — is not another `Z_L⊗Z_L` measurement but the inverse isometry: it maps one logical
+qubit onto two with correlated logical operators, `α|0⟩ + β|1⟩ → α|00⟩ + β|11⟩`, up to a
+random sign determined by the boundary stabilizer outcomes, which is tracked and corrected in
+software.
 
 Using the gate teleportation identity, arbitrary logical gates can be decomposed into Pauli
 measurements, which are then implemented via lattice surgery merge/split operations. Magic states
@@ -279,6 +301,74 @@ qubits in factories alone. This confirms that magic state factories dominate res
 - Total resource estimates for RSA-breaking: `10^6–10^7` physical qubits.
 - Alternative approaches (flag fault tolerance, code switching, lattice surgery) reduce overhead
   or enable new gate implementations.
+
+---
+
+## Exercises
+
+**Exercise 1.** Consider the parity-measurement circuit for `Z₁Z₂`: an ancilla `a` is prepared
+in `|0⟩`, made the target of `CNOT_{1→a}` and then `CNOT_{2→a}` (data qubits as controls), and
+finally measured in the Z basis. Classify the damage caused by each of these single faults:
+(a) `X_a` before the first CNOT, (b) `Z_a` before the first CNOT, (c) `Z_a` between the two
+CNOTs, (d) `X₁` on data qubit 1 before the circuit.
+
+<details><summary>Solution</summary>
+
+Use the propagation rules `X_c → X_c X_t` and `Z_t → Z_c Z_t`. (a) `X_a`: X on a *target*
+does not propagate to controls; it flips the ancilla measurement, producing one wrong syndrome
+bit and no data error. Harmless to data, dangerous only if the decoder trusts a single noisy
+measurement — hence syndromes are repeated. (b) `Z_a`: Z on the target back-propagates onto
+each subsequent control: after both CNOTs the fault is `Z₁Z₂Z_a` — a *two-qubit* data error
+from one fault. This is the propagation catastrophe the chapter describes. (c) `Z_a` between
+the CNOTs back-propagates only through the second CNOT: data error `Z₂` (weight 1, tolerable).
+(d) `X₁` propagates through `CNOT_{1→a}` to `X₁X_a`: one data error plus one flipped syndrome
+bit — exactly the syndrome bit that *should* flip, so the error is detected. Only case (b)
+violates the 1-fault-tolerance condition; fault-tolerant designs (Shor cat states, flags)
+exist precisely to catch it.
+
+</details>
+
+**Exercise 2.** Raw magic states are available at error rate `ε = 10^{-2}`. How many rounds of
+15-to-1 distillation are needed to reach `ε_target = 10^{-15}`, and how many raw states does
+one output state consume? Give the error rate after each round.
+
+<details><summary>Solution</summary>
+
+Round 1: `ε₁ = 35 × (10^{-2})³ = 3.5 × 10^{-5}`.
+Round 2: `ε₂ = 35 × (3.5 × 10^{-5})³ = 1.5 × 10^{-12}` — not yet at `10^{-15}`.
+Round 3: `ε₃ = 35 × (1.5 × 10^{-12})³ ≈ 1.2 × 10^{-34}` ✓ (vast overkill, but round 2 falls
+short). Three rounds are needed, consuming `15³ = 3375` raw magic states per output state.
+The huge jump from round 2 to round 3 is characteristic of cubic convergence: each round
+roughly cubes the error.
+
+</details>
+
+**Exercise 3.** Verify the closed form `ε_l = 35^{(3^l - 1)/2} · ε^{3^l}` by induction from the
+recursion `ε_{l+1} = 35 ε_l³`.
+
+<details><summary>Solution</summary>
+
+Base case `l = 0`: `35⁰ ε¹ = ε` ✓. Inductive step: assume `ε_l = 35^{(3^l-1)/2} ε^{3^l}`. Then
+`ε_{l+1} = 35 · (35^{(3^l-1)/2} ε^{3^l})³ = 35^{1 + 3(3^l-1)/2} · ε^{3^{l+1}}`. The exponent
+of 35 is `1 + (3^{l+1} - 3)/2 = (2 + 3^{l+1} - 3)/2 = (3^{l+1} - 1)/2` ✓. Spot check:
+`l = 2` gives `35^{(9-1)/2} = 35⁴` and `ε⁹`, matching the two-round expression `35(35ε³)³`.
+
+</details>
+
+**Exercise 4.** A concatenated code obeys `p_l = (1/C)(Cp)^{2^l}` with `C = 10⁴` (so
+`p_th = 10^{-4}`). For physical error rate `p = 5 × 10^{-5}`, how many levels of concatenation
+achieve `p_l < 10^{-15}`?
+
+<details><summary>Solution</summary>
+
+Here `Cp = 0.5`, so `p_l = 10^{-4} × (0.5)^{2^l}`. We need `(0.5)^{2^l} < 10^{-11}`, i.e.
+`2^l > 11/log₁₀ 2 ≈ 36.5`, so `2^l = 64`, `l = 6`. Check: `l = 5`: `10^{-4} × 0.5^{32} ≈ 2.3 ×
+10^{-14}` (not enough); `l = 6`: `10^{-4} × 0.5^{64} ≈ 5.4 × 10^{-24} < 10^{-15}` ✓. Six
+levels — and note how expensive operating close to threshold is (`p/p_th = 0.5`): each level
+multiplies the qubit count by the code size, so bringing `p` further below `p_th` first is
+usually far cheaper than adding levels.
+
+</details>
 
 ---
 

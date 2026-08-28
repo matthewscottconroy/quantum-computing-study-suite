@@ -11,14 +11,24 @@ Claude API for dynamic question generation and open-ended answer grading.
 
 | App | Description | API Key | Qiskit |
 |---|---|---|---|
-| [lesson-plans](lesson-plans/) | 10 structured markdown curricula | No | No |
-| [quantum-quiz](quantum-quiz/) | Dynamic Q&A across 10 QC subjects | Yes | Yes |
+| [lesson-plans](lesson-plans/) | 11 structured markdown curricula (incl. C1000-179 prep) | No | No |
+| [quantum-quiz](quantum-quiz/) | Dynamic Q&A across 11 QC subjects | Yes | Yes |
 | [math-quiz](math-quiz/) | Mathematical foundations for QC | Yes | No |
 | [circuit-trainer](circuit-trainer/) | Qiskit-generated circuit problems | Yes | Yes |
-| [flashcard-drill](flashcard-drill/) | SRS flashcards — 82 cards, no API | No | No |
+| [flashcard-drill](flashcard-drill/) | SRS flashcards — 550 cards, no API | No | No |
 | [paper-drill](paper-drill/) | Generate questions from any research paper | Yes | No |
-| [qec-trainer](qec-trainer/) | Quantum error correction problem set | Yes | No |
+| [qec-trainer](qec-trainer/) | QEC problem set + syndrome decoder game | Yes | No |
 | [vqa-trainer](vqa-trainer/) | Variational quantum algorithm problems | Yes | No |
+| [qiskit-dojo](qiskit-dojo/) | Write-and-run coding katas — 36, auto-graded by execution | Optional | Yes |
+| [exam-sim](exam-sim/) | Timed C1000-179 mock exams — 110-question bank | No | No |
+| [problem-trainer](problem-trainer/) | Textbook problem sets + guided derivations, AI-graded | Yes | No |
+
+Beyond the apps: [docs/](docs/) (52-file teaching corpus), [lesson-plans/](lesson-plans/)
+(12 curricula incl. certification prep and the reading ladder), [notebooks/](notebooks/)
+(executable companions + noise labs), [labs/](labs/) (IBM hardware track),
+[projects/](projects/) (5 capstones), [tools/](tools/) (docs regression checker), and two
+console utilities at the root: `python dashboard.py` (mastery report) and
+`python coach.py` (daily study prescription, diagnostic, badges, unified review queue).
 
 ---
 
@@ -27,6 +37,11 @@ Claude API for dynamic question generation and open-ended answer grading.
 ### Prerequisites
 
 Python 3.11+ is recommended. Each app has its own `requirements.txt`.
+
+**Recommended setup** — a project virtual environment at `.venv` covering every app:
+```bash
+python -m venv .venv && source .venv/bin/activate && pip install PyQt6 anthropic qiskit qiskit-aer matplotlib numpy pylatexenc
+```
 
 **Minimum (all apps without API features):**
 ```
@@ -41,7 +56,7 @@ pip install anthropic
 
 **For Qiskit apps** (quantum-quiz, circuit-trainer):
 ```
-pip install qiskit qiskit-aer pylatexenc pillow
+pip install qiskit qiskit-aer pylatexenc
 ```
 
 ### API Key Setup
@@ -76,12 +91,19 @@ Files are plain JSON and are never deleted automatically.
 | File | Written by |
 |---|---|
 | `flashcard_history.json` | flashcard-drill |
+| `flagged_cards.json` | flashcard-drill |
+| `qec_flagged.json` | qec-trainer |
+| `vqa_flagged.json` | vqa-trainer |
 | `paper_history.json` | paper-drill |
 | `qec_history.json` | qec-trainer |
 | `vqa_history.json` | vqa-trainer |
-| `quantum_quiz_history.json` | quantum-quiz |
-| `math_quiz_history.json` | math-quiz |
-| `circuit_trainer_history.json` | circuit-trainer |
+| `quiz_history.json` | quantum-quiz |
+| `math_history.json` | math-quiz |
+| `trainer_history.json` | circuit-trainer |
+| `dojo_history.json` | qiskit-dojo |
+| `exam_history.json`, `exam_missed.json` | exam-sim |
+| `problems_history.json` | problem-trainer |
+| `coach_state.json` | coach.py |
 
 ---
 
@@ -106,6 +128,14 @@ Files are plain JSON and are never deleted automatically.
          ├──► vqa-trainer       Variational algorithms focus (API)
          │
          └──► paper-drill       Test understanding of a specific paper (API)
+
+Production-skill track (alongside the above):
+   qiskit-dojo      Write real Qiskit code, graded by execution
+   problem-trainer  Long-form problems and guided derivations (API)
+   exam-sim         Timed mock exams for C1000-179 (offline)
+   notebooks/ labs/ projects/   Executable examples, hardware labs, capstones
+
+Daily driver:  python coach.py   — prescribes today's session from your history
 ```
 
 ---

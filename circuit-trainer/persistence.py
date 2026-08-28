@@ -15,11 +15,11 @@ _HISTORY_FILE = _DATA_DIR / "trainer_history.json"
 _HALF_LIFE_DAYS = 14.0
 
 
-def save_session(stats: SessionStats) -> None:
+def save_session(stats: SessionStats, sprint: bool = False) -> None:
     _DATA_DIR.mkdir(parents=True, exist_ok=True)
     history = _load_raw()
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    history.append({
+    session = {
         "date": str(datetime.date.today()),
         "timestamp": now_iso,
         "total": stats.total,
@@ -35,7 +35,12 @@ def save_session(stats: SessionStats) -> None:
             }
             for a in stats.attempts
         ],
-    })
+    }
+    if sprint:
+        # Extra tag for sprint sessions; readers (dashboard.py, history
+        # screen) access keys via .get() so unknown keys are tolerated.
+        session["sprint"] = True
+    history.append(session)
     _HISTORY_FILE.write_text(json.dumps(history, indent=2))
 
 

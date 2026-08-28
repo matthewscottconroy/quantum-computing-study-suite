@@ -124,7 +124,7 @@ those qubits.
 
 For a concrete preview: the 3-qubit repetition code encodes `|0_L⟩ = |000⟩` and
 `|1_L⟩ = |111⟩`. The codeword `α|000⟩ + β|111⟩` has been corrupted to, say,
-`α|010⟩ + β|101⟩` (qubit 2 flipped). The measurement `Z_1 Z_2` (product of the third Pauli Z on
+`α|010⟩ + β|101⟩` (qubit 2 flipped). The measurement `Z₁Z₂` (the product of Pauli `Z` acting on
 qubits 1 and 2) has eigenvalue `+1` on `|00⟩`, `|11⟩` and `-1` on `|01⟩`, `|10⟩`. Measuring
 this operator on the corrupted state gives:
 
@@ -183,8 +183,10 @@ between **physical qubits** and **logical qubits**.
 An `[[n, k, d]]` quantum error-correcting code uses `n` physical qubits to encode `k` logical
 qubits with distance `d`. For example, the surface code is a `[[d², 1, d]]` code: `d²` physical
 qubits, 1 logical qubit, distance `d`. To achieve a logical error rate of `10^{-12}` with a
-physical error rate of `0.1%`, one needs roughly `d = 17`, or about 289 physical qubits per
-logical qubit — and that is before accounting for the overhead of the measurement circuits.
+physical error rate of `0.1%` (using `p_L ≈ 0.1 (p/p_th)^{(d+1)/2}` with `p_th ≈ 1%`), one
+needs roughly `d = 21`, or about 441 physical data qubits per logical qubit — and that is
+before accounting for the ancilla qubits of the measurement circuits, which roughly double
+the count.
 
 This overhead is a central engineering challenge. Current estimates for running Shor's algorithm
 on RSA-2048 require on the order of `10^6` to `10^7` physical qubits, compared to the few
@@ -255,6 +257,69 @@ measurements yielded definite outcomes `(+1, -1)` without revealing anything abo
   the code size exponentially suppresses logical errors.
 - **Physical vs logical qubits**: QEC trades qubit overhead for reliability; current estimates
   require hundreds to thousands of physical qubits per logical qubit.
+
+---
+
+## Exercises
+
+**Exercise 1.** The no-cloning proof in this chapter used `|+⟩ = (|0⟩ + |1⟩)/√2`. Repeat the
+argument with `|-⟩ = (|0⟩ - |1⟩)/√2`: compute what linearity forces `U|-⟩|0⟩` to be, compute
+what perfect cloning would require, and show the two disagree.
+
+<details><summary>Solution</summary>
+
+Linearity forces `U|-⟩|0⟩ = (U|0⟩|0⟩ - U|1⟩|0⟩)/√2 = (|00⟩ - |11⟩)/√2`. Perfect cloning would
+require `|-⟩|-⟩ = (|00⟩ - |01⟩ - |10⟩ + |11⟩)/2`. The first state has no `|01⟩` or `|10⟩`
+component, while the second does, so they are different states. In fact their inner product is
+`(1/√2)(1/2) + (-1/√2)(1/2) = 0` — the linearity-forced output is orthogonal to the desired
+clone. No linear `U` can clone both the computational basis and `|-⟩`.
+
+
+
+</details>
+
+**Exercise 2.** A coherent error `E = cos θ · I + i sin θ · X` (a small unitary rotation) acts
+on qubit 2 of the encoded state `|ψ_L⟩ = α|000⟩ + β|111⟩`. The two syndrome operators `Z₁Z₂`
+and `Z₂Z₃` are then measured. What are the possible measurement outcomes, their probabilities,
+and the post-measurement states? Explain how this illustrates the discretization of errors.
+
+<details><summary>Solution</summary>
+
+The corrupted state is `E₂|ψ_L⟩ = cos θ |ψ_L⟩ + i sin θ (X₂|ψ_L⟩)`. The two branches are
+eigenstates of the syndrome operators with different eigenvalue patterns: `|ψ_L⟩` has syndrome
+`(+1, +1)` and `X₂|ψ_L⟩ = α|010⟩ + β|101⟩` has syndrome `(-1, -1)`. Measurement therefore
+returns `(+1, +1)` with probability `cos²θ`, collapsing the state to exactly `|ψ_L⟩` (no error —
+the measurement itself removed the error component), or `(-1, -1)` with probability `sin²θ`,
+collapsing to `X₂|ψ_L⟩`, which is restored by applying `X₂`. Either way the final state is
+`|ψ_L⟩`: the continuous rotation angle `θ` never needs to be known.
+
+</details>
+
+**Exercise 3.** In the 3-qubit bit-flip code, syndrome measurement on a corrupted state yields
+the state `(i|100⟩ + 2|011⟩)/√5`. Which syndrome pattern `(Z₁Z₂, Z₂Z₃)` was measured, which
+correction should be applied, and what is the corrected logical state?
+
+<details><summary>Solution</summary>
+
+Both `|100⟩` and `|011⟩` have qubits 1 and 2 disagreeing (`Z₁Z₂ → -1`) and qubits 2 and 3
+agreeing (`Z₂Z₃ → +1`). The syndrome is `(-1, +1)`, indicating a bit flip on qubit 1. Applying
+`X₁` gives `(i|000⟩ + 2|111⟩)/√5`, i.e. the logical state `(i|0_L⟩ + 2|1_L⟩)/√5`. The
+coefficients `i/√5` and `2/√5` survive untouched.
+
+</details>
+
+**Exercise 4.** Using the scaling law `p_L ≈ 0.1 · (p/p_th)^{(d+1)/2}` with `p_th = 1%`,
+find the smallest odd code distance `d` achieving `p_L < 10^{-10}` when the physical error rate
+is `p = 0.2%`.
+
+<details><summary>Solution</summary>
+
+Here `p/p_th = 0.2`. We need `0.1 · (0.2)^{(d+1)/2} < 10^{-10}`, i.e. `(0.2)^{(d+1)/2} < 10^{-9}`.
+Taking logs: `(d+1)/2 > 9 / log₁₀(5) ≈ 9 / 0.699 ≈ 12.9`, so `(d+1)/2 = 13`, giving `d = 25`.
+Check: `d = 25` gives `0.1 · (0.2)^{13} ≈ 8.2 × 10^{-11} < 10^{-10}` ✓, while `d = 23` gives
+`0.1 · (0.2)^{12} ≈ 4.1 × 10^{-10}`, which is not small enough.
+
+</details>
 
 ---
 

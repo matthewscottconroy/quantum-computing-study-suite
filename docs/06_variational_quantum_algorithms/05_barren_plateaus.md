@@ -220,15 +220,18 @@ Draw 1000 random `(V, W, θ)` samples. Compute `∂C/∂θ` via parameter shift 
 
 Results:
 - Mean: `-0.0023` (approximately 0, as expected)
-- Standard deviation: `0.088` → variance `≈ 0.0077` ✓ (matches bound)
+- Standard deviation: `0.088` → variance `≈ 0.0077`, consistent with (and here close to
+  saturating) the bound `0.0078`
 
 For `n = 10`:
-- Theoretical bound: `2/4^{10} = 2/10^6 ≈ 2×10^{-6}`
-- Standard deviation: `~1.4×10^{-3}`
-- To achieve SNR=1: `S ≥ 1/Var = 5×10^5` shots per gradient component.
-- For 100 parameters: `10^8` shots per gradient step.
+- Theoretical bound: `Var ≤ 2/4^{10} ≈ 1.9×10^{-6}`
+- Gradient standard deviation: `~1.4×10^{-3}`
+- To achieve SNR = 1: `S ≥ 1/Var ≈ 5×10^5` shots per gradient component.
+- For 100 parameters (2 shifted circuits each): `~10^8` shots per gradient step.
 
-For `n = 20`: `10^{17}` shots needed. Infeasible with any realistic hardware.
+For `n = 20`: `Var ≤ 2/4^{20} ≈ 1.8×10^{-12}`, so `S ~ 5×10^{11}` shots *per gradient
+component*, or `~10^{14}` per step for 100 parameters — years of wall-clock time at
+`10^5` shots/second, growing by `4×` with every added qubit.
 
 This calculation shows concretely why barren plateaus make large-scale VQE intractable without
 structured ansätze.
@@ -248,6 +251,66 @@ structured ansätze.
   symmetry-preserving structured ansätze.
 - The barren plateau problem reveals a fundamental expressibility-trainability tension; no
   universal fix exists without exploiting problem structure.
+
+---
+
+## Exercises
+
+**1.** Compute the barren plateau variance bound `2/4ⁿ`, the corresponding gradient standard
+deviation, and the SNR = 1 shot requirement `S ≈ 1/Var` for `n = 6`, `12`, and `24` qubits.
+
+<details><summary>Solution</summary>
+
+| `n` | `Var ≤ 2/4ⁿ` | std `≈ √Var` | `S ≈ 1/Var` |
+|-----|--------------|---------------|--------------|
+| 6 | `4.9×10⁻⁴` | `0.022` | `2×10³` |
+| 12 | `1.2×10⁻⁷` | `3.5×10⁻⁴` | `8.4×10⁶` |
+| 24 | `7.1×10⁻¹⁵` | `8.4×10⁻⁸` | `1.4×10¹⁴` |
+
+Every 6 additional qubits multiplies the shot cost by `4⁶ = 4096`. At `n = 24`, a single
+gradient component already exceeds any realistic shot budget.
+
+</details>
+
+**2.** A circuit has depolarizing probability `p = 5×10⁻³` per gate layer and depth `D = 200`.
+Using the noise-induced bound `|C(θ) - C_mix| ≤ (1-p)^D ‖O‖` with `‖O‖ = 1`, what fraction of
+the cost signal survives? At what depth does the surviving signal drop below `1%`?
+
+<details><summary>Solution</summary>
+
+`(0.995)^{200} = e^{200 ln(0.995)} ≈ 0.367` — about 37% of the signal remains (63% lost).
+For 1%: `D = ln(0.01)/ln(0.995) ≈ 919` layers. Beyond `~900` layers of this hardware, the
+cost landscape is flattened to `1%` of its noiseless contrast regardless of ansatz choice —
+a hard depth ceiling set by physics, not by optimization.
+
+</details>
+
+**3.** Compare an unstructured deep ansatz with `Var[∂C/∂θ] = 2/4ⁿ` against a structured
+ansatz with `Var[∂C/∂θ] = 1/n³` at `n = 10`. How many shots does SNR = 1 require in each case?
+
+<details><summary>Solution</summary>
+
+Unstructured: `Var = 2/4^{10} ≈ 1.9×10⁻⁶ → S ≈ 5.2×10⁵` shots.
+Structured: `Var = 10⁻³ → S ≈ 10³` shots. The structured ansatz is ~500× cheaper at
+`n = 10`; at `n = 20` the factor becomes `≈7×10⁷`. Polynomial vs. exponential variance
+scaling — not the constant — is what decides trainability.
+
+</details>
+
+**4.** Explain why re-parameterizing the circuit (e.g., substituting `θ = g(φ)` for a smooth
+invertible `g`) cannot cure a barren plateau.
+
+<details><summary>Solution</summary>
+
+The chain rule gives `∂C/∂φ = (∂C/∂θ)·g'(φ)`. A well-conditioned reparameterization has
+bounded `g'`, so exponentially small `∂C/∂θ` stays exponentially small (choosing `g'` to be
+exponentially large just amplifies shot noise by the same factor, leaving the SNR unchanged).
+More fundamentally, the plateau is a property of the *distribution of states* `{|ψ(θ)⟩}`:
+the cost function values concentrate exponentially close to `Tr[O]/2ⁿ` over the ansatz
+family, so the landscape carries exponentially little information about the minimum no matter
+which coordinates are used to chart it.
+
+</details>
 
 ---
 

@@ -185,8 +185,10 @@ RB is used for routine device characterization; GST is used when detailed error 
 **Interpretation**: `QV = 2^n` means the device can execute a circuit of `n` qubits × `n` depth
 with enough fidelity that it produces the correct output distribution (above 2/3 heavy threshold).
 
-**Records** (approximate, as of 2025): IBM: QV = 128; IonQ: QV = 4,194,304 (but using a
-different compilation method); Quantinuum: QV > 1 million (with all-to-all connectivity advantage).
+**Records** (approximate): IBM reported QV = 256-512 on its best systems (2022-23); Quantinuum
+has demonstrated QV of `2²⁰` (~10⁶) and beyond, aided by its all-to-all connectivity; IonQ has
+quoted `QV ≈ 4.2 million` as a *projected* figure derived from component fidelities rather than
+a full measured QV protocol.
 
 **Limitations**:
 - QV scales as `2^n` → large QV numbers can be misleading; `QV = 1024` (n=10) vs. `QV = 2048`
@@ -269,18 +271,23 @@ Mirror circuits are:
 
 **Data** (illustrative):
 ```
-m=1:   P(0) = 0.990 ± 0.003
-m=10:  P(0) = 0.931 ± 0.004
-m=20:  P(0) = 0.876 ± 0.005
-m=50:  P(0) = 0.740 ± 0.007
-m=100: P(0) = 0.580 ± 0.008
-m=200: P(0) = 0.366 ± 0.009
+m=1:   P(0) = 0.977 ± 0.003
+m=10:  P(0) = 0.950 ± 0.004
+m=20:  P(0) = 0.922 ± 0.005
+m=50:  P(0) = 0.848 ± 0.006
+m=100: P(0) = 0.753 ± 0.007
+m=200: P(0) = 0.633 ± 0.008
 ```
 
 **Fitting** `P(m) = A p^m + B`:
 
 Using least-squares fit (or maximum likelihood):
-- `A = 0.960`, `p = 0.9936`, `B = 0.020`
+- `A = 0.480`, `p = 0.9936`, `B = 0.500`
+
+(Consistency check: `A p²⁰ + B = 0.48 × 0.880 + 0.50 = 0.922` ✓;
+`A p²⁰⁰ + B = 0.48 × 0.277 + 0.50 = 0.633` ✓. Note the decay asymptotes to `B ≈ 1/2`: a long
+random single-qubit Clifford sequence fully depolarizes the qubit, and an unbiased measurement
+then returns `|0⟩` half the time.)
 
 **Gate error rate**:
 ```
@@ -290,9 +297,10 @@ r = (1 - p)/2 = (1 - 0.9936)/2 = 0.0032 = 0.32%
 This is the average error per Clifford gate. Each Clifford compiles to approximately 1.875
 native gates (Rx, Ry), so the native gate error is approximately `r_native ≈ 0.32%/1.875 = 0.17%`.
 
-**SPAM assessment**: `A = 0.960` means SPAM efficiency `= 0.960` (4% SPAM error total);
-`B = 0.020` means 2% residual state preparation error. These are absorbed into `A, B` and do
-not affect the extracted `p`. ✓
+**SPAM assessment**: for an ideal experiment `A = 1/2` and `B = 1/2`; here `A = 0.480`, and
+`A + B = 0.980` at `m → 0`, indicating `~2%` combined preparation and readout error. These
+imperfections are absorbed into `A` and `B` and do not affect the extracted `p` — the reason
+RB is preferred over directly comparing state fidelities. ✓
 
 **Interleaved RB** for Z gate (nominally error-free as a virtual Z gate):
 If `p_int/p_ref = 1.000`, then `r_Z = 0` — consistent with virtual Z gates having no hardware
@@ -316,6 +324,69 @@ For CX gate (two-qubit): typical result on IBM hardware is `r_CX ≈ 0.5%`.
   fidelity and connectivity.
 - **CLOPS** measures throughput; **mirror circuits** provide scalable fidelity assessment
   without classical simulation.
+
+---
+
+## Exercises
+
+**1.** In a single-qubit RB experiment you measure `P(0|m=20) = 0.922` and
+`P(0|m=100) = 0.753`, and you know the asymptote is `B = 0.500`. Extract `p` and the average
+Clifford error rate `r`.
+
+<details><summary>Solution</summary>
+
+`(P(20) - B)/(P(100) - B) = A p²⁰/(A p¹⁰⁰) = p⁻⁸⁰`, so
+`p = [(0.922 - 0.5)/(0.753 - 0.5)]^{-1/80} = (0.422/0.253)^{-1/80} = 0.99363`.
+`r = (1 - p)/2 = 0.0032 = 0.32%` per Clifford — matching the worked example's full fit. Two
+well-separated sequence lengths plus the known asymptote already pin down the decay; the full
+fit mainly adds robustness against SPAM drift and statistical noise.
+
+</details>
+
+**2.** An interleaved RB experiment on the same qubit yields reference decay `p_ref = 0.9936`
+and interleaved decay `p_int = 0.9887` for a target gate `G`. Estimate the error of `G`.
+
+<details><summary>Solution</summary>
+
+`r_G = (1 - p_int/p_ref)(2¹ - 1)/2¹ = (1 - 0.99507)/2 ≈ 2.5 × 10⁻³`.
+The gate adds about 0.25% error on top of the average Clifford noise floor. Caveat: when the
+interleaved gate's errors are coherent rather than depolarizing, the true `r_G` can lie
+outside the naive estimate by a bound proportional to `(1 - p_ref)` — interleaved RB gives an
+estimate with systematic uncertainty, not an exact number.
+
+</details>
+
+**3.** A device passes the quantum volume protocol (heavy output probability `> 2/3` with
+confidence) at widths `n = 5, 6, 7` but measures `h = 0.61` at `n = 8`. What is its quantum
+volume? A competitor quotes `QV = 512`; how many more "square-circuit qubits" does that
+correspond to?
+
+<details><summary>Solution</summary>
+
+The largest passing width is `n = 7`, so `QV = 2⁷ = 128`. The competitor's `QV = 512 = 2⁹`
+corresponds to `9` vs `7` — only two additional usable-square-circuit qubits despite the 4×
+larger headline number. This is the intended reading of QV's exponential scale: compare
+`log₂ QV`, not QV itself.
+
+</details>
+
+**4.** For a qubit you measure `T₁ = 25 μs`, a Ramsey decay `T₂* = 18 μs`, and a Hahn-echo
+decay `T₂ = 36 μs`. (a) Verify these are mutually consistent. (b) What does the gap between
+`T₂*` and `T₂` tell you about the noise spectrum? (c) What is the theoretical ceiling on `T₂`
+for this qubit?
+
+<details><summary>Solution</summary>
+
+(a) Required orderings: `T₂* ≤ T₂ ≤ 2T₁`, i.e., `18 ≤ 36 ≤ 50 μs`. ✓ Consistent.
+(b) The echo doubles the coherence time (`36` vs `18 μs`), so a large share of the dephasing
+comes from noise that is quasi-static over tens of microseconds (slow drift of qubit
+frequency: low-frequency flux/charge noise, `1/f`-type spectra) — exactly the component a
+single refocusing pulse cancels. CPMG with more pulses would probe (and suppress) noise at
+higher frequencies.
+(c) `T₂ ≤ 2T₁ = 50 μs`; reaching it would require removing essentially all pure dephasing,
+leaving only the relaxation-limited coherence.
+
+</details>
 
 ---
 

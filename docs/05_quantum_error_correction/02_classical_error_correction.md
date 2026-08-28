@@ -149,8 +149,9 @@ G = | 1 0 0 0 | 0 1 1 |
 ### Properties
 
 - **Minimum distance**: `d = 3` (can correct 1 error, detect 2 errors).
-- **Perfect code**: the 8 Hamming balls of radius 1 around the 16 codewords (`2^4 = 16`)
-  exactly partition all `2^7 = 128` binary strings of length 7. `16 × 8 = 128`. ✓
+- **Perfect code**: the Hamming balls of radius 1 around the 16 codewords (`2^4 = 16`), each
+  containing `1 + 7 = 8` strings, exactly partition all `2^7 = 128` binary strings of length 7:
+  `16 × 8 = 128`. ✓
 - **Rate**: `k/n = 4/7 ≈ 0.571`.
 
 ### Syndrome Decoding Worked Out
@@ -195,14 +196,17 @@ G Gᵀ = 0  (over GF(2))
 
 A code is **self-dual** if `C = C⊥`, which requires `n = 2k`.
 
-The [7,4,3] Hamming code is **NOT** self-orthogonal (`C ⊄ C⊥` since `4 > 7/2`). However, its
-dual `C⊥` is the `[7,3,4]` simplex code, and there exists a subcode relationship that enables
-the Steane construction.
+The [7,4,3] Hamming code `C` is **not** self-orthogonal: `C ⊆ C⊥` is impossible on dimension
+grounds alone, since `dim C = 4 > 3 = dim C⊥`. What *is* true — and what enables the Steane
+construction — is the reverse inclusion: `C⊥ ⊆ C`. The dual `C⊥` is the `[7,3,4]` simplex
+code, and every row of `H` (a generator of `C⊥`) is itself a Hamming codeword, which one checks
+via `H Hᵀ = 0` over GF(2). A code containing its dual is called **dual-containing**;
+equivalently, its dual `C⊥` is self-orthogonal (`C⊥ ⊆ (C⊥)⊥ = C`).
 
 For the CSS quantum code construction, one needs two codes `C₁` and `C₂` with `C₂ ⊆ C₁`.
-The Steane code uses the clever fact that the [7,4,3] Hamming code is self-orthogonal *in a
-modified sense*: `C ⊆ C⊥` fails, but `C₂ = C⊥ ⊆ C = C₁` works if we take `C₁ = [7,4,3]`
-and `C₂ = [7,3,4]`. See Chapter 05/05 for the full construction.
+The Steane code takes `C₁ = C = [7,4,3]` and `C₂ = C⊥ = [7,3,4]`; the dual-containing
+property `C⊥ ⊆ C` is exactly the required inclusion. See Chapter 05/05 for the full
+construction.
 
 ---
 
@@ -299,12 +303,95 @@ Decode `c` to message: first 4 bits in systematic form: `m = (1,1,0,1)`. ✓ (Al
 - The parity-check matrix `H` generates syndromes that depend only on the error, not the data.
 - The [7,4,3] Hamming code corrects all single-bit errors with an elegant syndrome → error
   position mapping.
-- The dual code `C⊥` and self-orthogonality (`C ⊆ C⊥`) are prerequisites for the CSS quantum
-  code construction.
+- The dual code `C⊥` and the dual-containing property (`C⊥ ⊆ C`) are prerequisites for the CSS
+  quantum code construction.
 - Shannon's capacity theorem gives the fundamental information-theoretic limits; quantum
   analogues (channel capacity, hashing bound) are studied in Chapter 8.
 - The syndrome paradigm — measure correlations, not data — is the classical prototype for
   quantum stabilizer syndrome measurement.
+
+---
+
+## Exercises
+
+**Exercise 1.** Encode the message `m = (0,1,1,0)` with the generator matrix `G` given in this
+chapter. The channel flips bit 7 of the transmitted codeword. Compute the received word, the
+syndrome, and verify that syndrome decoding recovers the transmitted codeword.
+
+<details><summary>Solution</summary>
+
+`c = m G` = row 2 + row 3 of `G` = `(0,1,0,0,1,0,1) ⊕ (0,0,1,0,1,1,0) = (0,1,1,0,0,1,1)`.
+Flipping bit 7 gives `y = (0,1,1,0,0,1,0)`. Syndrome:
+`s₁ = y₄+y₅+y₆+y₇ = 0+0+1+0 = 1`, `s₂ = y₂+y₃+y₆+y₇ = 1+1+1+0 = 1`,
+`s₃ = y₁+y₃+y₅+y₇ = 0+1+0+0 = 1`. So `s = (1,1,1)`, binary `111 = 7`: bit 7 is flagged.
+Flipping bit 7 of `y` returns `(0,1,1,0,0,1,1) = c`. ✓
+
+</details>
+
+**Exercise 2.** A code can *simultaneously* correct up to `t` errors and detect up to `s ≥ t`
+errors if and only if `d ≥ t + s + 1`. Prove the "if" direction, and use it to show that a
+distance-4 code can correct any single error while also detecting any double error.
+
+<details><summary>Solution</summary>
+
+Decode as follows: if the received word `y` lies within distance `t` of some codeword, correct
+to it; otherwise declare "error detected." Suppose `c` was sent and at most `s` errors occurred.
+If at most `t` errors occurred, `y` is within `t` of `c`; `y` cannot also be within `t` of
+another codeword `c'`, since then `d(c, c') ≤ t + t ≤ t + s < d`. So correction is right.
+If between `t+1` and `s` errors occurred, `y` cannot be within `t` of any codeword `c'≠ c`
+(that would need `d(c,c') ≤ s + t < d`), so the decoder correctly reports detection rather than
+miscorrecting. For `d = 4`: choosing `t = 1, s = 2` satisfies `4 ≥ 1 + 2 + 1`, so single-error
+correction plus double-error detection is achievable — the extended Hamming code `[8,4,4]` is
+used exactly this way.
+
+</details>
+
+**Exercise 3.** Show by direct computation that every non-zero codeword of the `[7,3,4]`
+simplex code `C⊥` (the dual of the `[7,4,3]` Hamming code) has weight exactly 4. Use the rows
+of `H` as the generator.
+
+<details><summary>Solution</summary>
+
+The 7 non-zero codewords are the non-empty GF(2) combinations of
+`r₁ = 0001111`, `r₂ = 0110011`, `r₃ = 1010101`:
+
+```
+r₁ = 0001111 (wt 4)      r₁⊕r₂ = 0111100 (wt 4)
+r₂ = 0110011 (wt 4)      r₁⊕r₃ = 1011010 (wt 4)
+r₃ = 1010101 (wt 4)      r₂⊕r₃ = 1100110 (wt 4)
+                          r₁⊕r₂⊕r₃ = 1101001 (wt 4)
+```
+
+All 7 have weight 4, so `C⊥` is a constant-weight (simplex) code with `d⊥ = 4`. This also
+confirms `C⊥` is self-orthogonal: any two weight-4 codewords here overlap in an even number
+of positions.
+
+</details>
+
+**Exercise 4.** Use the Hamming bound (sphere-packing bound) `2^k · Σ_{i=0}^{t} C(n,i) ≤ 2^n`
+to prove that no binary `[10, 7, 3]` code exists. Would a `[10, 6, 3]` code violate the bound?
+
+<details><summary>Solution</summary>
+
+For `d = 3` (so `t = 1`), a `[10,7]` code would need `2^7 · (1 + 10) = 128 × 11 = 1408 ≤ 2^{10}
+= 1024`. This fails, so no `[10,7,3]` code exists. For `[10,6,3]`: `2^6 × 11 = 704 ≤ 1024`
+holds, so the bound does not rule it out (and indeed `[10,6,3]` codes exist, e.g. a shortened
+Hamming code).
+
+</details>
+
+**Exercise 5.** Compute the BSC capacity at flip probability `p = 0.11` and comment on the
+result.
+
+<details><summary>Solution</summary>
+
+`H₂(0.11) = -0.11 log₂ 0.11 - 0.89 log₂ 0.89 ≈ 0.11 × 3.184 + 0.89 × 0.168 ≈ 0.350 + 0.150 =
+0.500`. So `C = 1 - H₂(0.11) ≈ 0.500`: at an 11% flip rate, at most about half a bit of
+information can be conveyed per channel use. (Coincidentally, `p ≈ 11%` is also close to the
+optimal-decoder code-capacity threshold of the surface code under independent bit-flip noise —
+a manifestation of the same information-theoretic limit.)
+
+</details>
 
 ---
 

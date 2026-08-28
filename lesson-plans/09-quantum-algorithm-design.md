@@ -88,7 +88,7 @@ Generalization of Grover's search. Given oracle O_f that marks good states, ampl
 ### Shor's Algorithm
 
 **Problem:** Factor N into prime factors
-**Classical best:** Sub-exponential GNFS: O(e^(∛(ln N)))
+**Classical best:** Sub-exponential GNFS: exp((64/9)^(1/3) (ln N)^(1/3) (ln ln N)^(2/3)) — in L-notation, L_N[1/3, (64/9)^(1/3)]
 **Quantum:** O((log N)³) — exponential speedup
 
 **Structure:**
@@ -193,8 +193,8 @@ Generalization of Grover's search. Given oracle O_f that marks good states, ampl
 |---|---|---|---|
 | Unstructured search | O(N) | O(√N) | Yes (BBBV lower bound) |
 | OR function | Θ(N) | Θ(√N) | Yes |
-| Collision finding | Θ(N^(2/3)) classical randomized | Θ(N^(1/3)) | Yes |
-| Element distinctness | Θ(N^(2/3)) | Θ(N^(2/3)) | Yes (quantum walk) |
+| Collision finding | Θ(√N) randomized (birthday bound) | Θ(N^(1/3)) | Yes |
+| Element distinctness | Θ(N) | Θ(N^(2/3)) | Yes (Ambainis quantum walk) |
 | Graph connectivity | O(N²) | O(N^(3/2)) | Open |
 
 **Exercises:**

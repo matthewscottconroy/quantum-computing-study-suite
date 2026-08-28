@@ -219,6 +219,72 @@ These are orthogonal projectors (`P₊P₋ = 0`), confirming `|+⟩` and `|−�
 - **Relative phase** between components of a superposition is physically real and drives interference
 - The true state space is the **projective Hilbert space** P(ℋ) — equivalence classes of unit vectors under global phase
 
+## Exercises
+
+**Exercise 1**: Write `z₁ = 1 + i` and `z₂ = √3 + i` in polar form, compute the product `z₁z₂` both in Cartesian and polar form, and verify that the arguments add.
+
+<details><summary>Solution</summary>
+
+Polar forms: `|z₁| = √2`, `arg(z₁) = π/4`, so `z₁ = √2 e^{iπ/4}`. `|z₂| = √(3+1) = 2`, `arg(z₂) = arctan(1/√3) = π/6`, so `z₂ = 2e^{iπ/6}`.
+
+Cartesian product: `(1+i)(√3+i) = √3 + i + i√3 + i² = (√3 - 1) + (√3 + 1)i`.
+
+Polar product: `z₁z₂ = 2√2 e^{i(π/4 + π/6)} = 2√2 e^{i5π/12}`.
+
+Consistency check: `|(√3-1) + (√3+1)i|² = (4 - 2√3) + (4 + 2√3) = 8`, so the modulus is `2√2` ✓, and `arg = arctan((√3+1)/(√3-1)) = 75° = 5π/12` ✓. The arguments `π/4 + π/6 = 5π/12` added as claimed.
+
+</details>
+
+**Exercise 2**: Show that `|ψ⟩ = (3|0⟩ + 4i|1⟩)/5` is a unit vector, compute the projector `P = |ψ⟩⟨ψ|`, and verify `P² = P` and `P† = P`.
+
+<details><summary>Solution</summary>
+
+Norm: `⟨ψ|ψ⟩ = (9 + |4i|²)/25 = (9+16)/25 = 1` ✓.
+
+Projector:
+
+`P = |ψ⟩⟨ψ| = (1/25)[[3],[4i]]·[3, -4i] = (1/25)[[9, -12i],[12i, 16]]`
+
+Hermiticity: the diagonal is real and the off-diagonal entries `(-12i)* = 12i` are conjugates of each other, so `P† = P` ✓.
+
+Idempotency: `P² = (1/625)[[81 + 144, -108i - 192i],[108i + 192i, 144 + 256]] = (1/625)[[225, -300i],[300i, 400]] = (1/25)[[9, -12i],[12i, 16]] = P` ✓.
+
+</details>
+
+**Exercise 3**: Apply the Gram-Schmidt process to the vectors `|v₁⟩ = (1, 1)` and `|v₂⟩ = (1, i)` in `ℂ²` to produce an orthonormal basis.
+
+<details><summary>Solution</summary>
+
+Step 1: `‖|v₁⟩‖ = √2`, so `|e₁⟩ = (1, 1)/√2`.
+
+Step 2: `⟨e₁|v₂⟩ = (1/√2)(1·1 + 1·i) = (1+i)/√2`. Subtract the component along `|e₁⟩`:
+
+`|u₂⟩ = (1, i) - ((1+i)/√2)·(1,1)/√2 = (1, i) - ((1+i)/2, (1+i)/2) = ((1-i)/2, (-1+i)/2)`
+
+Normalize: `‖|u₂⟩‖² = |1-i|²/4 + |-1+i|²/4 = 2/4 + 2/4 = 1`, so `|u₂⟩` is already normalized:
+
+`|e₂⟩ = ((1-i)/2, -(1-i)/2) = ((1-i)/2)·(1, -1)`
+
+Check orthogonality: `⟨e₁|e₂⟩ = (1/√2)·((1-i)/2)·(1 - 1) = 0` ✓. Up to the (irrelevant) phase `(1-i)/√2`, this is the basis `{(1,1)/√2, (1,-1)/√2}` — i.e. `{|+⟩, |−⟩}`.
+
+</details>
+
+**Exercise 4**: Consider `|ψ₁⟩ = (|0⟩ + |1⟩)/√2` and `|ψ₂⟩ = (|0⟩ + e^{iπ/3}|1⟩)/√2`. Show that both states give identical computational-basis (Z) measurement statistics, but different expectation values `⟨X⟩` — demonstrating that relative phase is observable. Then show that `e^{iθ}|ψ₂⟩` has the same `⟨X⟩` as `|ψ₂⟩` for any global phase `θ`.
+
+<details><summary>Solution</summary>
+
+Z statistics: both states have `|α|² = |β|² = 1/2`, so both give outcomes 0 and 1 with probability 1/2 — identical.
+
+X expectation. For `|ψ⟩ = (|0⟩ + e^{iφ}|1⟩)/√2`, using `X|0⟩ = |1⟩` and `X|1⟩ = |0⟩`:
+
+`⟨X⟩ = ½(⟨0| + e^{-iφ}⟨1|)(e^{iφ}|0⟩ + |1⟩) = ½(e^{iφ} + e^{-iφ}) = cos φ`
+
+So `⟨X⟩ = cos 0 = 1` for `|ψ₁⟩` and `⟨X⟩ = cos(π/3) = 1/2` for `|ψ₂⟩`. The relative phase `π/3` is physically observable in the X basis.
+
+Global phase: `⟨e^{iθ}ψ₂|X|e^{iθ}ψ₂⟩ = e^{-iθ}e^{iθ}⟨ψ₂|X|ψ₂⟩ = ⟨ψ₂|X|ψ₂⟩ = 1/2` — unchanged, as it must be for every observable.
+
+</details>
+
 ## Further Reading
 
 1. **Nielsen & Chuang**, *Quantum Computation and Quantum Information*, §2.1.7–2.1.8 — inner products, Hilbert spaces, and the physicists' conventions

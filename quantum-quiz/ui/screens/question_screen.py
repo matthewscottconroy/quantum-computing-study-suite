@@ -11,7 +11,7 @@ from PyQt6.QtGui import QKeyEvent
 from core.models import Question
 from qiskit_contexts import QiskitContext
 from ui import theme
-from ui.widgets.pill_badge import make_subject_pill, make_difficulty_pill
+from ui.widgets.pill_badge import PillBadge, make_subject_pill, make_difficulty_pill
 from ui.widgets.circuit_viewer import CircuitViewer
 
 
@@ -50,6 +50,9 @@ class QuestionScreen(QWidget):
 
         self._subject_pill = make_subject_pill("", self)
         self._difficulty_pill = make_difficulty_pill("", self)
+        self._followup_pill = PillBadge("FOLLOW-UP", theme.WARNING, self)
+        self._followup_pill.setToolTip("Viva probe generated from your previous answer")
+        self._followup_pill.hide()
         self._type_label = QLabel("")
         self._type_label.setObjectName("muted")
         self._progress_label = QLabel("")
@@ -60,6 +63,7 @@ class QuestionScreen(QWidget):
 
         bar_layout.addWidget(self._subject_pill)
         bar_layout.addWidget(self._difficulty_pill)
+        bar_layout.addWidget(self._followup_pill)
         bar_layout.addWidget(self._type_label)
         bar_layout.addStretch()
         bar_layout.addWidget(self._elapsed_label)
@@ -157,6 +161,7 @@ class QuestionScreen(QWidget):
         context: QiskitContext,
         number: int,
         total: int,
+        is_followup: bool = False,
     ) -> None:
         self._question = question
         self._hints = question.hints
@@ -182,7 +187,11 @@ class QuestionScreen(QWidget):
             theme.DIFFICULTY_COLORS.get(question.difficulty, theme.ACCENT),
         )
         self._type_label.setText(question.question_type)
-        self._progress_label.setText(f"Question {number} of {total}")
+        self._followup_pill.setVisible(is_followup)
+        if is_followup:
+            self._progress_label.setText(f"Follow-up to question {number} of {total}")
+        else:
+            self._progress_label.setText(f"Question {number} of {total}")
         self._topic_label.setText(f"Topic: {question.topic}")
 
         self._question_browser.setPlainText(question.text)

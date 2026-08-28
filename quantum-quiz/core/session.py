@@ -13,6 +13,11 @@ class QuizSession:
         self.stats = SessionStats()
         self._previous_texts: list[str] = []
 
+        # Viva follow-ups are EXTRA questions beyond the configured count;
+        # they are recorded in history like any other answer but excluded
+        # from progress/completion accounting.
+        self.followups_answered: int = 0
+
         # Shuffle-then-cycle ensures every question type appears once per cycle
         # before any type repeats — prevents e.g. 4 circuit designs in a row.
         self._type_cycle: list[str] = []
@@ -91,8 +96,11 @@ class QuizSession:
         answer: str,
         evaluation: Evaluation,
         elapsed_seconds: int = 0,
+        is_followup: bool = False,
     ) -> None:
         self.stats.answered += 1
+        if is_followup:
+            self.followups_answered += 1
         qid = f"{question.subject}::{question.topic}"
         self.stats.history.append(
             QuestionRecord(
@@ -109,12 +117,15 @@ class QuizSession:
 
     # ── Progress ──────────────────────────────────────────────────────────────
 
+    def _base_attempted(self) -> int:
+        """Attempted questions excluding viva follow-ups (which are extras)."""
+        return (self.stats.answered - self.followups_answered) + self.stats.skipped
+
     def is_complete(self) -> bool:
-        return (self.stats.answered + self.stats.skipped) >= self.config.question_count
+        return self._base_attempted() >= self.config.question_count
 
     def questions_remaining(self) -> int:
-        attempted = self.stats.answered + self.stats.skipped
-        return max(0, self.config.question_count - attempted)
+        return max(0, self.config.question_count - self._base_attempted())
 
     def question_number(self) -> int:
-        return self.stats.answered + self.stats.skipped + 1
+        return self._base_attempted() + 1

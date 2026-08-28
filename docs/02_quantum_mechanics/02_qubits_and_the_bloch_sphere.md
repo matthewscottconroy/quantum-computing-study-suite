@@ -115,10 +115,10 @@ where `r' = R_{3D}(n̂,θ)r` is the classical 3D rotation of `r` by angle `θ` a
 
 ### Standard Single-Qubit Gates as Rotations
 
-**Pauli gates** (π rotations):
-- `X = -iR_x(π)`: rotates Bloch vector by `π` around x-axis. Sends `|0⟩ ↔ |1⟩`, `|+⟩ → |+⟩`, `|−⟩ → −|−⟩`.
-- `Y = -iR_y(π)`: rotates by `π` around y-axis. Sends `|0⟩ → i|1⟩, |1⟩ → -i|0⟩`.
-- `Z = -iR_z(π)`: rotates by `π` around z-axis. Sends `|+⟩ ↔ |−⟩`, `|0⟩ → |0⟩`, `|1⟩ → -|1⟩`.
+**Pauli gates** (π rotations). The rotation formula gives `R_x(π) = cos(π/2)I - i sin(π/2)X = -iX`, so the Pauli gates equal π-rotations up to a global phase of `i`:
+- `X = iR_x(π)`: rotates Bloch vector by `π` around x-axis. Sends `|0⟩ ↔ |1⟩`, `|+⟩ → |+⟩`, `|−⟩ → −|−⟩`.
+- `Y = iR_y(π)`: rotates by `π` around y-axis. Sends `|0⟩ → i|1⟩, |1⟩ → -i|0⟩`.
+- `Z = iR_z(π)`: rotates by `π` around z-axis. Sends `|+⟩ ↔ |−⟩`, `|0⟩ → |0⟩`, `|1⟩ → -|1⟩`.
 
 **Hadamard** `H`: rotation by `π` around the axis `(x+z)/√2`:
 
@@ -236,6 +236,62 @@ Verify: `|r'|² = 1/4 + 3/4 + 0 = 1 ✓`. The point has moved from the northern 
 - X, Y, Z are π-rotations around their respective axes; H is a π-rotation around `(x̂+ẑ)/√2`; S is a π/2-rotation around z; T is a π/4-rotation around z
 - Gate identities `HXH = Z`, `HZH = X`, `S² = Z`, etc. follow directly from the geometry of Bloch sphere rotations
 - There is a 2-to-1 map `SU(2) → SO(3)`: a `4π` rotation in `SU(2)` returns to the identity, but a `2π` rotation returns to `-I` (same Bloch sphere rotation, different global phase)
+
+## Exercises
+
+**Exercise 1**: Find the Bloch sphere angles `(θ, φ)` and the Bloch vector for (a) `|ψ⟩ = (|0⟩ - |1⟩)/√2` and (b) `|ψ⟩ = (√3|0⟩ + |1⟩)/2`.
+
+<details><summary>Solution</summary>
+
+**(a)** `cos(θ/2) = 1/√2` gives `θ = π/2`; the amplitude of `|1⟩` is `-1/√2 = e^{iπ}·(1/√2)`, so `φ = π`. Bloch vector: `r = (sin(π/2)cos π, sin(π/2)sin π, cos(π/2)) = (-1, 0, 0)`. This is `|−⟩`, the `-1` eigenstate of `X`, on the negative x-axis.
+
+**(b)** `cos(θ/2) = √3/2` gives `θ/2 = π/6`, so `θ = π/3`; the `|1⟩` amplitude `1/2` is real positive, so `φ = 0`. Bloch vector: `r = (sin(π/3), 0, cos(π/3)) = (√3/2, 0, 1/2)`. Check: `|r|² = 3/4 + 1/4 = 1` ✓ — a point in the x–z plane, 60° down from the north pole.
+
+</details>
+
+**Exercise 2**: Verify by direct matrix computation that `R_x(π) = -iX`, and hence `X = iR_x(π)`. Why do `X` and `R_x(π)` implement the *same* Bloch sphere rotation despite being different matrices?
+
+<details><summary>Solution</summary>
+
+From the rotation formula:
+
+`R_x(π) = cos(π/2)I - i sin(π/2)X = 0·I - i·X = -iX`
+
+Explicitly: `R_x(π) = [[0, -i],[-i, 0]] = -i[[0,1],[1,0]] = -iX` ✓. Multiplying both sides by `i` gives `X = iR_x(π)`.
+
+They implement the same rotation because they differ only by the global phase `-i`, and global phases have no effect on the Bloch vector: the state transformation `ρ → UρU†` is unchanged when `U → e^{iγ}U`, since `e^{iγ}Uρ(e^{iγ}U)† = UρU†`. This is the 2-to-1 nature of the `SU(2) → SO(3)` map.
+
+</details>
+
+**Exercise 3**: Apply the `T` gate to `|+⟩` and find the Bloch vector of the result. Verify that the action is a rotation of `(1,0,0)` by `π/4` around the z-axis.
+
+<details><summary>Solution</summary>
+
+`T|+⟩ = (|0⟩ + e^{iπ/4}|1⟩)/√2`. This has `θ = π/2` (equal magnitudes) and `φ = π/4`.
+
+Bloch vector: `r = (cos(π/4), sin(π/4), 0) = (√2/2, √2/2, 0)`.
+
+The initial state `|+⟩` has Bloch vector `(1, 0, 0)`. Rotating `(1,0,0)` by `π/4` about the z-axis gives `(cos(π/4), sin(π/4), 0)` — exactly the result ✓. The z-component is preserved (both are 0), as required for a z-rotation.
+
+</details>
+
+**Exercise 4**: Prove that orthogonal states are antipodal: show that for any state `|ψ⟩` with angles `(θ, φ)`, the state `|ψ⊥⟩` with angles `(π - θ, φ + π)` satisfies `⟨ψ⊥|ψ⟩ = 0`.
+
+<details><summary>Solution</summary>
+
+Write both states in the standard parameterization:
+
+`|ψ⟩ = cos(θ/2)|0⟩ + e^{iφ}sin(θ/2)|1⟩`
+
+`|ψ⊥⟩ = cos((π-θ)/2)|0⟩ + e^{i(φ+π)}sin((π-θ)/2)|1⟩ = sin(θ/2)|0⟩ - e^{iφ}cos(θ/2)|1⟩`
+
+using `cos((π-θ)/2) = sin(θ/2)`, `sin((π-θ)/2) = cos(θ/2)`, and `e^{iπ} = -1`. Then:
+
+`⟨ψ⊥|ψ⟩ = sin(θ/2)cos(θ/2) + (-e^{-iφ})(e^{iφ})cos(θ/2)sin(θ/2) = sin(θ/2)cos(θ/2) - cos(θ/2)sin(θ/2) = 0` ✓
+
+The angles `(π-θ, φ+π)` are exactly the antipodal point on the sphere: `(sin(π-θ)cos(φ+π), sin(π-θ)sin(φ+π), cos(π-θ)) = (-sinθ cosφ, -sinθ sinφ, -cosθ) = -r`.
+
+</details>
 
 ## Further Reading
 

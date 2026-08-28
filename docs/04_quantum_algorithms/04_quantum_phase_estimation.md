@@ -100,7 +100,7 @@ To get `n` bits with probability `≥ 1-ε`, use `n + ⌈log₂(2 + 1/(2ε))⌉`
 
 $$\alpha_j = \frac{1}{2^n}\sum_{k=0}^{2^n-1}e^{2\pi i(\varphi - j/2^n)k} = \frac{1}{2^n}\cdot\frac{1 - e^{2\pi i\cdot2^n(\varphi - j/2^n)}}{1 - e^{2\pi i(\varphi - j/2^n)}}$$
 
-For `j = j*` (best approximation, `|φ - j*/2ⁿ| ≤ 1/2^{n+1}`), the geometric series has magnitude `≥ 4/π² · 2ⁿ`, giving `|α_{j*}|² ≥ 4/π²`. The bound `4/π²` comes from optimizing over the worst case phase offset.
+For `j = j*` (best approximation, `|φ - j*/2ⁿ| ≤ 1/2^{n+1}`), the geometric series has magnitude `≥ (2/π)·2ⁿ`, giving `|α_{j*}|² ≥ 4/π²`. The bound `4/π²` comes from the worst-case phase offset, `|φ - j*/2ⁿ| = 1/2^{n+1}` exactly.
 
 **Boosting**: Repeating QPE `O(log(1/ε))` times and taking the median of the estimates gives error `ε` with probability `1-δ` using `O(n·log(1/ε))` total ancilla applications.
 
@@ -175,7 +175,7 @@ $$\delta E = \frac{2\pi}{\tau \cdot 2^n}$$
 
 `S|1⟩ = i|1⟩ = e^{iπ/2}|1⟩ = e^{2πi·(1/4)}|1⟩`.
 
-Phase: `φ = 1/4 = 0.01` in binary (since `1/4 = 2^{-2} = 0.00 + 0.01 + ...`). More precisely: `φ = 0.25 = 0.01` in binary `0.01₂`.
+Phase: `φ = 1/4 = 2⁻² = 0.01₂` as a binary fraction.
 
 As an integer: `j* = 2ⁿφ = 8 · (1/4) = 2`. So the QPE should output `j* = 2 = 010₂`.
 
@@ -206,9 +206,7 @@ Step 4 — Apply QFT⁻¹ to ancilla:
 
 Since `φ = 1/4` is a dyadic rational (`φ = 2/8 = j*/2ⁿ` with `j*=2, n=3`), the inverse QFT maps the ancilla state to `|j*⟩ = |2⟩ = |010⟩` with probability 1.
 
-Let me verify: the ancilla state is `(1/√8)Σ_k e^{2πi·k/4}|k⟩` (using `φ=1/4`).
-
-QFT⁻¹ maps `(1/√2ⁿ)Σ_k e^{2πiφk}|k⟩ → |j*⟩` when `φ = j*/2ⁿ`, giving `|j*=2⟩ = |010⟩`.
+Explicitly, the product state above equals `(1/√8)Σ_k e^{2πi·k/4}|k⟩ = (1/√8)Σ_k e^{2πi·2k/8}|k⟩ = QFT|2⟩`, so applying `QFT⁻¹` returns exactly `|2⟩ = |010⟩`.
 
 Step 5 — Measure:
 
@@ -222,7 +220,7 @@ Since `φ = 1/4 = 2/8` is exactly a dyadic rational with denominator `2³ = 8` (
 
 If instead we had `n=2` ancilla qubits (so `j* = round(4·1/4) = round(1) = 1`), QPE would output `01₂ = 1` with certainty, recovering `φ̃ = 1/4 = φ` still exactly (since `φ` is also representable with 2 bits: `φ = 0.01₂`).
 
-This example illustrates why dyadic rational phases are the "easy cases" — they require exactly `⌈log₂(1/φ)⌉` ancilla bits for exact recovery. Non-dyadic-rational phases (like `φ = 1/3`) require more ancilla bits and involve the success probability bound of `4/π²`.
+This example illustrates why dyadic rational phases are the "easy cases" — writing `φ = j/2^m` in lowest terms, exactly `m` ancilla bits are required for exact recovery (here `φ = 1/4 = 1/2²`, so `m = 2` bits suffice). Non-dyadic-rational phases (like `φ = 1/3`) require more ancilla bits and involve the success probability bound of `4/π²`.
 
 ## Summary
 
@@ -234,6 +232,61 @@ This example illustrates why dyadic rational phases are the "easy cases" — the
 - **Gate cost**: `O(2ⁿ)` applications of `U` for `n`-bit precision; this makes QPE a **deep circuit** algorithm requiring fault-tolerant hardware
 - Key applications: quantum chemistry (eigenvalues of Hamiltonians), Shor's algorithm (order-finding), HHL (linear systems)
 - The eigenstate `|u⟩` must be prepared beforehand; preparing the ground state of a Hamiltonian is itself a challenging problem
+
+## Exercises
+
+**Exercise 1**: Run QPE with a single ancilla qubit (`n = 1`) on `U = Z` with eigenstate `|u⟩ = |1⟩`. Trace the circuit and show the measurement outcome is deterministic.
+
+<details><summary>Solution</summary>
+
+`Z|1⟩ = -|1⟩ = e^{2πi·(1/2)}|1⟩`, so `φ = 1/2`, exactly representable with 1 bit (`j* = 2¹·(1/2) = 1`).
+
+Trace: ancilla `H|0⟩ = |+⟩`. Controlled-`Z^{2⁰} = CZ` kicks back phase `e^{2πi·(1/2)} = -1` on the `|1⟩` branch: ancilla becomes `(|0⟩ - |1⟩)/√2 = |−⟩`. For `n = 1`, `QFT⁻¹ = H`, and `H|−⟩ = |1⟩`.
+
+Measurement gives `1` with probability 1, and `φ̃ = 1/2¹ = 1/2 = φ` exactly. (This one-ancilla QPE is precisely the Hadamard-test circuit.)
+
+</details>
+
+**Exercise 2**: Apply QPE with `n = 2` ancilla qubits to `U = T` (so `φ = 1/8`, *not* representable in 2 bits) and eigenstate `|1⟩`. Compute the probability of each outcome `j ∈ {0, 1, 2, 3}`.
+
+<details><summary>Solution</summary>
+
+The amplitude of outcome `j` is `α_j = (1/4)Σ_{k=0}^{3} e^{2πi(1/8 - j/4)k}`, a geometric series with ratio `e^{2πiδ_j}`, `δ_j = 1/8 - j/4`:
+
+- `j = 0` (`δ = 1/8`): `|α₀|² = |1 - e^{2πi·4δ}|²/(16·|1 - e^{2πiδ}|²) = (2/(4·2sin(π/8)))² ≈ 0.427`
+- `j = 1` (`δ = -1/8`): by symmetry `|α₁|² ≈ 0.427`
+- `j = 2` (`δ = -3/8`): `|α₂|² = (2/(4·2sin(3π/8)))² ≈ 0.073`
+- `j = 3` (`δ = -5/8 ≡ 3/8`): `|α₃|² ≈ 0.073`
+
+Total: `2(0.427) + 2(0.073) = 1` ✓. Since `2ⁿφ = 4·(1/8) = 0.5` sits exactly halfway between `j = 0` and `j = 1`, the two nearest outcomes share the probability equally — each is a valid "best" 2-bit estimate (`φ̃ = 0` or `1/4`, both within `1/2^{n+1} = 1/8` of `φ`). Note `0.427 > 4/π² ≈ 0.405`, consistent with the worst-case bound.
+
+</details>
+
+**Exercise 3**: You want to estimate a phase to 4 bits of precision with failure probability at most `ε = 0.1`. How many ancilla qubits does the standard buffer formula require, and how many total applications of `U` does the QPE then use?
+
+<details><summary>Solution</summary>
+
+Extra qubits: `⌈log₂(2 + 1/(2ε))⌉ = ⌈log₂(2 + 5)⌉ = ⌈log₂ 7⌉ = 3`.
+
+Total ancillas: `n = 4 + 3 = 7`.
+
+Applications of `U`: `2⁰ + 2¹ + ... + 2⁶ = 2⁷ - 1 = 127`. Measuring 7 bits and keeping the top 4 gives the best 4-bit approximation with probability `≥ 0.9`.
+
+</details>
+
+**Exercise 4**: A quantum chemistry QPE uses `U = e^{-iHτ}` with `τ = 0.1` and `n = 10` ancilla qubits, and returns the outcome `j = 205`. Using the file's convention `φ = E₀τ/(2π)` (assume no phase wrap-around, i.e. `E₀τ ∈ [0, 2π)`), estimate `E₀` and the energy resolution `δE`.
+
+<details><summary>Solution</summary>
+
+`φ̃ = j/2ⁿ = 205/1024 ≈ 0.20020`.
+
+`E₀ ≈ 2πφ̃/τ = 2π(0.20020)/0.1 ≈ 12.58` (energy units of `ħ = 1`).
+
+Resolution: `δE = 2π/(τ·2ⁿ) = 2π/(0.1·1024) ≈ 0.0614`.
+
+Note the trade-off: increasing `τ` improves resolution linearly, but the phase is only defined mod 1, so `E₀τ` must be known a priori to within a `2π` window (otherwise the estimate aliases) — and larger `τ·2ⁿ` means proportionally deeper circuits (`O(2ⁿ)` applications of `e^{-iHτ}`).
+
+</details>
 
 ## Further Reading
 

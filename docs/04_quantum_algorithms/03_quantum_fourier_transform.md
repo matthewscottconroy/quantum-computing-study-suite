@@ -130,7 +130,7 @@ $$\text{Gates} = O(n \cdot m) = O(n \log n) \quad \text{for } m = O(\log n)$$
 
 **Error analysis**: Omitting rotation `Rₖ` introduces a phase error of `O(2π/2ᵏ)` per qubit. With `n` qubits and `k > m`, the total error is `O(n · 2^{-m})`. Setting `m = ⌈log₂(n/ε)⌉` gives total error `≤ ε`.
 
-For `n = 50` qubits and `ε = 10⁻⁶`: `m ≈ log₂(50/10⁻⁶) ≈ 26`. The approximate QFT uses `50 × 26 / 2 ≈ 650` gates instead of `50 × 49 / 2 ≈ 1225` for the exact QFT.
+For `n = 50` qubits and `ε = 10⁻⁶`: `m ≈ log₂(50/10⁻⁶) ≈ 26`. Each qubit then keeps at most `m - 1 = 25` controlled rotations (instead of up to `n - 1 = 49`), so the retained count is `Σ_ℓ min(n-ℓ, m-1) = 925` gates instead of `50 × 49 / 2 = 1225` for the exact QFT.
 
 ## Important Distinction: QFT ≠ Classical FFT Speedup
 
@@ -225,15 +225,11 @@ $$= \frac{1}{2}(|00\rangle+|01\rangle-|10\rangle-|11\rangle)$$
 
 **Step 4 — SWAP** (bit reversal):
 
-SWAP `(|q₁q₂⟩)`: exchanges qubit labels.
-
-$$\frac{1}{2}(|00\rangle+|10\rangle-|01\rangle-|11\rangle) = \frac{1}{2}(|0\rangle-|1\rangle+|2\rangle-|3\rangle)$$
-
-Wait, after SWAP: `|00⟩→|00⟩`, `|01⟩→|10⟩`, `|10⟩→|01⟩`, `|11⟩→|11⟩`.
+The SWAP gate exchanges the two qubits: `|00⟩→|00⟩`, `|01⟩→|10⟩`, `|10⟩→|01⟩`, `|11⟩→|11⟩`. Applying it term by term to `(1/2)(|00⟩+|01⟩-|10⟩-|11⟩)`:
 
 $$\text{After SWAP: } \frac{1}{2}(|00\rangle+|10\rangle-|01\rangle-|11\rangle) = \frac{1}{2}(|0\rangle-|1\rangle+|2\rangle-|3\rangle)$$
 
-This matches the definition! `QFT|2⟩ = (|0⟩-|1⟩+|2⟩-|3⟩)/2` ✓.
+This matches the definition: `QFT|2⟩ = (|0⟩-|1⟩+|2⟩-|3⟩)/2` ✓.
 
 **(c) Interpretation**:
 
@@ -251,6 +247,69 @@ The state `|j=2⟩` has "frequency" 2 in the DFT sense. The QFT maps it to the s
 - The QFT does **not** speed up classical DFT problems; it is useful when: (a) the input state is efficiently preparable by quantum circuits, and (b) only global properties (periods, phases) of the Fourier transform are needed
 - The **product form** `QFT|j⟩ = ⊗_l(|0⟩ + e^{2πi·0.j_{n-l+1}...j_n}|1⟩)/√(2^n)` directly gives the circuit structure
 - The QFT converts **periodic state** information (period `r`) into **frequency** information (peaks at multiples of `N/r`), enabling period extraction; this is its role in QPE and Shor's algorithm
+
+## Exercises
+
+**Exercise 1**: Compute `QFT|3⟩` for `n = 2` qubits (`N = 4`) directly from the definition. Compare the phase pattern with `QFT|2⟩` from the worked example.
+
+<details><summary>Solution</summary>
+
+With `ω = e^{2πi/4} = i` and `j = 3`, the amplitudes are `ω^{3k}/2 = i^{3k}/2`:
+
+- `k=0`: `i⁰ = 1`
+- `k=1`: `i³ = -i`
+- `k=2`: `i⁶ = -1`
+- `k=3`: `i⁹ = i`
+
+So `QFT|3⟩ = (1/2)(|0⟩ - i|1⟩ - |2⟩ + i|3⟩)`.
+
+Whereas `QFT|2⟩` has phases stepping by `π` per unit of `k` (pattern `+, -, +, -`), `QFT|3⟩` has phases stepping by `3π/2` per unit of `k` (pattern `1, -i, -1, i`) — the input value `j` sets the "frequency" of the phase winding. All outcome probabilities are `1/4` in both cases.
+
+</details>
+
+**Exercise 2**: Count the gates in the exact QFT circuit for `n = 6` qubits: how many Hadamards, controlled-`Rₖ` rotations, and SWAPs? What is the smallest rotation angle that appears?
+
+<details><summary>Solution</summary>
+
+- Hadamards: `n = 6`
+- Controlled rotations: `n(n-1)/2 = 6·5/2 = 15`
+- SWAPs: `⌊n/2⌋ = 3`
+
+Total: `24` gates. The smallest rotation is `R₆`, applying phase `e^{2πi/2⁶} = e^{2πi/64}` — an angle of `2π/64 ≈ 0.098` rad. This illustrates why the approximate QFT can drop high-`k` rotations: they are exponentially close to the identity.
+
+</details>
+
+**Exercise 3**: Write `QFT|101⟩` (`n = 3`, `j = 5`) in product form, giving each qubit's relative phase as a binary fraction. Verify the product form against the definition by computing the amplitude of `|111⟩` both ways.
+
+<details><summary>Solution</summary>
+
+With `j₁j₂j₃ = 101`, the three binary fractions are:
+
+- `0.j₃ = 0.1₂ = 1/2`
+- `0.j₂j₃ = 0.01₂ = 1/4`
+- `0.j₁j₂j₃ = 0.101₂ = 5/8`
+
+$$\text{QFT}|101\rangle = \frac{1}{\sqrt{8}}\left(|0\rangle + e^{2\pi i\cdot 1/2}|1\rangle\right)\left(|0\rangle + e^{2\pi i\cdot 1/4}|1\rangle\right)\left(|0\rangle + e^{2\pi i\cdot 5/8}|1\rangle\right)$$
+
+Amplitude of `|111⟩` from the product form: `(1/√8)·e^{2πi(1/2 + 1/4 + 5/8)} = (1/√8)e^{2πi·11/8} = (1/√8)e^{2πi·3/8}`.
+
+From the definition: `(1/√8)e^{2πi·jk/8} = (1/√8)e^{2πi·35/8} = (1/√8)e^{2πi·3/8}` (since `35 = 4·8 + 3`). The two agree ✓.
+
+</details>
+
+**Exercise 4**: Apply the 3-qubit QFT (`N = 8`) to the periodic state `(|0⟩ + |4⟩)/√2` (period `r = 4`). Which outcomes have nonzero probability, and how does this illustrate period extraction?
+
+<details><summary>Solution</summary>
+
+$$\text{QFT}\frac{|0\rangle+|4\rangle}{\sqrt{2}} = \frac{1}{\sqrt{16}}\sum_{k=0}^{7}\left(1 + e^{2\pi i\cdot 4k/8}\right)|k\rangle = \frac{1}{4}\sum_k \left(1 + (-1)^k\right)|k\rangle$$
+
+The factor `1 + (-1)^k` is `2` for even `k` and `0` for odd `k`:
+
+$$= \frac{1}{2}(|0\rangle + |2\rangle + |4\rangle + |6\rangle)$$
+
+Only multiples of `N/r = 8/4 = 2` survive, each with probability `1/4`. Measuring gives some `j = m·(N/r)`; from `j/N = m/r` one recovers the period `r = 4` (e.g., outcome `j = 6` gives `6/8 = 3/4`, denominator 4). This is exactly the mechanism Shor's algorithm uses at scale.
+
+</details>
 
 ## Further Reading
 

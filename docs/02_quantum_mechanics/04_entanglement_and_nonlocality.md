@@ -31,7 +31,9 @@ These four states form an orthonormal basis for the two-qubit Hilbert space `ℂ
 
 Starting from computational basis states:
 
-$$|\Phi^+\rangle = (H \otimes I) \cdot \text{CNOT} \cdot |00\rangle$$
+$$|\Phi^+\rangle = \text{CNOT} \cdot (H \otimes I) \cdot |00\rangle$$
+
+(Operators act right-to-left: `H⊗I` is applied first, then CNOT.)
 
 More precisely: apply `H` to qubit 1, then apply CNOT with qubit 1 as control and qubit 2 as target:
 
@@ -43,7 +45,7 @@ The four Bell states are obtained from different input states `|00⟩, |01⟩, |
 1. **Maximal entanglement**: The reduced density matrix of each qubit is `I/2` (maximally mixed).
 2. **Perfect correlations**: Measuring both qubits in the Z basis gives outcomes `(0,0)` or `(1,1)` with probability 1/2 each — perfectly correlated.
 3. **Anti-correlations for `|Ψ⁻⟩`**: In `|Ψ⁻⟩`, measuring qubit 1 as 0 guarantees qubit 2 is 1, and vice versa.
-4. **Basis independence of correlations**: For `|Φ⁺⟩`, measuring both qubits in *any* common basis gives perfectly correlated outcomes. (For `|Ψ⁻⟩`, measuring in any common basis gives perfectly anti-correlated outcomes.)
+4. **Correlations in other bases**: For `|Φ⁺⟩`, measuring both qubits in any common basis lying in the **x–z plane** of the Bloch sphere gives perfectly correlated outcomes (e.g. in the X basis, `|Φ⁺⟩ = (|++⟩ + |−−⟩)/√2`). In the Y basis, however, the outcomes are perfectly *anti*-correlated: `|Φ⁺⟩ = (|+i⟩|-i⟩ + |-i⟩|+i⟩)/√2`. The singlet `|Ψ⁻⟩` is the special state that is perfectly anti-correlated in *every* common basis (it is invariant, up to phase, under `U ⊗ U` for all single-qubit unitaries `U`).
 
 ## Schmidt Decomposition
 
@@ -138,7 +140,7 @@ Quantum teleportation transmits an unknown qubit state from Alice to Bob using a
 
 **What makes it work**: The joint state of Alice's unknown qubit and the shared pair is:
 
-$$|\psi\rangle|{\Phi^+}\rangle = \frac{1}{2}(|\Phi^+\rangle(\alpha|0\rangle+\beta|1\rangle) + |\Phi^-\rangle(\alpha|0\rangle-\beta|1\rangle) + |\Psi^+\rangle(\alpha|1\rangle+\beta|0\rangle) + |\Psi^-\rangle(-\alpha|1\rangle+\beta|0\rangle))$$
+$$|\psi\rangle|{\Phi^+}\rangle = \frac{1}{2}(|\Phi^+\rangle(\alpha|0\rangle+\beta|1\rangle) + |\Phi^-\rangle(\alpha|0\rangle-\beta|1\rangle) + |\Psi^+\rangle(\alpha|1\rangle+\beta|0\rangle) + |\Psi^-\rangle(\alpha|1\rangle-\beta|0\rangle))$$
 
 Regardless of which Bell state Alice measures, Bob's qubit is in a state related to `|ψ⟩` by a known unitary. Classical communication tells Bob which unitary to apply.
 
@@ -160,7 +162,7 @@ Superdense coding is the "dual" of teleportation: Alice sends 2 classical bits t
 3. Alice sends her qubit to Bob.
 4. Bob performs a Bell measurement and recovers `b₁b₂` exactly.
 
-Superdense coding achieves **2 classical bits per qubit** — twice the classical capacity — by using entanglement as a pre-shared resource. The capacity bound for quantum channels (superdense coding factor of 2) is made rigorous by the holevo bound and quantum channel capacity theory.
+Superdense coding achieves **2 classical bits per qubit** — twice the classical capacity — by using entanglement as a pre-shared resource. The capacity bound for quantum channels (superdense coding factor of 2) is made rigorous by the Holevo bound and quantum channel capacity theory.
 
 ## Key Formulas
 
@@ -245,6 +247,71 @@ The strict inequality `Tr(ρ_A²) < 1` confirms `ρ_A` is a mixed state, which c
 - **Quantum teleportation**: transmits an unknown qubit using a Bell pair + 2 classical bits; exploits entanglement as a communication resource
 - **Superdense coding**: transmits 2 classical bits using 1 qubit + pre-shared entanglement
 - Entanglement is a **resource** with quantitative measures; it can be concentrated and diluted under local operations and classical communication (LOCC)
+
+## Exercises
+
+**Exercise 1**: Find the Schmidt decomposition of (a) `|ψ₁⟩ = (|00⟩ + |01⟩ + |10⟩ + |11⟩)/2` and (b) `|ψ₂⟩ = (|00⟩ + |01⟩ + |10⟩ - |11⟩)/2`, and compute the entanglement entropy of each.
+
+<details><summary>Solution</summary>
+
+**(a)** Factor: `|ψ₁⟩ = ½(|0⟩+|1⟩)(|0⟩+|1⟩) = |+⟩⊗|+⟩`. This is already a Schmidt decomposition with a single term, `λ₁ = 1`. Schmidt rank 1 — a **product state**, `S = 0`.
+
+**(b)** Coefficient matrix `C = ½[[1,1],[1,-1]]`. Then `CC† = ¼[[2,0],[0,2]] = ½I`, so both Schmidt coefficients are `λ₁ = λ₂ = 1/√2`. Schmidt rank 2 with equal coefficients — **maximally entangled**, `S = -2·(½ log₂ ½) = 1` ebit. Explicitly, `|ψ₂⟩ = (|0⟩|+⟩ + |1⟩|−⟩)/√2` is a Schmidt form. The two states differ by a single sign, yet one is unentangled and the other maximally entangled.
+
+</details>
+
+**Exercise 2**: Show algebraically that `|Φ⁺⟩ = (|++⟩ + |−−⟩)/√2` (X-basis correlation) but `|Φ⁺⟩ = (|+i⟩|−i⟩ + |−i⟩|+i⟩)/√2` (Y-basis **anti**-correlation).
+
+<details><summary>Solution</summary>
+
+X basis: expand
+
+`|++⟩ + |−−⟩ = ½[(|0⟩+|1⟩)(|0⟩+|1⟩) + (|0⟩-|1⟩)(|0⟩-|1⟩)] = ½[2|00⟩ + 2|11⟩] = |00⟩ + |11⟩`
+
+(the cross terms `|01⟩, |10⟩` cancel). Dividing by `√2` gives `|Φ⁺⟩` ✓ — outcomes `++` or `−−` only: correlated.
+
+Y basis: with `|±i⟩ = (|0⟩ ± i|1⟩)/√2`,
+
+`|+i⟩|−i⟩ + |−i⟩|+i⟩ = ½[(|0⟩+i|1⟩)(|0⟩-i|1⟩) + (|0⟩-i|1⟩)(|0⟩+i|1⟩)]`
+
+`= ½[(|00⟩ - i|01⟩ + i|10⟩ + |11⟩) + (|00⟩ + i|01⟩ - i|10⟩ + |11⟩)] = |00⟩ + |11⟩`
+
+Dividing by `√2` gives `|Φ⁺⟩` ✓ — the only outcome pairs are `(+i, -i)` and `(-i, +i)`: anti-correlated. The complex conjugation inherent in the Y eigenbasis flips the correlation.
+
+</details>
+
+**Exercise 3**: Compute the CHSH value `S` for `|Φ⁺⟩` with the settings `A₁ = Z`, `A₂ = X`, `B₁ = (Z+X)/√2`, `B₂ = (Z-X)/√2`, verifying the Tsirelson bound is attained.
+
+<details><summary>Solution</summary>
+
+For `|Φ⁺⟩`, the correlations of observables in the x–z plane obey `E(σ_a, σ_b) = ⟨Φ⁺|σ_a ⊗ σ_b|Φ⁺⟩ = cos(a - b)`, where `a, b` are the angles of the measurement axes from the z-axis. (This follows from `⟨Φ⁺|Z⊗Z|Φ⁺⟩ = 1`, `⟨Φ⁺|X⊗X|Φ⁺⟩ = 1`, `⟨Φ⁺|Z⊗X|Φ⁺⟩ = ⟨Φ⁺|X⊗Z|Φ⁺⟩ = 0`, expanding `σ_a = cos a·Z + sin a·X`.)
+
+The angles are: `A₁: 0°`, `A₂: 90°`, `B₁: 45°`, `B₂: -45°`. Then:
+
+- `E(A₁,B₁) = cos(45°) = 1/√2`
+- `E(A₁,B₂) = cos(45°) = 1/√2`
+- `E(A₂,B₁) = cos(45°) = 1/√2`
+- `E(A₂,B₂) = cos(135°) = -1/√2`
+
+`S = E(A₁,B₁) + E(A₁,B₂) + E(A₂,B₁) - E(A₂,B₂) = 3/√2 + 1/√2 = 4/√2 = 2√2 ≈ 2.83`
+
+This exceeds the classical bound 2 and attains the Tsirelson bound `2√2` exactly.
+
+</details>
+
+**Exercise 4**: Verify the superdense coding table: show that applying `Z`, `X`, and `XZ` to the first qubit of `|Φ⁺⟩` produces `|Φ⁻⟩`, `|Ψ⁺⟩`, and `|Ψ⁻⟩` (up to global phase), respectively.
+
+<details><summary>Solution</summary>
+
+`(Z⊗I)|Φ⁺⟩ = (Z|0⟩|0⟩ + Z|1⟩|1⟩)/√2 = (|00⟩ - |11⟩)/√2 = |Φ⁻⟩` ✓
+
+`(X⊗I)|Φ⁺⟩ = (|10⟩ + |01⟩)/√2 = |Ψ⁺⟩` ✓
+
+`(XZ⊗I)|Φ⁺⟩`: apply Z first, giving `|Φ⁻⟩`, then X: `(|10⟩ - |01⟩)/√2 = -|Ψ⁻⟩ ≡ |Ψ⁻⟩` up to the global phase `-1` ✓.
+
+Since the four Bell states are orthonormal, Bob's Bell measurement distinguishes them perfectly and recovers both bits — two classical bits transmitted with one qubit plus one pre-shared ebit.
+
+</details>
 
 ## Further Reading
 

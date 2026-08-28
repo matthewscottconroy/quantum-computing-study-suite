@@ -178,7 +178,7 @@ H_CR = (ω_ZX/2) Z_A X_B
 After time `t = π/(2ω_ZX)`, this implements `CNOT` (up to single-qubit corrections). The CR
 gate requires `~200-400 ns` on IBM hardware.
 
-### Parametric Modulation (CZ Gate)
+### Flux-Tuned Gates (iSWAP Family and CZ)
 
 **Parametric modulation** (used in Google and Rigetti systems) tunes the qubit frequency via
 a flux pulse to bring two qubits into resonance momentarily:
@@ -187,12 +187,18 @@ a flux pulse to bring two qubits into resonance momentarily:
 H_int = J(t) (a₁†a₂ + a₁a₂†)
 ```
 
-When the coupling is activated for time `t = π/(4J)`, this implements a CZ gate (a controlled-
-phase gate). CZ gates take `~20-100 ns` and achieve fidelity `99.0-99.7%` on current hardware.
+On resonance this XY (excitation-hopping) coupling generates **iSWAP-family** gates: activating
+it for time `t = π/(4J)` gives `√iSWAP`, and `t = π/(2J)` gives `iSWAP`. A **CZ gate** is
+obtained differently, via the transmon's third level: flux-tuning the pair to the
+`|11⟩ ↔ |20⟩` avoided crossing, where the coupling matrix element is `√2·J`, lets `|11⟩`
+complete one full cycle in time `t ≈ π/(√2 J)` and return with an extra phase of `-1` — a
+controlled-phase gate. CZ gates take `~20-100 ns` and achieve fidelity `99.0-99.7%` on current
+hardware.
 
 ### iSWAP and √iSWAP
 
-Google's Sycamore and Willow processors use the `√iSWAP` gate as native two-qubit gate:
+Google's Sycamore processor natively implemented `fSim(π/2, π/6)` — an iSWAP-like gate with an
+additional conditional phase; later Google devices have used the `√iSWAP` gate:
 
 ```
 √iSWAP = [[1, 0,     0,     0  ],
@@ -310,6 +316,65 @@ electron-beam lithography fabrication for Al/AlOx/Al junctions.
 - Readout via dispersive coupling to a resonator: qubit state shifts resonator frequency by `±χ`.
 - Operation at `10-20 mK` in a dilution refrigerator; dilution refrigerator physics is a
   critical engineering bottleneck for scaling.
+
+---
+
+## Exercises
+
+**1.** Design a transmon with `ω₀₁/2π = 4.5 GHz` and anharmonicity `α/2π = -250 MHz`.
+Compute `E_C`, `E_J` (in frequency units), the ratio `E_J/E_C`, the shunt capacitance `C`, and
+the junction critical current `I_c`.
+
+<details><summary>Solution</summary>
+
+`E_C/h = |α|/2π = 250 MHz`. From `ℏω₀₁ ≈ √(8E_JE_C)`:
+`E_J/h = (ω₀₁/2π)²/(8 · E_C/h) = (4.5 GHz)²/(8 × 0.25 GHz) = 10.13 GHz`.
+`E_J/E_C = 10.13/0.25 = 40.5` — transmon regime, though with more residual charge dispersion
+than a 5 GHz/200 MHz design (`E_J/E_C = 78`).
+`C = e²/(2E_C) = (1.602×10⁻¹⁹)²/(2 × 6.626×10⁻³⁴ × 2.5×10⁸) ≈ 77 fF`.
+`I_c = 2eE_J/ℏ = 2 × 1.602×10⁻¹⁹ × (6.626×10⁻³⁴ × 1.013×10¹⁰)/1.055×10⁻³⁴ ≈ 20 nA`.
+
+</details>
+
+**2.** For the 4.5 GHz transmon operating at `T = 20 mK`, compute `ℏω₀₁/k_BT` and the thermal
+photon occupation `n_th = 1/(e^{ℏω/k_BT} - 1)`. What residual `|1⟩` population does this imply?
+
+<details><summary>Solution</summary>
+
+`ℏω/k_BT = (6.626×10⁻³⁴ × 4.5×10⁹)/(1.381×10⁻²³ × 0.02) ≈ 10.8`.
+`n_th ≈ e^{-10.8} ≈ 2×10⁻⁵`. Thermal equilibrium would give ~0.002% excited population —
+negligible. (Measured residual populations on real devices are typically `0.1-1%`, dominated
+by non-equilibrium quasiparticles and noise from higher-temperature stages leaking down the
+wiring, not by the mixing chamber temperature.)
+
+</details>
+
+**3.** A dispersive readout uses `χ/2π = 2 MHz` and a resonator linewidth `κ/2π = 4 MHz`.
+The qubit-state-dependent phase of the reflected probe is `φ_± = ±arctan(2χ/κ)`. Compute the
+total phase separation between `|0⟩` and `|1⟩`.
+
+<details><summary>Solution</summary>
+
+`2χ/κ = 1`, so `φ_± = ±45°` and the separation is `2 × arctan(1) = 90°`. This is the
+optimum regime (`2χ ≈ κ`): larger `κ` washes out the phase contrast, much smaller `κ` slows
+the resonator response and lengthens measurement relative to `T₁`.
+
+</details>
+
+**4.** A single-qubit X gate uses a resonant drive with `Ω/2π = 20 MHz`. (a) What is the
+`π`-pulse duration? (b) Roughly what pulse bandwidth does this imply, and is a DRAG correction
+needed for a transmon with `|α|/2π = 200 MHz`?
+
+<details><summary>Solution</summary>
+
+(a) `τ = π/Ω = 1/(2 × 20 MHz) = 25 ns`.
+(b) Bandwidth `~1/τ = 40 MHz`. This is only 5× smaller than `|α|/2π = 200 MHz`, so the pulse
+spectrum has non-negligible weight at the `|1⟩→|2⟩` transition (detuned by `α`): leakage is
+suppressed but not negligible, and DRAG correction is worthwhile — it is standard on all
+production transmon systems at these gate speeds. Slowing the gate reduces leakage but costs
+more decoherence per gate; DRAG breaks that trade-off.
+
+</details>
 
 ---
 

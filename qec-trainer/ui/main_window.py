@@ -10,6 +10,7 @@ from ui.screens.result_screen import ResultScreen
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
 from ui.screens.reference_screen import ReferenceScreen
+from ui.screens.decoder_screen import DecoderScreen
 from persistence import save_session, toggle_flag, load_flagged
 from workers.grading_worker import GradingWorker
 from grading.auto_grader import grade_mc
@@ -20,6 +21,7 @@ PAGE_RESULT     = 2
 PAGE_SUMMARY    = 3
 PAGE_HISTORY    = 4
 PAGE_REFERENCE  = 5
+PAGE_DECODER    = 6
 
 
 class MainWindow(QMainWindow):
@@ -38,14 +40,18 @@ class MainWindow(QMainWindow):
         self._summary   = SummaryScreen()
         self._history   = HistoryScreen()
         self._reference = ReferenceScreen()
+        self._decoder   = DecoderScreen()
 
         for w in (self._setup, self._problem, self._result,
-                  self._summary, self._history, self._reference):
+                  self._summary, self._history, self._reference,
+                  self._decoder):
             self._stack.addWidget(w)
 
         self._setup.session_started.connect(self._on_session_started)
         self._setup.history_requested.connect(self._on_history)
         self._setup.reference_requested.connect(self._on_reference)
+        self._setup.decoder_requested.connect(self._on_decoder)
+        self._decoder.back_requested.connect(self._go_setup)
         self._problem.answer_submitted.connect(self._on_answer_submitted)
         self._problem.session_ended.connect(self._finish_session)
         self._result.next_requested.connect(self._advance)
@@ -164,6 +170,10 @@ class MainWindow(QMainWindow):
     def _on_reference(self) -> None:
         self._reference.load_all()
         self._stack.setCurrentIndex(PAGE_REFERENCE)
+
+    def _on_decoder(self) -> None:
+        self._decoder.start_game()
+        self._stack.setCurrentIndex(PAGE_DECODER)
 
     def _on_review_mistakes(self) -> None:
         mistakes = [a.problem for a in self._stats.attempts if a.score < 7]

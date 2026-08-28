@@ -4,7 +4,7 @@ from core.models import Problem, GradeMode
 
 PROBLEM = Problem(
     id='rep_5qubit_logical_ops',
-    category='Repetition Code',
+    category='Stabilizer Formalism',
     difficulty='advanced',
     question='Which operators serve as logical X̄ and Z̄ for the [[5,1,3]] perfect code?',
     choices=[

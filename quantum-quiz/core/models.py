@@ -11,6 +11,7 @@ class QuizConfig:
     difficulty: Optional[str]          # None → randomise each question
     question_types: list[str]          # subset of QUESTION_TYPES
     question_count: int
+    viva_mode: bool = False            # follow-up probing after well-scored answers
 
 
 @dataclass

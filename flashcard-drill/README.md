@@ -1,21 +1,23 @@
 # Flashcard Drill
 
 A spaced-repetition flashcard app for quantum computing — the only app in the suite that
-requires no API key and no Qiskit. 82 cards across 7 categories, with SRS weighting,
+requires no API key and no Qiskit. 550 cards across 14 categories, with SRS weighting,
 optional per-card countdown timer, and full session history.
 
 ---
 
 ## Features
 
-- **82 cards across 7 categories** — Pauli matrices, gate unitaries, commutators,
-  complexity, theorems, quantum information, and quantum algorithms
+- **550 cards across 14 categories** — Pauli matrices, gate unitaries, commutators,
+  complexity, theorems, quantum information, algorithms, quantum circuits, error
+  correction, states and measurement, quantum hardware, quantum optics,
+  many-body physics, and the Qiskit API (exam C1000-179 aligned)
 - **Spaced repetition** — cards you missed recently appear with higher frequency
 - **Optional countdown timer** — configurable per session; timer turns red at 5 s
 - **Three-way rating** — Got it / Unsure / Missed after each reveal
 - **Session history** — cumulative stats and per-session breakdown with bar chart
 - **Lifetime stats** — total cards drilled, all-time known percentage
-- **Zero external dependencies** — only PyQt6 required
+- **Minimal dependencies** — only PyQt6 and matplotlib (history chart) required
 
 ---
 
@@ -23,11 +25,12 @@ optional per-card countdown timer, and full session history.
 
 ```
 PyQt6>=6.6
+matplotlib>=3.8
 ```
 
 Install:
 ```bash
-pip install PyQt6
+pip install PyQt6 matplotlib
 ```
 
 ---
@@ -46,7 +49,7 @@ No API key, no network connection needed.
 
 ### Setup Screen
 
-1. **Select categories** — all 7 checked by default
+1. **Select categories** — all 14 checked by default
 2. **Card count** — how many cards to draw this session (default 20)
 3. **Timer** — seconds per card (0 = no timer)
 4. Click **Start Drill**
@@ -82,15 +85,22 @@ Repeat until all cards are done; the session summary appears automatically.
 
 | Category | Cards | Sample Topics |
 |---|---|---|
-| Pauli Matrices | 12 | X, Y, Z matrices; eigenvalues; commutation/anticommutation; Bloch sphere axes |
-| Gate Unitaries | 15 | H, S, T, CNOT, CZ, SWAP, Toffoli matrices; eigenvalues; decompositions |
-| Commutators | 11 | [X,Y], [H,X], [X,Z]; uncertainty principle; commuting observables; Pauli algebra |
-| Complexity | 10 | BQP, QMA, PSPACE; oracle separations; Grover optimality; Shor complexity |
-| Theorems | 11 | No-cloning, Solovay-Kitaev, Gottesman-Knill, threshold theorem, Eastin-Knill |
-| Quantum Information | 11 | Von Neumann entropy, fidelity, trace distance, Holevo bound, channel capacity |
-| Algorithms | 12 | Grover speedup, QPE circuit, QFT structure, Shor period-finding, HHL conditions |
+| Pauli Matrices | 48 | X, Y, Z matrices; eigenvalues; commutation/anticommutation; Bloch sphere axes |
+| Gate Unitaries | 52 | H, S, T, CNOT, CZ, SWAP, Toffoli matrices; eigenvalues; decompositions |
+| Quantum Information | 47 | Von Neumann entropy, fidelity, trace distance, Holevo bound, channel capacity |
+| Qiskit API | 45 | QuantumCircuit construction, primitives (SamplerV2/EstimatorV2), transpilation, quantum_info, visualization, OpenQASM |
+| Algorithms | 44 | Grover speedup, QPE circuit, QFT structure, Shor period-finding, HHL conditions |
+| States and Measurement | 44 | Bell states, Bloch sphere, Born rule, measurement bases, entanglement |
+| Commutators | 43 | [X,Y], [H,X], [X,Z]; uncertainty principle; commuting observables; Pauli algebra |
+| Complexity | 42 | BQP, QMA, PSPACE; oracle separations; Grover optimality; Shor complexity |
+| Theorems | 42 | No-cloning, Solovay-Kitaev, Gottesman-Knill, threshold theorem, Eastin-Knill |
+| Quantum Circuits | 40 | Ancillas, Clifford simulation, circuit identities, amplitude amplification |
+| Error Correction | 39 | 3-qubit codes, stabilizers, CSS codes, surface and color codes, cat qubits |
+| Quantum Hardware | 22 | Josephson junctions, gate fidelity, crosstalk, connectivity, dilution refrigerators |
+| Many-Body Physics | 21 | Hubbard and Heisenberg models, area law, DMRG, Jordan-Wigner/Bravyi-Kitaev |
+| Quantum Optics | 21 | Beam splitters, Fock and coherent states, cavity QED, GKP states, boson sampling |
 
-**Total: 82 cards**
+**Total: 550 cards**
 
 ---
 
@@ -137,14 +147,21 @@ flashcard-drill/
 │   ├── models.py                Flashcard, DrillConfig, Rating, CardResult, SessionStats
 │   └── deck.py                  build_deck(config) — SRS-weighted sampling
 ├── cards/
-│   ├── __init__.py              ALL_CARDS list: exports every card from every module
-│   ├── pauli_matrices.py        12 cards
-│   ├── gate_unitaries.py        15 cards
-│   ├── commutators.py           11 cards
-│   ├── complexity.py            10 cards
-│   ├── theorems.py              11 cards
-│   ├── quantum_info.py          11 cards
-│   └── algorithms.py            12 cards
+│   ├── __init__.py              all_cards(): auto-discovers one card file per card
+│   ├── pauli_matrices/          48 cards
+│   ├── gate_unitaries/          52 cards
+│   ├── quantum_info/            47 cards
+│   ├── qiskit_api/              45 cards
+│   ├── algorithms/              44 cards
+│   ├── states_and_measurement/  44 cards
+│   ├── commutators/             43 cards
+│   ├── complexity/              42 cards
+│   ├── theorems/                42 cards
+│   ├── quantum_circuits/        40 cards
+│   ├── error_correction/        39 cards
+│   ├── quantum_hardware/        22 cards
+│   ├── many_body_physics/       21 cards
+│   └── quantum_optics/          21 cards
 ├── persistence/
 │   └── storage.py               save_session(), card_weights(), lifetime_stats()
 └── ui/
@@ -196,27 +213,19 @@ history" button with confirmation.
 
 ## Adding New Cards
 
-Add a new Python file to `cards/` following this pattern:
+Add a new Python file inside the appropriate `cards/<category>/` directory, defining a
+single module-level `CARD`:
 
 ```python
 from core.models import Flashcard
 
-CARDS = [
-    Flashcard(
-        id="unique_id",
-        category="Category Name",
-        front="Question text or concept name",
-        back="Answer or definition",
-    ),
-    ...
-]
+CARD = Flashcard(
+    id="unique_id",
+    category="Category Name",
+    front="Question text or concept name",
+    back="Answer or definition",
+)
 ```
 
-Then export from `cards/__init__.py`:
-
-```python
-from cards.your_module import CARDS as _your_cards
-ALL_CARDS = [...existing..., *_your_cards]
-```
-
+`cards/__init__.py` auto-discovers every card file, so no registration step is needed.
 The SRS system will automatically include the new cards in future sessions.

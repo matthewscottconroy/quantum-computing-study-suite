@@ -93,18 +93,17 @@ This symmetry makes CZ convenient in architectures where two-qubit coupling is s
 
 $$\text{CNOT} = (I \otimes H)\,\text{CZ}\,(I \otimes H)$$
 
-Proof: `CZ` applies `-1` phase to `|11⟩`. Then `I⊗H` maps `H|1⟩ = |−⟩ = (|0⟩-|1⟩)/√2` back to `|1⟩`. The combined effect on `|c,t⟩`:
-- `|00⟩ → CZ → |00⟩ → I⊗H → |0,+⟩`... 
+Proof (operator form): write both gates as controlled operations, `CZ = |0⟩⟨0|⊗I + |1⟩⟨1|⊗Z`. Then
 
-Actually the identity is `CNOT = (I⊗H)·CZ·(I⊗H)`, meaning apply `I⊗H`, then CZ, then `I⊗H`. Let's verify on `|10⟩`:
+$$(I\otimes H)\,\text{CZ}\,(I\otimes H) = |0\rangle\langle 0|\otimes HIH + |1\rangle\langle 1|\otimes HZH = |0\rangle\langle 0|\otimes I + |1\rangle\langle 1|\otimes X = \text{CNOT}$$
 
-$(I\otimes H)|10\rangle = |1\rangle\otimes|+\rangle = (|10\rangle+|11\rangle)/\sqrt{2}$
+using `H² = I` and `HZH = X`. Conjugating the target by H converts the controlled-Z into a controlled-X.
 
-$CZ \to (|10\rangle-|11\rangle)/\sqrt{2}$ (phase on `|11⟩`)
+Concrete check on `|10⟩` (operators act right-to-left, so the rightmost `I⊗H` is applied first):
 
-$(I\otimes H) \to |1\rangle\otimes H(|0\rangle-|1\rangle)/\sqrt{2} = |1\rangle|{-}\rangle|/... $
+$$(I\otimes H)|10\rangle = |1\rangle\otimes|+\rangle = \frac{|10\rangle+|11\rangle}{\sqrt{2}} \;\xrightarrow{\text{CZ}}\; \frac{|10\rangle-|11\rangle}{\sqrt{2}} = |1\rangle\otimes|-\rangle \;\xrightarrow{I\otimes H}\; |1\rangle\otimes|1\rangle = |11\rangle$$
 
-$H((|0\rangle-|1\rangle)/\sqrt{2}) = H|{-}\rangle = |1\rangle$. So final result: `|11⟩ = CNOT|10⟩ ✓`.
+which is `CNOT|10⟩` ✓ (and for control `|0⟩`, CZ acts trivially and the two H gates cancel).
 
 ## SWAP Gate and Variants
 
@@ -149,7 +148,7 @@ As an `8×8` matrix, it is the identity on all basis states except `|110⟩ ↔ 
 
 $$\text{Toffoli} = H_3 \cdot \text{CNOT}_{23} \cdot T_3^\dagger \cdot \text{CNOT}_{13} \cdot T_3 \cdot \text{CNOT}_{23} \cdot T_3^\dagger \cdot \text{CNOT}_{13} \cdot T_2 \cdot T_3 \cdot \text{CNOT}_{12} \cdot H_3 \cdot T_1 \cdot T_2^\dagger \cdot \text{CNOT}_{12}$$
 
-This standard decomposition uses 6 CNOT gates and 7 T gates. It is optimal in T-count for this circuit structure.
+(Note: the factors above are listed in circuit time-order — `H₃` is applied first — read left to right, opposite to this chapter's right-to-left operator convention.) This standard decomposition uses 6 CNOT gates and 7 T gates. It is optimal in T-count for this circuit structure.
 
 **T-count**: The Toffoli gate requires T-count 7 in the standard decomposition (proven optimal). Since T gates are the expensive resource in fault-tolerant computing, arithmetic circuits that use many Toffoli gates have high T-count.
 
@@ -161,7 +160,7 @@ $$\text{Fredkin}|c, a, b\rangle = \begin{cases} |c, a, b\rangle & \text{if } c =
 
 **Classical universality**: Fredkin is also universal for classical reversible computation (it can simulate NAND with appropriate ancilla inputs).
 
-**Comparison in quantum circuits**: Fredkin gates are useful for quantum comparator networks and sorting networks. The identity `⟨Fredkin⟩` applied to `|c⟩|a⟩|b⟩` measures the overlap between `|a⟩` and `|b⟩`: the probability of measuring control=0 after `H·Fredkin·H` gives `(1+|⟨a|b⟩|²)/2` (the **SWAP test**). This is the quantum algorithm for estimating state overlap.
+**Use in quantum circuits**: Fredkin gates appear in quantum comparator and sorting networks, and they are the heart of the **SWAP test**: with the control prepared in `|0⟩`, the circuit `(H⊗I⊗I)·\text{Fredkin}·(H⊗I⊗I)` applied to `|0⟩|a⟩|b⟩` yields control outcome 0 with probability `(1+|⟨a|b⟩|²)/2`. This is the standard quantum algorithm for estimating the overlap of two unknown states (derived in the worked example below).
 
 ## Controlled-U Gates
 
@@ -235,11 +234,7 @@ CNOT maps `|00⟩ → |00⟩` (control 0, no flip) and `|10⟩ → |11⟩` (cont
 
 **(b) Z error on target propagates to control**:
 
-The circuit is: Z error on target, then CNOT. On the computational basis:
-
-$$\text{CNOT}\cdot(I\otimes Z)\cdot|c,t\rangle = \text{CNOT}\cdot|c,(-1)^t t\rangle$$
-
-Wait, let's work with the operator algebra:
+The circuit is: Z error on target, then CNOT. To see what error this is equivalent to *after* the CNOT, conjugate the error operator through the gate:
 
 $$\text{CNOT}\cdot(I\otimes Z)\cdot\text{CNOT}^\dagger$$
 
@@ -288,6 +283,61 @@ For identical states: `p(0) = 1` (always ancilla 0). For orthogonal states: `p(0
 - **Fredkin** (CSWAP) is the controlled swap; used in SWAP test for estimating state overlap
 - **Controlled-U** gates apply any unitary conditioned on a control qubit; enable **phase kickback**, the mechanism behind QPE and many other algorithms
 - Error propagation through CNOT: `CNOT(X⊗I)CNOT = X⊗X` and `CNOT(I⊗Z)CNOT = Z⊗Z` — understanding this is critical for designing fault-tolerant circuits
+
+## Exercises
+
+**Exercise 1**: The Bell circuit applies `H` to qubit 1 and then `CNOT₁₂`. Compute its output for each of the four computational basis inputs `|00⟩, |01⟩, |10⟩, |11⟩` and identify which Bell state each produces.
+
+<details><summary>Solution</summary>
+
+- `|00⟩`: `(H⊗I)|00⟩ = (|00⟩+|10⟩)/√2 → CNOT → (|00⟩+|11⟩)/√2 = |Φ⁺⟩`
+- `|01⟩`: `(|01⟩+|11⟩)/√2 → (|01⟩+|10⟩)/√2 = |Ψ⁺⟩`
+- `|10⟩`: `(|00⟩-|10⟩)/√2 → (|00⟩-|11⟩)/√2 = |Φ⁻⟩`
+- `|11⟩`: `(|01⟩-|11⟩)/√2 → (|01⟩-|10⟩)/√2 = |Ψ⁻⟩`
+
+The circuit maps the computational basis unitarily onto the Bell basis: the first input bit determines the sign (`Φ` phase), the second determines parity (`Φ` vs `Ψ`). Running the circuit in reverse performs a Bell measurement in terms of a computational one.
+
+</details>
+
+**Exercise 2**: An X error strikes the control qubit just before a CNOT. Using `CNOT(X⊗I)CNOT = X⊗X`, show explicitly that the state `CNOT·(X⊗I)|00⟩` equals `(X⊗X)·CNOT|00⟩`, and interpret the result for error correction.
+
+<details><summary>Solution</summary>
+
+Left side: `(X⊗I)|00⟩ = |10⟩`, then `CNOT|10⟩ = |11⟩`.
+
+Right side: `CNOT|00⟩ = |00⟩`, then `(X⊗X)|00⟩ = |11⟩`.
+
+Both give `|11⟩` ✓ — an X error on the control before the gate is indistinguishable from X errors on **both** qubits after the gate. For error correction this means a single physical fault can spread into a two-qubit error through an entangling gate; fault-tolerant circuit design (e.g. transversal gates, flag qubits) exists precisely to control this spreading.
+
+</details>
+
+**Exercise 3**: Apply `CZ` to the state `|+⟩⊗|1⟩`. Show that the *control* qubit changes state while the *target* is untouched, and explain why this "phase kickback" does not contradict the symmetry of CZ.
+
+<details><summary>Solution</summary>
+
+`|+⟩⊗|1⟩ = (|01⟩ + |11⟩)/√2`. CZ multiplies only `|11⟩` by `-1`:
+
+`CZ(|+⟩⊗|1⟩) = (|01⟩ - |11⟩)/√2 = |−⟩⊗|1⟩`
+
+The "target" `|1⟩` is unchanged; the "control" flipped from `|+⟩` to `|−⟩`. Since `Z|1⟩ = -|1⟩`, the eigenvalue `-1` acts as a relative phase between the control's `|0⟩` and `|1⟩` branches — the phase "kicks back" onto whichever qubit is in superposition. This is consistent with CZ's symmetry: `CZ|c,t⟩ = (-1)^{ct}|c,t⟩` treats both qubits identically, so the labels "control" and "target" are pure convention; the phase lodges wherever there is coherence to display it.
+
+</details>
+
+**Exercise 4**: Starting from the Bell state `(α|00⟩ + β|11⟩)` on qubits 1,2 and a fresh ancilla `|0⟩` on qubit 3, apply a Toffoli gate with controls 1,2 and target 3. Show that the output is `α|000⟩ + β|111⟩` (a GHZ-type state for `α = β = 1/√2`), and check that the reduced state of qubits 1,2 is no longer entangled *coherently* with each other alone.
+
+<details><summary>Solution</summary>
+
+The input is `α|000⟩ + β|110⟩`. Toffoli flips qubit 3 only on the `|11⟩` control branch:
+
+`Toffoli(α|000⟩ + β|110⟩) = α|000⟩ + β|111⟩` ✓
+
+With `α = β = 1/√2` this is the GHZ state. Tracing out qubit 3: the two branches `|00⟩` and `|11⟩` are tagged by orthogonal ancilla states `|0⟩, |1⟩`, so all cross terms vanish:
+
+`ρ₁₂ = |α|²|00⟩⟨00| + |β|²|11⟩⟨11|`
+
+— a *classical* mixture with no off-diagonal coherence, unlike the original Bell state `ρ₁₂ = |Φ⟩⟨Φ|` which contained `αβ*|00⟩⟨11|` terms. Copying the branch information into the ancilla decohered the pair: entanglement became genuinely tripartite.
+
+</details>
 
 ## Further Reading
 

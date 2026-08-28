@@ -125,6 +125,19 @@ class SetupScreen(QWidget):
             type_inner.addWidget(cb)
         right.addWidget(type_card)
 
+        # Study modes
+        mode_card = self._make_card("Study modes")
+        mode_inner = mode_card.layout()
+        self._viva_check = QCheckBox("Viva mode: follow-up probing")
+        self._viva_check.setChecked(False)
+        self._viva_check.setToolTip(
+            "After a well-answered question (score ≥ 4), Claude asks one probing\n"
+            "follow-up derived from your actual answer. Follow-ups are extra\n"
+            "questions beyond the configured count."
+        )
+        mode_inner.addWidget(self._viva_check)
+        right.addWidget(mode_card)
+
         right.addStretch()
         content.addLayout(right, 2)
 
@@ -181,5 +194,6 @@ class SetupScreen(QWidget):
             difficulty=difficulty,
             question_types=types,
             question_count=self._count_spin.value(),
+            viva_mode=self._viva_check.isChecked(),
         )
         self.quiz_started.emit(config)

@@ -140,18 +140,18 @@ $$\Delta X \cdot \Delta P \geq \frac{\hbar}{2}$$
 
 This is Heisenberg's original uncertainty principle. In quantum computing, the analogous relation for qubits is:
 
-$$\Delta X \cdot \Delta Z \geq \frac{1}{2}|\langle Y\rangle|$$
+$$\Delta X \cdot \Delta Z \geq |\langle Y\rangle|$$
 
-(using `[X,Z] = -2iY`).
+(using `[X,Z] = -2iY`, the Robertson bound is `½|⟨-2iY⟩| = |⟨Y⟩|`).
 
 ### Physical Interpretation
 
 The uncertainty principle is sometimes stated as "measuring A disturbs B." This is the **disturbance interpretation**, but it is more subtle than a simple mechanical disturbance. The Robertson relation is a statement about **state preparation**, not about the effect of one measurement on another:
 
-- In a state where `ΔA = 0` (an eigenstate of `A`), we necessarily have `⟨[A,B]⟩ = ⟨ψ|[A,B]|ψ⟩ ≠ 0` in general, which forces `ΔB > 0`
-- You cannot **prepare** a state that simultaneously has definite values of two non-commuting observables
+- In a state where `ΔA = 0` (an eigenstate of `A`), the right-hand side actually vanishes: `⟨ψ|[A,B]|ψ⟩ = 0` exactly for any eigenstate of `A`, so the Robertson bound is trivially satisfied (`0 ≥ 0`) rather than violated
+- The real obstruction is structural: if `[A,B] ≠ 0`, then `A` and `B` have no common eigenbasis, so you cannot **prepare** a state that simultaneously has definite values of both non-commuting observables — this follows from the operator algebra, not from the expectation-value bound
 
-The measurement disturbance interpretation is captured instead by the **Ozawa uncertainty relation** and the **Kennard inequality**, which more precisely quantify how measuring `A` affects subsequent measurements of `B`.
+The measurement disturbance interpretation is captured instead by the **Ozawa uncertainty relation** (and its refinements by Busch, Lahti, and Werner), which more precisely quantify how measuring `A` affects subsequent measurements of `B`.
 
 ### Commuting Observables
 
@@ -218,7 +218,7 @@ $$\Delta X \cdot \Delta P \geq \frac{\hbar}{2}$$
 
 (a) Measure observable `Z`. Find probabilities, expectation value, variance.  
 (b) After obtaining outcome 0, the qubit is re-measured in the X basis `{|+⟩,|−⟩}`. Find probabilities.  
-(c) Verify the uncertainty relation `ΔX · ΔZ ≥ ½|⟨Y⟩|` for the original state.
+(c) Verify the uncertainty relation `ΔX · ΔZ ≥ |⟨Y⟩|` for the original state.
 
 **Solution**:
 
@@ -231,11 +231,10 @@ $$p(1) = |\langle 1|\psi\rangle|^2 = |i/\sqrt{5}|^2 = 1/5$$
 Expectation value:
 $$\langle Z\rangle = p(0)\cdot(+1) + p(1)\cdot(-1) = 4/5 - 1/5 = 3/5$$
 
-Verify via formula: `⟨ψ|Z|ψ⟩ = (1/5)(2, -i)(1,0;0,-1)(2,i)ᵀ = (1/5)(2,-i)(2,-i)ᵀ = (1/5)(4+1) = 1`. Wait — let me recompute:
-$$\langle Z\rangle = \frac{1}{5}(2^*,\, (-i)^*)\begin{pmatrix}1&0\\0&-1\end{pmatrix}\begin{pmatrix}2\\i\end{pmatrix} = \frac{1}{5}(2,\,i)\begin{pmatrix}2\\-i\end{pmatrix} = \frac{1}{5}(4 + i(-i)) = \frac{1}{5}(4+1) = 1$$
+Verify via the matrix formula. The bra is the conjugate transpose of the ket, so `⟨ψ| = (1/√5)(2, -i)`:
+$$\langle Z\rangle = \frac{1}{5}(2,\, -i)\begin{pmatrix}1&0\\0&-1\end{pmatrix}\begin{pmatrix}2\\i\end{pmatrix} = \frac{1}{5}(2,\, -i)\begin{pmatrix}2\\-i\end{pmatrix} = \frac{1}{5}(4 + (-i)(-i)) = \frac{1}{5}(4 - 1) = \frac{3}{5} \checkmark$$
 
-Hmm, that gives 1. Let me recheck: `(2, -i^*)` — conjugate of `i` is `-i`, so:
-$$\langle Z\rangle = \frac{1}{5}(2,\, -i)\begin{pmatrix}2\\-i\end{pmatrix} = \frac{1}{5}(4 + (-i)(-i)) = \frac{1}{5}(4 - 1) = \frac{3}{5} \checkmark$$
+The two calculations agree.
 
 Second moment: `⟨Z²⟩ = ⟨ψ|Z²|ψ⟩ = ⟨ψ|I|ψ⟩ = 1` (since `Z² = I`).
 
@@ -260,12 +259,9 @@ Compute `⟨Y⟩`:
 $$\langle Y\rangle = \frac{1}{5}(2,\,-i)\begin{pmatrix}0&-i\\i&0\end{pmatrix}\begin{pmatrix}2\\i\end{pmatrix} = \frac{1}{5}(2,\,-i)\begin{pmatrix}-i^2\\2i\end{pmatrix} = \frac{1}{5}(2,\,-i)\begin{pmatrix}1\\2i\end{pmatrix}$$
 $$= \frac{1}{5}(2 + (-i)(2i)) = \frac{1}{5}(2 + 2) = \frac{4}{5}$$
 
-Check: `[X,Z] = XZ - ZX = -iY - iY`... Let me use `[X,Z] = -2iY` (from Chapter 1.1):
+Apply Robertson's relation `ΔA·ΔB ≥ ½|⟨[A,B]⟩|` with `[X,Z] = -2iY` (from Chapter 1.1, `XZ = -iY` and `ZX = iY`, so `XZ - ZX = -2iY`):
 
-$$\Delta X \cdot \Delta Z \geq \frac{1}{2}|\langle -2iY\rangle| / (1) = |\langle Y\rangle| = 4/5$$
-
-Wait, the formula is `ΔA·ΔB ≥ ½|⟨[A,B]⟩|` with `[X,Z] = -2iY`:
-$$\Delta X \cdot \Delta Z \geq \frac{1}{2}|\langle -2iY\rangle| = |-i|\cdot|\langle Y\rangle| = \frac{4}{5}$$
+$$\Delta X \cdot \Delta Z \geq \frac{1}{2}|\langle -2iY\rangle| = \frac{1}{2}\cdot 2\,|\langle Y\rangle| = |\langle Y\rangle| = \frac{4}{5}$$
 
 LHS: `ΔX · ΔZ = 1 · (4/5) = 4/5`.  
 RHS: `4/5`.
@@ -281,6 +277,64 @@ The uncertainty relation is **saturated** (equality holds). This state is a **mi
 - **Measurement collapse** is irreversible and non-unitary; the deferred measurement principle shows mid-circuit measurements can be moved to the end
 - **QND measurements** extract information without disturbing the measured eigenvalue; used in quantum error correction for syndrome measurement
 - Quantum computing output is fundamentally **sampling** from a probability distribution — statistical repetition is required to estimate the distribution
+
+## Exercises
+
+**Exercise 1**: A qubit is in the state `|ψ⟩ = (√3|0⟩ + |1⟩)/2`. Compute `⟨Z⟩`, `ΔZ`, `⟨X⟩`, `ΔX`, and verify the uncertainty relation `ΔX·ΔZ ≥ |⟨Y⟩|`.
+
+<details><summary>Solution</summary>
+
+Z statistics: `p(0) = 3/4`, `p(1) = 1/4`, so `⟨Z⟩ = 3/4 - 1/4 = 1/2` and `(ΔZ)² = 1 - 1/4 = 3/4`, giving `ΔZ = √3/2`.
+
+X expectation (real amplitudes `α = √3/2`, `β = 1/2`): `⟨X⟩ = 2αβ = 2·(√3/2)·(1/2) = √3/2`. Then `(ΔX)² = 1 - 3/4 = 1/4`, so `ΔX = 1/2`.
+
+Y expectation: `⟨Y⟩ = 2 Im(α*β) = 0` (all amplitudes real).
+
+Uncertainty check: `ΔX·ΔZ = (1/2)(√3/2) = √3/4 ≈ 0.43 ≥ |⟨Y⟩| = 0` ✓. The bound is satisfied but far from saturated — for a state in the x–z plane the commutator bound is vacuous, yet neither variance is zero because `|ψ⟩` is an eigenstate of neither `X` nor `Z`.
+
+</details>
+
+**Exercise 2**: Define `E₁ = c|1⟩⟨1|`, `E₂ = c|−⟩⟨−|`, `E₃ = I - E₁ - E₂` with `c = 2 - √2`. Show that `{E₁, E₂, E₃}` is a valid POVM, and that it performs **unambiguous discrimination** between the non-orthogonal states `|0⟩` and `|+⟩`: outcome 1 certifies the state was `|+⟩`, outcome 2 certifies it was `|0⟩`. Compute the success probability.
+
+<details><summary>Solution</summary>
+
+Positivity of `E₁, E₂` is immediate (positive multiples of projectors). For `E₃`, compute
+
+`E₁ + E₂ = c(|1⟩⟨1| + |−⟩⟨−|) = c[[1/2, -1/2],[-1/2, 3/2]]`
+
+whose eigenvalues are `c(1 ± 1/√2)`. The larger one is `(2-√2)(1 + 1/√2) = 2 - √2 + √2 - 1 = 1`, and the smaller is `(2-√2)(1 - 1/√2) = 3 - 2√2`. Therefore `E₃ = I - (E₁+E₂)` has eigenvalues `1 - 1 = 0` and `1 - (3-2√2) = 2√2 - 2 ≈ 0.83`, both non-negative ✓. Completeness `E₁+E₂+E₃ = I` holds by construction, so `{E₁,E₂,E₃}` is a valid POVM.
+
+Unambiguity: `⟨0|E₁|0⟩ = c|⟨1|0⟩|² = 0`, so if the state is `|0⟩`, outcome 1 never occurs — outcome 1 implies the state was `|+⟩`. Similarly `⟨+|E₂|+⟩ = c|⟨−|+⟩|² = 0`, so outcome 2 implies `|0⟩`. Outcome 3 is inconclusive.
+
+Success probabilities: `⟨+|E₁|+⟩ = c|⟨1|+⟩|² = c/2 = (2-√2)/2 = 1 - 1/√2 ≈ 0.293`, and by symmetry `⟨0|E₂|0⟩ = c/2 ≈ 0.293`. This equals the optimal unambiguous-discrimination probability `1 - |⟨0|+⟩| = 1 - 1/√2` (the IDP bound).
+
+</details>
+
+**Exercise 3**: Show that the state `|+i⟩ = (|0⟩ + i|1⟩)/√2` saturates the qubit uncertainty relation `ΔX·ΔZ ≥ |⟨Y⟩|`.
+
+<details><summary>Solution</summary>
+
+`|+i⟩` is the `+1` eigenstate of `Y`, so `⟨Y⟩ = 1` — the right-hand side is 1, its maximum possible value.
+
+For the left-hand side: `⟨X⟩ = 2 Re(α*β) = 2·Re(i/2) = 0`, so `(ΔX)² = ⟨X²⟩ - 0 = 1`. Similarly `⟨Z⟩ = 1/2 - 1/2 = 0`, so `(ΔZ)² = 1`.
+
+Therefore `ΔX·ΔZ = 1 = |⟨Y⟩|` — equality holds. Geometrically: the state lies on the y-axis of the Bloch sphere, maximally uncertain in both X and Z while pinning the commutator term to its maximum.
+
+</details>
+
+**Exercise 4**: A qubit starts in `|+⟩`. It is measured first in the Z basis, then in the X basis. (a) Compute the probability of each of the four outcome sequences. (b) Compare with measuring X directly (without the Z measurement first). What does this show about measurement disturbance?
+
+<details><summary>Solution</summary>
+
+**(a)** First measurement (Z on `|+⟩`): `p(0) = p(1) = 1/2`, collapsing the state to `|0⟩` or `|1⟩`.
+
+Second measurement (X on the collapsed state): both `|0⟩` and `|1⟩` are equal superpositions of `|+⟩` and `|−⟩`, so `p(+) = p(-) = 1/2` in either branch.
+
+The four sequences `(0,+), (0,-), (1,+), (1,-)` each occur with probability `½ · ½ = ¼`.
+
+**(b)** Measuring X directly on `|+⟩` gives outcome `+` with probability 1 (it is an eigenstate). The intervening Z measurement destroyed this certainty: after it, the X outcome is a coin flip. Since `[X, Z] ≠ 0`, the Z measurement collapses the state onto a basis incompatible with X, erasing the X information — a concrete demonstration that measuring one of two non-commuting observables disturbs the statistics of the other.
+
+</details>
 
 ## Further Reading
 

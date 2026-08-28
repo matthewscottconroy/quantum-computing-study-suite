@@ -134,14 +134,16 @@ For orthogonal pure states `ρᵢ = |ψᵢ⟩⟨ψᵢ|` (all `S(ρᵢ) = 0`): `�
 This gives the capacity of dense coding: at most `log₂ d` bits per qudit.
 
 **Holevo-Schumacher-Westmoreland (HSW) theorem**: The classical capacity of a quantum channel
-`N` is:
+`N` is the regularized Holevo capacity:
 
 ```
-C = lim_{n→∞} (1/n) max_{{pᵢ,ρᵢ}} χ(N^{⊗n})  =  max_{{pᵢ,ρᵢ}} χ(N)   (regularized)
+C(N) = lim_{n→∞} (1/n) χ(N^{⊗n}),   where   χ(N) = max_{{pᵢ,ρᵢ}} [S(N(Σᵢpᵢρᵢ)) - Σᵢ pᵢ S(N(ρᵢ))]
 ```
 
-For many channels, the capacity is additive (`C = χ(N)` without regularization), but in general
-entangled inputs can exceed the product-input capacity.
+The single-letter quantity `χ(N)` is always an achievable rate (`C ≥ χ`). For many channels
+`χ` is additive and `C = χ(N)` with no regularization needed — but not in general: Hastings
+(2009) showed channels exist for which entangled inputs across channel uses strictly exceed
+the product-input (single-letter) rate, so the regularization cannot be dropped.
 
 ---
 
@@ -167,12 +169,14 @@ where `S_e` is the entropy exchange (related to the channel's complementary chan
 depolarizing channel with error rate `p`:
 
 ```
-I_c(N_dep) = 1 - H₂(p) - p log₂ 3   (qubit depolarizing channel)
-Q(N_dep) = 0 for p ≥ p_th ≈ 0.25
+I_c(N_dep) = 1 - H₂(p) - p log₂ 3   (qubit depolarizing channel, total error probability p)
 ```
 
-The quantum capacity drops to zero above the **hashing threshold** — this is related to the QEC
-threshold.
+This **hashing bound** is positive for `p < p_hash ≈ 0.1893` (where `1 - H₂(p) - p log₂3 = 0`).
+Separately, the quantum capacity is *exactly zero* for `p ≥ 1/4` (there the channel becomes
+antidegradable — Eve's output is at least as good as Bob's, so `Q > 0` would violate no-cloning).
+In the window `0.1893 < p < 0.25` the capacity is not fully characterized. These thresholds are
+related to (but distinct from) QEC code thresholds.
 
 ### No-Go Results
 
@@ -265,9 +269,9 @@ the roles of classical and quantum communication.
 4. `|Φ⁺⟩ ≠ |+⟩|+⟩`. Contradiction. ∎
 
 **No-broadcasting theorem** (Barnum et al., 1996): For mixed states, the no-cloning theorem
-generalizes: there is no operation that takes `ρ → ρ⊗ρ` for all `ρ`. More precisely, a set
-of density matrices `{ρᵢ}` can be broadcast (iff → any device can be used to produce two copies
-of `ρᵢ` from one) if and only if they pairwise commute.
+generalizes: there is no operation that takes `ρ → ρ⊗ρ` for all `ρ`. More precisely, a set of
+density matrices `{ρᵢ}` can be broadcast — i.e., some single device maps each `ρᵢ` to a
+bipartite state whose both marginals equal `ρᵢ` — if and only if the `ρᵢ` pairwise commute.
 
 ---
 
@@ -354,6 +358,95 @@ to classical correlations which are not quantified in the same way.
 - **Teleportation and superdense coding** are dual protocols: `1 ebit + 2 cbits ↔ 1 qubit`.
 - **Monogamy of entanglement**: maximal entanglement with one party precludes entanglement with
   others — basis for QKD security proofs.
+
+---
+
+## Exercises
+
+**Exercise 1**: Compute the quantum conditional entropy `S(A|B)` for (a) the classically
+correlated state `ρ_{AB} = (|00⟩⟨00| + |11⟩⟨11|)/2` and (b) the Bell state `|Φ⁺⟩`. Interpret
+the difference.
+
+<details><summary>Solution</summary>
+
+(a) `ρ_{AB}` has eigenvalues `{1/2, 1/2, 0, 0}`, so `S(AB) = 1`. The marginal is
+`ρ_B = I/2`, so `S(B) = 1`. Hence `S(A|B) = S(AB) - S(B) = 1 - 1 = 0`.
+
+(b) `|Φ⁺⟩` is pure: `S(AB) = 0`; marginal maximally mixed: `S(B) = 1`. Hence
+`S(A|B) = 0 - 1 = -1`.
+
+Interpretation: with classical correlation, knowing `B` removes all uncertainty about `A`
+(`S(A|B) = 0`, exactly as for a classical shared random bit). Entanglement goes further: the
+*joint* state is perfectly known (pure) while each part alone is maximally uncertain — a
+situation impossible classically (classically `S(A|B) ≥ 0` always). The negative value `-1`
+is operationally meaningful: via state merging, Alice can transfer her share using no quantum
+communication and *gain* 1 ebit for future use.
+
+</details>
+
+**Exercise 2**: Alice encodes one classical bit by sending `|0⟩` (for 0) or `|+⟩` (for 1),
+each with probability 1/2. Compute the Holevo bound on Bob's accessible information.
+
+<details><summary>Solution</summary>
+
+Both signal states are pure, so `χ = S(ρ̄)` with
+
+```
+ρ̄ = (|0⟩⟨0| + |+⟩⟨+|)/2 = [[3/4, 1/4], [1/4, 1/4]]
+```
+
+Eigenvalues: `λ± = (1 ± 1/√2)/2 ≈ 0.8536, 0.1464` (trace 1, determinant `1/8`).
+
+```
+χ = -0.8536 log₂ 0.8536 - 0.1464 log₂ 0.1464 ≈ 0.601 bits
+```
+
+Bob can extract at most `≈ 0.60` bits per qubit, even though Alice "used" a full bit — the
+non-orthogonality of `|0⟩` and `|+⟩` (overlap `|⟨0|+⟩|² = 1/2`) makes the encoding partly
+indistinguishable. (The optimal measurement actually achieves only `≈ 0.399` bits here; Holevo
+is an upper bound, not always attained for single-copy measurements.)
+
+</details>
+
+**Exercise 3**: The quantum erasure channel replaces the input qubit by a flagged erasure state
+`|e⟩` with probability `p`. Its quantum capacity is `Q = max(1 - 2p, 0)`. (a) Evaluate `Q` at
+`p = 0.3`. (b) Give the no-cloning argument for why `Q = 0` at `p = 1/2`.
+
+<details><summary>Solution</summary>
+
+(a) `Q = 1 - 2(0.3) = 0.4` qubits per channel use.
+
+(b) At `p = 1/2`, the channel can be simulated as follows: a symmetric splitter sends the input
+to Bob and to the environment (Eve), each receiving it with probability 1/2 and an erasure flag
+otherwise — Bob's and Eve's outputs are then *identical* channels. If `Q > 0`, Bob could decode
+the transmitted qubit; by symmetry Eve could run the same decoder on her output, producing two
+copies of an arbitrary unknown qubit — a cloning machine. No-cloning forbids this, so
+`Q(p = 1/2) = 0` (and monotonicity gives `Q = 0` for all `p ≥ 1/2`). This "symmetric channels
+have zero capacity" argument is the same one that kills the depolarizing channel at `p = 1/4`.
+
+</details>
+
+**Exercise 4**: Compute the quantum mutual information `I(A:B)` for the Bell state `|Φ⁺⟩` and
+compare it with the maximum for two classically correlated bits. Which protocol "cashes in"
+this factor?
+
+<details><summary>Solution</summary>
+
+For `|Φ⁺⟩`: `S(A) = S(B) = 1`, `S(AB) = 0`, so
+
+```
+I(A:B) = 1 + 1 - 0 = 2
+```
+
+Two classical bits (or any separable two-qubit state) satisfy `I(A:B) ≤ 1` when each marginal
+carries at most one bit of entropy — perfectly correlated coins give exactly `I = 1`. The Bell
+state doubles this, saturating the general bound `I(A:B) ≤ 2 min(S(A), S(B))`.
+
+Superdense coding cashes in exactly this factor: 1 ebit + 1 transmitted qubit → 2 classical
+bits, i.e. the pre-shared entanglement doubles the classical information carried per physical
+qubit sent.
+
+</details>
 
 ---
 

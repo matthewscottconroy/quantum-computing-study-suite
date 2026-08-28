@@ -12,6 +12,7 @@ from core.session import QuizSession
 from qiskit_contexts import QiskitContext
 from workers.question_worker import QuestionWorker
 from workers.evaluation_worker import EvaluationWorker
+from workers.viva_worker import VivaWorker
 from ui.screens.setup_screen import SetupScreen
 from ui.screens.question_screen import QuestionScreen
 from ui.screens.feedback_screen import FeedbackScreen
@@ -40,6 +41,13 @@ class MainWindow(QMainWindow):
         self._pending_elapsed: int = 0
         self._q_worker: QuestionWorker | None = None
         self._ev_worker: EvaluationWorker | None = None
+        self._viva_worker: VivaWorker | None = None
+
+        # Viva mode state: (base_question, answer, evaluation) queued for a probe.
+        # Cap is one follow-up per base question, and follow-ups never spawn
+        # follow-ups — enforced by _current_is_followup below.
+        self._viva_pending: tuple[Question, str, Evaluation] | None = None
+        self._current_is_followup: bool = False
 
         self._stack = QStackedWidget()
         self.setCentralWidget(self._stack)
@@ -80,6 +88,8 @@ class MainWindow(QMainWindow):
 
     def _on_quiz_started(self, config: QuizConfig) -> None:
         self._session = QuizSession(config)
+        self._viva_pending = None
+        self._current_is_followup = False
         self._fetch_next_question()
 
     def _fetch_next_question(self) -> None:
@@ -94,6 +104,7 @@ class MainWindow(QMainWindow):
 
     def _on_question_ready(self, question: Question, context: QiskitContext) -> None:
         self._current_question = question
+        self._current_is_followup = False
         self._overlay.hide_overlay()
         self._question_screen.load_question(
             question=question,
@@ -120,7 +131,18 @@ class MainWindow(QMainWindow):
         self._session.record_answer(
             self._current_question, answer, evaluation,
             elapsed_seconds=self._pending_elapsed,
+            is_followup=self._current_is_followup,
         )
+        # Queue a viva probe: base questions only (follow-ups never spawn
+        # follow-ups), and only when the answer had enough substance (score ≥ 4).
+        if (
+            self._session.config.viva_mode
+            and not self._current_is_followup
+            and evaluation.score >= 4
+        ):
+            self._viva_pending = (self._current_question, answer, evaluation)
+        else:
+            self._viva_pending = None
         try:
             from persistence import save_draft
             save_draft(self._session.stats)
@@ -130,10 +152,57 @@ class MainWindow(QMainWindow):
         self._show_page(PAGE_FEEDBACK)
 
     def _on_skip(self) -> None:
+        if self._current_is_followup:
+            # Skipping a viva follow-up: it was an extra question, so it must
+            # not consume a slot in the configured count.
+            self._current_is_followup = False
+            self._advance_or_finish()
+            return
+        self._viva_pending = None
         self._session.record_skip()
         self._advance_or_finish()
 
     def _on_next_question(self) -> None:
+        if self._viva_pending is not None:
+            self._fetch_viva_followup()
+            return
+        self._current_is_followup = False
+        self._advance_or_finish()
+
+    # ── Viva mode ─────────────────────────────────────────────────────────────
+
+    def _fetch_viva_followup(self) -> None:
+        base_question, answer, evaluation = self._viva_pending
+        self._viva_pending = None
+        self._overlay.show_with_message(
+            "Generating follow-up",
+            "Claude is probing your answer one level deeper…",
+        )
+        self._viva_worker = VivaWorker(
+            self._session, base_question, answer, evaluation, self
+        )
+        self._viva_worker.question_ready.connect(self._on_viva_ready)
+        self._viva_worker.error.connect(self._on_viva_error)
+        self._viva_worker.start()
+
+    def _on_viva_ready(self, question: Question, context: QiskitContext) -> None:
+        self._current_question = question
+        self._current_is_followup = True
+        self._overlay.hide_overlay()
+        self._question_screen.load_question(
+            question=question,
+            context=context,
+            # The follow-up belongs to the base question just answered.
+            number=max(1, self._session.question_number() - 1),
+            total=self._session.config.question_count,
+            is_followup=True,
+        )
+        self._show_page(PAGE_QUESTION)
+
+    def _on_viva_error(self, message: str) -> None:
+        # Follow-ups are a bonus — on failure, continue the session normally.
+        self._overlay.hide_overlay()
+        self._current_is_followup = False
         self._advance_or_finish()
 
     def _advance_or_finish(self) -> None:
@@ -146,6 +215,8 @@ class MainWindow(QMainWindow):
     def _on_restart(self) -> None:
         self._session = None
         self._current_question = None
+        self._viva_pending = None
+        self._current_is_followup = False
         self._show_page(PAGE_SETUP)
 
     def _on_review_mistakes(self) -> None:
@@ -169,6 +240,8 @@ class MainWindow(QMainWindow):
         new_session = QuizSession(review_config)
         new_session._pending_questions = list(failed)
         self._session = new_session
+        self._viva_pending = None
+        self._current_is_followup = False
         self._fetch_next_question()
 
     # ── History ───────────────────────────────────────────────────────────────
@@ -231,5 +304,9 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            self._session.record_skip()
+            if self._current_is_followup:
+                # Follow-ups are extras — dropping one must not consume a slot.
+                self._current_is_followup = False
+            else:
+                self._session.record_skip()
             self._advance_or_finish()

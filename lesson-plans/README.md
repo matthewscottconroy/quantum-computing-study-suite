@@ -28,11 +28,13 @@ Mathematics                    Physics                     Computing
 | [03](03-representation-theory.md) | Representation Theory | Irreps, SU(2), Pauli group, QFT from characters, hidden subgroup |
 | [04](04-quantum-mechanics.md) | Quantum Mechanics | Postulates, Bloch sphere, measurement, entanglement, open systems, noise channels |
 | [05](05-quantum-computing.md) | Quantum Computing | Circuit model, universality, complexity, QEC, fault tolerance, algorithms survey |
-| [06](06-qiskit.md) | Qiskit | QuantumCircuit API, Aer simulation, quantum_info, VQE/QAOA, IBM hardware |
+| [06](06-qiskit.md) | Qiskit | QuantumCircuit API, Aer simulation, quantum_info, VQE/QAOA, visualization, primitives (Sampler/Estimator, PUBs), IBM hardware |
 | [07](07-qasm.md) | QASM | OpenQASM 2 & 3 syntax, custom gates, mid-circuit measurement, defcal, cross-SDK interchange |
 | [08](08-foundations-of-quantum-mechanics.md) | Foundations of QM | Measurement problem, interpretations, Bell's theorem, decoherence, information-theoretic axioms |
 | [09](09-quantum-algorithm-design.md) | Algorithm Design | Core techniques, QPE, Grover, Shor, HHL, VQE, QAOA, simulation, query complexity |
 | [10](10-transpiling.md) | Transpiling | Basis translation, routing, optimization passes, custom pass manager, noise-aware compilation |
+| [11](11-certification-prep.md) | Certification Prep | IBM C1000-179 exam study track: section-by-section mapping to repo resources, 5-week schedule, self-assessment checklist |
+| [12](12-reading-ladder.md) | Reading Ladder | Curated paper-reading program: classics ladder (EPR → Bell → CHSH → … → IBM gross code), per-docs-chapter reading lists with difficulty ratings, paper-drill integration |
 
 ---
 
@@ -54,6 +56,14 @@ Study these in order; each builds on the previous.
 8. **QASM** — the IR; read and write circuits at assembly level
 9. **Qiskit** — build, simulate, and run circuits on hardware
 10. **Transpiling** — compilation pipeline, custom passes, noise-aware optimization
+
+### Phase 4 — Certification (optional, Month 7+)
+11. **Certification Prep** — a 4–6 week part-time track mapping the IBM C1000-179
+    (Qiskit v2.x Associate Developer) exam onto lessons 06, 07, and 10 plus the
+    interactive apps, ending with the official IBM sample test
+12. **Reading Ladder** — runs in parallel with Phases 2–4 rather than after them:
+    one classics-ladder paper per week plus each docs chapter's reading list,
+    drilled with the paper-drill app
 
 ---
 
@@ -85,15 +95,15 @@ Each markdown file follows a consistent structure:
 
 | Lesson | Modules | Focus Areas |
 |---|---|---|
-| 01 Linear Algebra | 8 | Vector spaces, inner products, eigendecomposition, density matrices, tensor products, Schmidt decomposition |
-| 02 Abstract Algebra | 7 | Groups, homomorphisms, Lie groups (SU(2)), finite fields, Clifford group, Pauli group structure |
+| 01 Linear Algebra | 6 | Vector spaces, inner products, eigendecomposition, density matrices, tensor products, Schmidt decomposition |
+| 02 Abstract Algebra | 6 | Groups, homomorphisms, Lie groups (SU(2)), finite fields, Clifford group, Pauli group structure |
 | 03 Representation Theory | 6 | Irreps, characters, SU(2) reps, Clebsch-Gordan, QFT from character sums, hidden subgroup |
-| 04 Quantum Mechanics | 9 | Postulates, Bloch sphere, measurement, entanglement, Lindblad, Kraus operators, Bell states |
-| 05 Quantum Computing | 10 | Circuit model, gates, universality, QEC, CSS codes, surface code, fault tolerance, algorithms |
-| 06 Qiskit | 8 | QuantumCircuit, AerSimulator, quantum_info, parameterized circuits, SamplerV2, IBM hardware |
-| 07 QASM | 6 | QASM 2 syntax, qelib1.inc, QASM 3 types and control flow, mid-circuit measurement, defcal |
-| 08 Foundations of QM | 8 | Interpretations, Bell's theorem, CHSH, Tsirelson bound, decoherence, information-theoretic axioms |
-| 09 Algorithm Design | 9 | Phase kickback, QPE, Grover, Shor, HHL, VQE, QAOA, simulation, query complexity |
+| 04 Quantum Mechanics | 6 | Postulates, Bloch sphere, measurement, entanglement, Lindblad, Kraus operators, Bell states |
+| 05 Quantum Computing | 6 | Circuit model, gates, universality, QEC, CSS codes, surface code, fault tolerance, algorithms |
+| 06 Qiskit | 8 | QuantumCircuit, AerSimulator, quantum_info, parameterized circuits, visualization, primitives (SamplerV2/EstimatorV2, PUBs), IBM Runtime |
+| 07 QASM | 6 | QASM 2 syntax, qelib1.inc, QASM 3 types and control flow, mid-circuit measurement, defcal (spec background; pulse retired on IBM systems) |
+| 08 Foundations of QM | 6 | Interpretations, Bell's theorem, CHSH, Tsirelson bound, decoherence, information-theoretic axioms |
+| 09 Algorithm Design | 5 | Phase kickback, QPE, Grover, Shor, HHL, VQE, QAOA, simulation, query complexity |
 | 10 Transpiling | 7 | Basis translation, routing, SWAP insertion, optimization passes, noise-aware compilation |
 
 ---
@@ -105,7 +115,7 @@ targets a subset of the curriculum:
 
 | App | Relevant Lessons |
 |---|---|
-| `flashcard-drill` | 01, 02, 03, 05 — core identities and theorems |
+| `flashcard-drill` | 01, 02, 03, 05, 06 — core identities, theorems, and Qiskit API |
 | `math-quiz` | 01, 02, 03, and the math subjects absent from quantum-quiz |
 | `quantum-quiz` | 04, 05, 06, 07, 08, 09, 10 |
 | `circuit-trainer` | 05, 06 — circuit arithmetic and Qiskit |

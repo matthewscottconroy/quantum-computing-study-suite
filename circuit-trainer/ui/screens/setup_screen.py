@@ -7,10 +7,20 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from core.models import TrainerConfig, ProblemCategory
-from config import DEFAULT_PROBLEM_COUNT
+from config import DEFAULT_PROBLEM_COUNT, SPRINT_QUESTION_COUNT, SPRINT_SECONDS
 from ui import theme
 
 ALL_CATEGORIES = list(ProblemCategory)
+
+# Prediction-style categories with deterministic, auto-checkable answers —
+# the only ones used by Sprint mode (no Claude grading, instant verdicts).
+SPRINT_CATEGORIES = [
+    ProblemCategory.MEASUREMENT_PROBS,
+    ProblemCategory.SINGLE_GATE_OUTPUT,
+    ProblemCategory.GATE_SEQUENCE,
+    ProblemCategory.CIRCUIT_UNITARY,
+    ProblemCategory.MULTI_QUBIT_OUTPUT,
+]
 DIFFICULTY_OPTIONS = [("Adaptive (recommended)", None), ("Beginner", "beginner"),
                       ("Intermediate", "intermediate"), ("Advanced", "advanced")]
 
@@ -136,6 +146,22 @@ class SetupScreen(QWidget):
         tip.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 13px;")
         tip_card.layout().addWidget(tip)
         right.addWidget(tip_card)
+
+        sprint_card = self._card("Sprint")
+        sprint_tip = QLabel(
+            f"{SPRINT_QUESTION_COUNT} rapid-fire prediction questions, "
+            f"{SPRINT_SECONDS} seconds each. Timeout counts as wrong and "
+            "auto-advances. Auto-graded only — instant right/wrong flash, "
+            "no worked solutions until the end screen. Uses the difficulty "
+            "selected above."
+        )
+        sprint_tip.setWordWrap(True)
+        sprint_tip.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 13px;")
+        sprint_card.layout().addWidget(sprint_tip)
+        sprint_btn = QPushButton("Start Sprint ⏱")
+        sprint_btn.clicked.connect(self._on_sprint)
+        sprint_card.layout().addWidget(sprint_btn)
+        right.addWidget(sprint_card)
         right.addStretch()
         content.addLayout(right, 2)
 
@@ -179,5 +205,14 @@ class SetupScreen(QWidget):
             categories=cats,
             difficulty=self._diff_combo.currentData(),
             problem_count=self._count_spin.value(),
+        )
+        self.session_started.emit(config)
+
+    def _on_sprint(self) -> None:
+        config = TrainerConfig(
+            categories=list(SPRINT_CATEGORIES),
+            difficulty=self._diff_combo.currentData(),
+            problem_count=SPRINT_QUESTION_COUNT,
+            sprint=True,
         )
         self.session_started.emit(config)

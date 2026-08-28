@@ -53,9 +53,10 @@ is possible with:
 3. Photon number-resolving detectors.
 4. Feed-forward (adaptive measurements based on earlier outcomes).
 
-**KLM CNOT gate**: Uses 2 ancilla photons and post-selection. The gate succeeds with probability
-`1/4` when using `n+2` modes for an `n`-photon input. Success can be boosted arbitrarily close
-to 1 using teleportation-based protocols but at large ancilla cost.
+**KLM CNOT gate**: Built from two nonlinear-sign (NS) gates, each using an ancilla photon and
+post-selection and each succeeding with probability `1/4`; the resulting CNOT/CZ succeeds with
+probability `1/16`. Success can be boosted arbitrarily close to 1 using teleportation-based
+protocols but at large ancilla cost.
 
 **Scalability**: The overhead of KLM is significant. Efficient implementations require photon
 number-resolving detectors, deterministic single photon sources, and very low-loss waveguides —
@@ -183,9 +184,9 @@ Rydberg excitation for two-qubit gates.
 
 The **CZ gate** via Rydberg blockade:
 1. Apply `π` pulse to control qubit: `|0⟩_c → |0⟩_c`, `|1⟩_c → |r⟩_c`.
-2. Apply `2π` pulse to target: if control is in `|r⟩`, blockade prevents target excitation (picks
-   up phase `+1` from failed excitation → phase π back); if control is in `|0⟩`, target completes
-   `2π` rotation (phase `-1`).
+2. Apply `2π` pulse to target: if control is in `|r⟩`, blockade prevents target excitation and
+   the target acquires no phase (`+1`); if control is in `|0⟩`, target completes the full `2π`
+   rotation and acquires phase `-1`.
 3. Apply `π` pulse to control: de-excite.
 
 Net effect on `|1,0⟩, |0,1⟩, |0,0⟩`: phase `-1`, `-1`, `+1` → diagonal gate with `|1,1⟩ → -|1,1⟩`:
@@ -202,8 +203,9 @@ dynamic connectivity changes. This enables:
 - **Mid-circuit measurement**: measure a subset of atoms and feed forward.
 - **Non-planar connectivities**: arbitrary graphs via atom rearrangement.
 
-Lukin group (2023) demonstrated 48-qubit error-corrected logical qubits (surface code and
-transversal CNOT) in a Rydberg array.
+The Lukin group (Bluvstein et al., 2023) demonstrated logical-qubit circuits in a Rydberg
+array — including a transversal CNOT between a pair of distance-7 surface codes, and sampling
+circuits on 48 logical qubits encoded in [[8,3,2]] color-code blocks.
 
 ---
 
@@ -234,7 +236,7 @@ by braiding (topologically protected), with no need for careful pulse calibratio
 ### Experimental Status
 
 Microsoft has pursued Majorana-based topological qubits as their primary quantum computing
-strategy. A 2023 Nature paper from Microsoft reported observing topological gaps and local
+strategy. A 2023 Microsoft paper (*Phys. Rev. B*) reported observing topological gaps and local
 spectral signatures consistent with Majorana modes in InAs nanowire-superconductor devices.
 
 However, implementing a topological qubit suitable for quantum computation requires:
@@ -296,25 +298,32 @@ superconducting); precise control of exchange coupling between dots.
 
 ## Worked Example: Rydberg Blockade Gate Fidelity
 
-**Parameters**: `Rb` atoms at `n=70` Rydberg level, atom separation `r = 5 μm`, gate Rabi rate
-`Ω/2π = 1 MHz`.
+**Parameters**: `Rb` atoms excited to the `n = 70` Rydberg level, atom separation `r = 3 μm`,
+gate Rabi rate `Ω/2π = 2 MHz`.
 
-**Blockade strength**: `V/h = C₆/r⁶` where for `n=70` Rb: `C₆ ≈ 2π × 10^{17} rad/s·μm⁶`.
+**Blockade strength**: `V = C₆/r⁶`, where for Rb `70S`: `C₆/h ≈ 870 GHz·μm⁶`.
 
 ```
-V/h = 10^{17} / (5^6) = 10^{17} / 15625 ≈ 6.4 × 10^{12} Hz = 6.4 THz
+V/h = 870×10⁹ / 3⁶ = 870×10⁹ / 729 ≈ 1.2 × 10⁹ Hz = 1.2 GHz
 ```
 
-**Blockade condition**: `V/Ω ≈ 6.4 THz / 1 MHz = 6.4 × 10^6 ≫ 1`. ✓ Strong blockade regime.
+**Blockade condition**: `V/(ℏΩ) ≈ 1.2 GHz / 2 MHz = 600 ≫ 1`. ✓ Strong blockade regime.
 
 **Main error sources**:
-1. **Finite blockade**: gate error `ε_b ≈ (Ω/V)² ≈ (10^6/6.4×10^{12})² ≈ 2.4 × 10^{-14}`. Negligible.
-2. **Rydberg state decay**: Rydberg lifetime `τ_n ≈ n³ × τ₁ ≈ (70)³ × 10^{-8} s ≈ 3.4 ms`.
-   Gate time `t ≈ 3/(2Ω) = 3/(4π×10^6) ≈ 240 ns`.
-   Decay probability: `p_decay ≈ t/τ = 240×10^{-9}/3.4×10^{-3} ≈ 7 × 10^{-5}`. Small.
-3. **Laser phase noise and intensity fluctuations**: typically dominates at `~10^{-3}` level.
+1. **Finite blockade**: double-excitation leakage `ε_b ~ (Ω/V)² ≈ (1/600)² ≈ 3 × 10^{-6}`.
+   Negligible at this spacing.
+2. **Rydberg state decay**: the `70S` lifetime at room temperature (including blackbody
+   redistribution) is `τ ≈ 150 μs`. The blockade-gate pulse sequence has total area `~4π`,
+   so `t ≈ 4π/Ω = 2/( Ω/2π ) = 1 μs`. With roughly half the population in the Rydberg state
+   during the gate: `p_decay ~ 0.5 × t/τ = 0.5 × 10^{-6}/1.5×10^{-4} ≈ 3 × 10^{-3}`.
+3. **Laser phase noise, intensity noise, and Doppler shifts**: typically contribute at the
+   `~10^{-3}` level in current experiments.
 
-**Estimated gate fidelity**: `~ 99.0-99.5%` (laser noise limited), consistent with experiment. ✓
+**Estimated gate fidelity**: `1 - ε ≈ 99.5%`, dominated by Rydberg decay and laser noise —
+consistent with the best published blockade-gate fidelities (`99.0-99.5%`). Note what the
+budget implies: increasing `Ω` shortens the gate and reduces decay error, but eats into the
+blockade ratio `V/Ω`; the optimum balances the two, which is why groups push to larger `C₆`
+(higher `n`) and smaller, colder, better-localized atom pairs.
 
 ---
 
@@ -331,6 +340,68 @@ V/h = 10^{17} / (5^6) = 10^{17} / 15625 ≈ 6.4 × 10^{12} Hz = 6.4 THz
   qubit demonstrated yet (2025); long-term bet.
 - **Silicon spin qubits**: CMOS-compatible, high-density potential, improving fidelities; viable
   long-term contender especially for industrial scale.
+
+---
+
+## Exercises
+
+**1.** Estimate the Rydberg blockade radius `r_b = (C₆/ℏΩ)^{1/6}` for Rb `70S` atoms
+(`C₆/h ≈ 870 GHz·μm⁶`) driven at `Ω/2π = 2 MHz`.
+
+<details><summary>Solution</summary>
+
+Working in frequency units (the `h` factors cancel):
+`r_b = (870×10⁹ Hz·μm⁶ / 2×10⁶ Hz)^{1/6} = (4.35×10⁵)^{1/6} μm ≈ 8.7 μm`.
+Any pair of atoms closer than `~8.7 μm` is deep in the blockade regime for this drive
+strength; typical tweezer spacings of `3-5 μm` sit comfortably inside it. Note the extremely
+weak 1/6-power dependence: changing `Ω` by a factor of 64 moves `r_b` by only 2×.
+
+</details>
+
+**2.** A photonic circuit requires 3 KLM-style CZ gates (each succeeding with probability
+`1/16`) to all succeed in a single post-selected run. What is the success probability, and how
+many runs are needed on average? What architectural idea rescues linear-optics computing from
+this scaling?
+
+<details><summary>Solution</summary>
+
+`P = (1/16)³ = 1/4096 ≈ 2.4×10⁻⁴`, so `~4096` runs on average — and the cost grows as `16^G`
+in the number of gates. The rescue is *offline* preparation with feed-forward: probabilistic
+gates are used to grow entangled resource states (cluster states) ahead of time, retrying
+failures without touching the computation, and the actual computation proceeds by
+deterministic single-photon measurements (measurement-based/fusion-based QC).
+
+</details>
+
+**3.** In a boson sampling experiment, two photons enter modes 1 and 2 of an interferometer;
+the relevant 2×2 submatrix of the mode unitary is `U_sub = [[0.6, 0.8], [-0.8, 0.6]]`.
+Compute the probability of detecting one photon in each of the two output modes.
+
+<details><summary>Solution</summary>
+
+`Perm(U_sub) = (0.6)(0.6) + (0.8)(-0.8) = 0.36 - 0.64 = -0.28`.
+`P = |Perm|²/(1!1!·1!1!) = 0.0784`. Compare the classical (distinguishable-particle) value,
+which uses the permanent of the element-wise squared matrix:
+`0.36×0.36 + 0.64×0.64 = 0.539`. The suppression (7.8% vs. 54%) is two-photon interference —
+the same physics as the Hong-Ou-Mandel dip, and the effect that makes permanents (not
+determinants) appear.
+
+</details>
+
+**4.** An NV center sits in a magnetic field `B = 10 mT` aligned with the NV axis. Using
+`γ_e/2π ≈ 28 GHz/T`, compute the transition frequencies `|0⟩ → |m_s = ±1⟩` given the
+zero-field splitting `D/2π = 2.87 GHz`. Why does the field make the two transitions separately
+addressable?
+
+<details><summary>Solution</summary>
+
+Zeeman shift: `γ_e B/2π = 28 GHz/T × 0.01 T = 280 MHz`. The transitions split to
+`D ± γ_eB: 2.87 + 0.28 = 3.15 GHz` and `2.87 - 0.28 = 2.59 GHz`. With 560 MHz separation —
+far larger than typical MHz-scale Rabi rates — a microwave tone addresses one transition
+without driving the other, turning the S = 1 ground state into a well-defined two-level qubit
+(`|m_s = 0⟩` and one chosen `|m_s = ±1⟩` level).
+
+</details>
 
 ---
 

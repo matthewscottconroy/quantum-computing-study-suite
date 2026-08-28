@@ -201,7 +201,7 @@ A critical subtlety: the Deutsch-Jozsa algorithm is faster than deterministic cl
 | Deutsch | 1 | 2 | 2 | Constant (exact) |
 | Deutsch-Jozsa | 1 | 2^{n-1}+1 | O(n) | Exponential vs det., constant vs BPP |
 | Bernstein-Vazirani | 1 | n | n | n-fold (exact) |
-| Simon's | O(n) | 2^n | 2^{n/2} | Exponential vs BPP |
+| Simon's | O(n) | 2^{n-1}+1 | 2^{n/2} | Exponential vs BPP |
 
 Simon's is the only one where the quantum speedup is exponential over BPP (not just over deterministic algorithms). This is the crucial distinction for arguing genuine quantum advantage.
 
@@ -286,6 +286,66 @@ The quantum algorithm used **1 oracle call** (plus `O(n) = O(3)` gates). The cla
 - **Simon's problem**: `O(n)` quantum queries vs `Ω(2^{n/2})` classical (BPP); exponential speedup; works by sampling random linear constraints on the hidden period, then using Gaussian elimination
 - **Simon → Shor**: Simon's algorithm is the structural blueprint for Shor's factoring algorithm; replace Hadamard with QFT, replace GF(2) linear algebra with continued fractions
 - These are **query complexity** results: the speedup is measured in oracle calls; the circuit depth and gate count are also polynomial, making these genuine polynomial-time quantum algorithms
+
+## Exercises
+
+**Exercise 1**: Run the Bernstein-Vazirani algorithm for `n = 4` with hidden string `s = 1011`. Give the state after the oracle (list the sign of each basis state's amplitude for `x ∈ {0000, 0001, 0010, 0011}`), the final state, and the number of classical queries needed.
+
+<details><summary>Solution</summary>
+
+After the oracle the state is `(1/4)Σ_x (-1)^{s·x}|x⟩` with `s·x = x₁ ⊕ x₃ ⊕ x₄`. For the requested inputs:
+
+- `0000`: `s·x = 0` → `+`
+- `0001`: `s·x = 1` → `−`
+- `0010`: `s·x = 1` → `−`
+- `0011`: `s·x = 0` → `+`
+
+The final `H^{⊗4}` maps `(1/4)Σ_x(-1)^{s·x}|x⟩` exactly to `|s⟩ = |1011⟩` (orthogonality of characters), so the measurement returns `1011` with probability 1 after **one** query.
+
+Classically: 4 queries, one per standard basis vector (`f(1000) = s₁ = 1`, `f(0100) = s₂ = 0`, `f(0010) = s₃ = 1`, `f(0001) = s₄ = 1`).
+
+</details>
+
+**Exercise 2**: The function `f(x₁x₂) = x₁ ∨ x₂ (OR)` is neither constant nor balanced — it violates the Deutsch-Jozsa promise. Compute the full output distribution of the DJ circuit for this `f`. What would the algorithm (which reports "constant" iff the outcome is `00`) conclude, and with what probability?
+
+<details><summary>Solution</summary>
+
+`f(00) = 0`, `f(01) = f(10) = f(11) = 1`. The amplitude of outcome `y` is `(1/4)Σ_x(-1)^{f(x)+x·y}`:
+
+- `amp(00) = (1/4)(1 - 1 - 1 - 1) = -1/2`
+- `amp(01) = (1/4)(1 + 1 - 1 + 1) = 1/2`
+- `amp(10) = (1/4)(1 - 1 + 1 + 1) = 1/2`
+- `amp(11) = (1/4)(1 + 1 + 1 - 1) = 1/2`
+
+Distribution: `P(00) = P(01) = P(10) = P(11) = 1/4` (checks: squares sum to 1).
+
+The algorithm reports "constant" with probability `1/4` and "balanced" with probability `3/4`. Neither answer is meaningful — the promise is what makes the one-query separation possible; without it the outcome is just noise.
+
+</details>
+
+**Exercise 3**: In Simon's algorithm with `n = 3` and unknown period `s`, two runs return `y⁽¹⁾ = 110` and `y⁽²⁾ = 011`. Find all candidate periods `s` and state what a third run is for.
+
+<details><summary>Solution</summary>
+
+Constraints: `s·110 = 0` and `s·011 = 0`, i.e. `s₁ ⊕ s₂ = 0` and `s₂ ⊕ s₃ = 0`. Hence `s₁ = s₂ = s₃`, giving `s ∈ {000, 111}`. Since Simon's problem promises `s ≠ 000`, the unique candidate is `s = 111`.
+
+Here two independent equations already determine `s` (they span a 2-dimensional subspace of the 3-dimensional space, whose orthogonal complement minus `0` is a single string). A third run is only needed when earlier samples are linearly dependent (e.g., a repeat or `000`); in general one collects samples until `n-1` independent constraints are found, then confirms classically with two evaluations: `f(0...0) = f(s)` iff `s` is the period.
+
+</details>
+
+**Exercise 4**: For Simon's algorithm with period `s = 101` (`n = 3`), suppose the second-register measurement returned `f(x₀)` with `x₀ = 010`. Write the post-measurement state of the first register, apply `H^{⊗3}`, and list the outcomes that can occur with their probabilities.
+
+<details><summary>Solution</summary>
+
+The two preimages are `x₀ = 010` and `x₀ ⊕ s = 111`, so the register collapses to `(|010⟩ + |111⟩)/√2`.
+
+After `H^{⊗3}`, the amplitude of `|y⟩` is `(1/4)(-1)^{010·y}(1 + (-1)^{101·y})`: nonzero iff `s·y = y₁ ⊕ y₃ = 0`.
+
+The strings with `y₁ ⊕ y₃ = 0` are `{000, 010, 101, 111}`, each with amplitude `±1/2`, hence probability `1/4` each. (Explicit signs from the `(-1)^{010·y}` prefactor, i.e. `(-1)^{y₂}`: `+` for `000` and `101`, `−` for `010` and `111`.)
+
+Every outcome satisfies `s·y = 0`, giving one uniformly random linear constraint on `s` per run — the raw material for the Gaussian-elimination post-processing.
+
+</details>
 
 ## Further Reading
 

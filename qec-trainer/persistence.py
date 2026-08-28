@@ -7,7 +7,7 @@ from config import HISTORY_FILE, DATA_DIR
 from core.models import SessionStats, Attempt
 
 _HALF_LIFE_DAYS = 14.0   # score halves in weight every 14 days
-_FLAGGED_FILE = DATA_DIR / "flagged.json"
+_FLAGGED_FILE = DATA_DIR / "qec_flagged.json"
 
 
 def _load_raw() -> list[dict]:

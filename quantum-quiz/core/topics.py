@@ -135,6 +135,18 @@ TOPICS: dict[str, list[str]] = {
         "dynamic circuits and feed-forward after mid-circuit measurement",
         "circuit metrics: depth, CX count, T count, expected fidelity",
     ],
+    "Qiskit Certification (C1000-179)": [
+        "constructing SamplerV2 PUBs — (circuit, parameter_values, shots) tuples",
+        "reading Sampler results: result[0].data.<creg>.get_counts()",
+        "constructing EstimatorV2 PUBs — circuits, observables, parameter values, precision",
+        "reading Estimator results: data.evs and data.stds",
+        "generate_preset_pass_manager and the ISA circuit requirement",
+        "execution modes: job, Session, and Batch",
+        "selecting the right visualization function — plot_histogram vs plot_distribution vs Bloch/qsphere/city plots",
+        "little-endian qubit ordering in labels, counts keys, and statevectors",
+        "OpenQASM 2 and 3 syntax and Qiskit dumps/loads round-tripping",
+        "quantum_info operators: Operator, SparsePauliOp, Statevector methods",
+    ],
 }
 
 DIFFICULTY_LEVELS: list[str] = ["beginner", "intermediate", "advanced", "expert"]
@@ -146,6 +158,7 @@ QUESTION_TYPES: list[str] = [
     "circuit design",
     "error analysis",
     "proof sketch",
+    "teach-back",
 ]
 
 # Maps each subject to which Qiskit context mode to use.
@@ -164,4 +177,5 @@ SUBJECT_CONTEXT_MODE: dict[str, str | None] = {
     "Foundations of Quantum Mechanics": "statevector",
     "Quantum Algorithm Design":         "circuit",
     "Transpiling":                      "circuit",
+    "Qiskit Certification (C1000-179)": "circuit",
 }

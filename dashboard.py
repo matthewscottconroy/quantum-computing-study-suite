@@ -1,4 +1,4 @@
-"""Quantum Study Dashboard — unified mastery view across all 7 apps.
+"""Quantum Study Dashboard — unified mastery view across all study apps.
 
 Run standalone:
     python dashboard.py
@@ -32,6 +32,9 @@ _FILES = {
     "Math Quiz":         DATA_DIR / "math_history.json",
     "Quantum Quiz":      DATA_DIR / "quiz_history.json",
     "Paper Drill":       DATA_DIR / "paper_history.json",
+    "Qiskit Dojo":       DATA_DIR / "dojo_history.json",
+    "Exam Simulator":    DATA_DIR / "exam_history.json",
+    "Problem Trainer":   DATA_DIR / "problems_history.json",
 }
 
 _HALF_LIFE_DAYS = 14.0   # score weight halves every 14 days (matches app SRS)
@@ -64,6 +67,18 @@ _NOW = time.time()       # snapshot once so all comparisons are consistent
 # paper_history:
 #   [ { title, total, average, scores: [float, ...] } ]
 #   (no timestamp at all)
+#
+# dojo_history (Qiskit Dojo):
+#   [ { timestamp, total, passed,
+#       attempts: [ {kata_id, section, passed: bool, tries} ] } ]
+#
+# exam_history (Exam Simulator):
+#   [ { timestamp, mode: "full"|"sprint", total, correct, duration_secs,
+#       sections: { "<name>": {total, correct} } } ]
+#
+# problems_history (Problem Trainer):
+#   [ { timestamp, total, avg_score,
+#       attempts: [ {problem_id, kind: "problem"|"derivation", score} ] } ]
 # ---------------------------------------------------------------------------
 
 
@@ -242,6 +257,87 @@ def _extract_paper(sessions: list[dict]) -> tuple[int, int, float, list[float], 
     return len(sessions), total_attempts, weighted_avg, timestamps, all_scores, all_weights
 
 
+def _extract_dojo(sessions: list[dict]) -> tuple[int, int, float, list[float], list[float], list[float]]:
+    """Qiskit Dojo: attempts[].passed bool → 10.0 / 0.0 score."""
+    total_attempts = 0
+    w_sum = 0.0
+    ws_sum = 0.0
+    timestamps: list[float] = []
+    all_scores: list[float] = []
+    all_weights: list[float] = []
+    for s in sessions:
+        w = _session_weight(s)
+        ts = _session_timestamp(s)
+        if ts:
+            timestamps.append(ts)
+        for a in s.get("attempts", []):
+            score = 10.0 if a.get("passed") else 0.0
+            total_attempts += 1
+            w_sum += w * score
+            ws_sum += w
+            all_scores.append(score)
+            all_weights.append(w)
+    weighted_avg = w_sum / ws_sum if ws_sum else 0.0
+    return len(sessions), total_attempts, weighted_avg, timestamps, all_scores, all_weights
+
+
+def _extract_exam(sessions: list[dict]) -> tuple[int, int, float, list[float], list[float], list[float]]:
+    """Exam Simulator: session-level total/correct → per-question 10/0 scores."""
+    total_attempts = 0
+    w_sum = 0.0
+    ws_sum = 0.0
+    timestamps: list[float] = []
+    all_scores: list[float] = []
+    all_weights: list[float] = []
+    for s in sessions:
+        w = _session_weight(s)
+        ts = _session_timestamp(s)
+        if ts:
+            timestamps.append(ts)
+        try:
+            total = int(s.get("total", 0))
+            correct = int(s.get("correct", 0))
+        except (TypeError, ValueError):
+            continue
+        if total <= 0:
+            continue
+        correct = max(0, min(correct, total))
+        total_attempts += total
+        w_sum += w * correct * 10.0
+        ws_sum += w * total
+        all_scores.extend([10.0] * correct + [0.0] * (total - correct))
+        all_weights.extend([w] * total)
+    weighted_avg = w_sum / ws_sum if ws_sum else 0.0
+    return len(sessions), total_attempts, weighted_avg, timestamps, all_scores, all_weights
+
+
+def _extract_problems(sessions: list[dict]) -> tuple[int, int, float, list[float], list[float], list[float]]:
+    """Problem Trainer: attempts[].score (0–10 scale)."""
+    total_attempts = 0
+    w_sum = 0.0
+    ws_sum = 0.0
+    timestamps: list[float] = []
+    all_scores: list[float] = []
+    all_weights: list[float] = []
+    for s in sessions:
+        w = _session_weight(s)
+        ts = _session_timestamp(s)
+        if ts:
+            timestamps.append(ts)
+        for a in s.get("attempts", []):
+            try:
+                score = float(a.get("score", 0))
+            except (TypeError, ValueError):
+                score = 0.0
+            total_attempts += 1
+            w_sum += w * score
+            ws_sum += w
+            all_scores.append(score)
+            all_weights.append(w)
+    weighted_avg = w_sum / ws_sum if ws_sum else 0.0
+    return len(sessions), total_attempts, weighted_avg, timestamps, all_scores, all_weights
+
+
 # ---------------------------------------------------------------------------
 # Topic-level weak-spot analysis (qec, vqa, flashcard)
 # ---------------------------------------------------------------------------
@@ -321,6 +417,9 @@ def build_report() -> DashboardReport:
         "Math Quiz":       (_extract_math_quiz,  _FILES["Math Quiz"]),
         "Quantum Quiz":    (_extract_math_quiz,  _FILES["Quantum Quiz"]),
         "Paper Drill":     (_extract_paper,      _FILES["Paper Drill"]),
+        "Qiskit Dojo":     (_extract_dojo,       _FILES["Qiskit Dojo"]),
+        "Exam Simulator":  (_extract_exam,       _FILES["Exam Simulator"]),
+        "Problem Trainer": (_extract_problems,   _FILES["Problem Trainer"]),
     }
 
     for app_name, (fn, path) in extractors.items():
@@ -398,6 +497,17 @@ def build_report() -> DashboardReport:
             n = _recent_count_attempts(sessions, "records")
         elif app_name == "Paper Drill":
             n = _recent_count_paper(sessions)
+        elif app_name in ("Qiskit Dojo", "Problem Trainer"):
+            n = _recent_count_attempts(sessions, "attempts")
+        elif app_name == "Exam Simulator":
+            n = 0
+            for s in sessions:
+                ts = _session_timestamp(s)
+                if ts and ts >= cutoff:
+                    try:
+                        n += int(s.get("total", 0))
+                    except (TypeError, ValueError):
+                        pass
         else:
             n = 0
         if n > 0:

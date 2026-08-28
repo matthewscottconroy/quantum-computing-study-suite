@@ -266,6 +266,67 @@ Computing `|v₊⟩⟨v₊| - |v₋⟩⟨v₋|` returns `H` as expected. Alterna
 - The **Pauli matrices** `{I, X, Y, Z}` form a basis for `2×2` Hermitian matrices and encode the geometry of single-qubit states and rotations
 - The **completeness relation** `Σᵢ|i⟩⟨i| = I` is used constantly to expand states and operators in any orthonormal basis
 
+## Exercises
+
+**Exercise 1**: Find the eigenvalues and normalized eigenvectors of the Pauli `X` matrix, and verify its spectral decomposition `X = Σᵢ λᵢ|i⟩⟨i|` by explicit matrix computation.
+
+<details><summary>Solution</summary>
+
+The characteristic equation is `det(X - λI) = λ² - 1 = 0`, so `λ = ±1`.
+
+For `λ = +1`: `X|v⟩ = |v⟩` requires the components to be equal, giving `|+⟩ = (|0⟩+|1⟩)/√2`. For `λ = -1`: components opposite, giving `|−⟩ = (|0⟩-|1⟩)/√2`.
+
+Spectral decomposition:
+
+`|+⟩⟨+| = ½[[1,1],[1,1]]` and `|−⟩⟨−| = ½[[1,-1],[-1,1]]`, so
+
+`(+1)|+⟩⟨+| + (-1)|−⟩⟨−| = ½[[1-1, 1+1],[1+1, 1-1]] = [[0,1],[1,0]] = X` ✓
+
+</details>
+
+**Exercise 2**: Expand the Hermitian matrix `A = [[1,2],[2,-1]]` in the Pauli basis, i.e. find real numbers `a, b, c, d` with `A = aI + bX + cY + dZ`.
+
+<details><summary>Solution</summary>
+
+Using orthogonality of the Pauli basis under `⟨A,B⟩ = ½Tr(A†B)`, each coefficient is a half-trace:
+
+- `a = ½Tr(A) = ½(1 + (-1)) = 0`
+- `b = ½Tr(XA) = ½Tr([[2,-1],[1,2]]) = ½(2+2) = 2`
+- `c = ½Tr(YA) = ½Tr([[-2i, i],[i, 2i]]) = ½(-2i+2i) = 0`
+- `d = ½Tr(ZA) = ½Tr([[1,2],[-2,1]]) = ½(1+1) = 1`
+
+So `A = 2X + Z`. Check: `2X + Z = [[0,2],[2,0]] + [[1,0],[0,-1]] = [[1,2],[2,-1]] = A` ✓
+
+</details>
+
+**Exercise 3**: Verify the adjoint rule `(AB)† = B†A†` on the concrete pair `A = X`, `B = S = [[1,0],[0,i]]` by computing both sides explicitly.
+
+<details><summary>Solution</summary>
+
+Left side: `XS = [[0,1],[1,0]][[1,0],[0,i]] = [[0,i],[1,0]]`, so `(XS)† = [[0,1],[-i,0]]`.
+
+Right side: `S† = [[1,0],[0,-i]]` and `X† = X`, so `S†X† = [[1,0],[0,-i]][[0,1],[1,0]] = [[0,1],[-i,0]]`.
+
+Both sides equal `[[0,1],[-i,0]]` ✓. (Note the order reversal is essential: `A†B† = X S† = [[0,-i],[1,0]] ≠ (AB)†`.)
+
+</details>
+
+**Exercise 4**: Show that `V = ½[[1+i, 1-i],[1-i, 1+i]]` is unitary, compute `V²`, and find the eigenvalues of `V`. (This gate is called `√X` or `SX`.)
+
+<details><summary>Solution</summary>
+
+Unitarity: the (1,1) entry of `V†V` is `¼(|1+i|² + |1-i|²) = ¼(2+2) = 1`; the (1,2) entry is `¼((1-i)(1-i) + (1+i)(1+i)) = ¼((-2i) + (2i)) = 0`. By symmetry `V†V = I` ✓.
+
+Squaring:
+
+`V² = ¼[[(1+i)² + (1-i)², 2(1+i)(1-i)],[2(1+i)(1-i), (1+i)² + (1-i)²]] = ¼[[0, 4],[4, 0]] = X`
+
+since `(1+i)² = 2i`, `(1-i)² = -2i`, and `(1+i)(1-i) = 2`. So `V = √X`.
+
+Since `V` commutes with `X` (it is a polynomial in `X`), the eigenvectors of `X` are also eigenvectors of `V`. Applying `V` to `|+⟩`: each component becomes `½((1+i) + (1-i))·(1/√2) = 1/√2`, so `V|+⟩ = |+⟩` (eigenvalue `1`). Applying `V` to `|−⟩`: the components become `±½((1+i) - (1-i))·(1/√2) = ±i/√2`, so `V|−⟩ = i|−⟩` (eigenvalue `i`). Eigenvalues: `{1, i}` — square roots of the eigenvalues `{1, -1}` of `X`, as expected, and both lie on the unit circle as required for a unitary matrix.
+
+</details>
+
 ## Further Reading
 
 1. **Nielsen & Chuang**, *Quantum Computation and Quantum Information* (Cambridge, 2000), Chapter 2 — the canonical quantum computing reference; thorough linear algebra review in §2.1

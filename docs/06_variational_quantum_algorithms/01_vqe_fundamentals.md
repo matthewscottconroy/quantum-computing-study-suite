@@ -116,17 +116,18 @@ measured simultaneously in a single circuit execution (grouped measurements).
 
 ### Example: Hydrogen Molecule H₂
 
-The simplest non-trivial molecular system is H₂ in a minimal basis (STO-3G). After Jordan-Wigner
-mapping and symmetry reduction to 2 qubits:
+The simplest non-trivial molecular system is H₂ in a minimal basis (STO-3G). After a parity
+(Bravyi-Kitaev-style) mapping and symmetry reduction to 2 qubits, at bond length `R = 0.735 Å`:
 
 ```
-H_H₂ = c₀ I + c₁ Z₁ + c₂ Z₂ + c₃ Z₁Z₂ + c₄ X₁X₂ + c₅ Y₁Y₂
+H_H₂ = -1.052373 I + 0.397937 Z₁ - 0.397937 Z₂ - 0.011280 Z₁Z₂ + 0.180931 X₁X₂
 ```
 
-where coefficients `c₀,...,c₅` depend on bond length `R`. At `R = 0.74 Å` (equilibrium):
-approximately `c₀ ≈ -0.812`, `c₁ = c₂ ≈ 0.397`, `c₃ ≈ -0.011`, `c₄ = c₅ ≈ 0.181`.
-
-Exact ground-state energy: `E₀ ≈ -1.137` Hartree.
+(coefficients in Hartree). Diagonalizing this 4×4 matrix gives the exact **electronic**
+ground-state energy `E₀ = -1.857274` Ha. Adding the fixed nuclear repulsion energy
+`E_nuc = +0.719969` Ha gives the total energy `E_total = -1.137306` Ha — the familiar
+H₂ ground-state energy. (Different fermion-to-qubit mappings produce different-looking
+Pauli sums with identical spectra.)
 
 ---
 
@@ -212,7 +213,7 @@ For `N` spin-orbitals (typically `N = 2×(number of electrons)` in minimal basis
 
 | System | N | UCCSD parameters | Circuit depth |
 |--------|---|-----------------|---------------|
-| H₂ (minimal) | 4 | ~13 | ~50 CNOT |
+| H₂ (minimal) | 4 | 3 | ~50 CNOT |
 | H₂O (STO-3G) | 14 | ~72 | ~500 CNOT |
 | FeMoco (minimal) | 54 | ~thousands | ~millions CNOT |
 
@@ -272,48 +273,64 @@ Quantum advantage targets are systems with:
 
 ## Worked Example: H₂ VQE by Hand
 
-**Hamiltonian** (2-qubit, after reduction):
+**Hamiltonian** (the 2-qubit reduced H₂ Hamiltonian from above, at `R = 0.735 Å`):
 ```
-H = -1.117 I + 0.171 Z₁ + 0.171 Z₂ - 0.222 Z₁Z₂ + 0.162 X₁X₂ + 0.162 Y₁Y₂
-```
-(Coefficients in Hartree, approximate values at R = 0.74 Å)
-
-**Ansatz** (Ry ansatz, 1 parameter):
-```
-|ψ(θ)⟩ = Ry(θ)₁ · CNOT_{1→2} · |00⟩
-         = cos(θ/2)|00⟩ + sin(θ/2)|11⟩
-```
-(This is a simple hardware-efficient ansatz spanning entangled states.)
-
-**Energy function:**
-```
-⟨Z₁⟩ = cos²(θ/2) - sin²(θ/2) = cos θ
-⟨Z₂⟩ = cos²(θ/2) - sin²(θ/2) = cos θ
-⟨Z₁Z₂⟩ = cos²(θ/2)(+1) + sin²(θ/2)(+1) = 1   (both states |00⟩ and |11⟩ give +1)
-⟨X₁X₂⟩ = 2 sin(θ/2) cos(θ/2) = sin θ           (off-diagonal terms)
-⟨Y₁Y₂⟩ = -2 sin(θ/2) cos(θ/2) = -sin θ
+H = -1.052373 I + 0.397937 Z₁ - 0.397937 Z₂ - 0.011280 Z₁Z₂ + 0.180931 X₁X₂
 ```
 
-Wait: for the Bell state `|ψ(θ)⟩ = cos(θ/2)|00⟩ + sin(θ/2)|11⟩`:
+**Exact diagonalization** (do this first, so we know the answer): `H` is block-diagonal in the
+subspaces `span{|00⟩, |11⟩}` and `span{|01⟩, |10⟩}` (the diagonal terms preserve each pair,
+and `X₁X₂` couples `|00⟩ ↔ |11⟩` and `|01⟩ ↔ |10⟩`). Diagonalizing the two 2×2 blocks gives
+eigenvalues `{-1.857274, -1.244584, -0.882722, -0.224912}` Ha, so:
 ```
-⟨X₁X₂⟩ = 2cos(θ/2)sin(θ/2) = sinθ
-⟨Y₁Y₂⟩ = -2cos(θ/2)sin(θ/2) = -sinθ   (Y₁Y₂|00⟩ = -|11⟩)
+E₀ = -1.857274 Ha   (ground state lies in the {|01⟩, |10⟩} block)
+```
+The Hartree-Fock state is `|HF⟩ = |10⟩` with `E_HF = ⟨10|H|10⟩ = -1.836968` Ha; the
+correlation energy is `E₀ - E_HF = -20.3` mHa.
+
+**Ansatz** (1 parameter, prepared with an X gate, one Ry, and one CNOT):
+```
+|ψ(θ)⟩ = CNOT_{1→2} · (Ry(θ)₁ ⊗ I₂) · |01⟩ = cos(θ/2)|01⟩ + sin(θ/2)|10⟩
+```
+Operators act right-to-left: starting from `|01⟩ = X₂|00⟩`, first `Ry(θ)` rotates qubit 1
+(`cos(θ/2)|01⟩ + sin(θ/2)|11⟩`), then the CNOT maps `|11⟩ → |10⟩`. At `θ = π` this is the
+Hartree-Fock state `|10⟩`; the ansatz explores the two-dimensional block that contains the
+ground state.
+
+**Energy function** (for `|ψ(θ)⟩ = cos(θ/2)|01⟩ + sin(θ/2)|10⟩`):
+```
+⟨Z₁⟩ = cos²(θ/2) - sin²(θ/2) = cosθ
+⟨Z₂⟩ = -cos²(θ/2) + sin²(θ/2) = -cosθ
+⟨Z₁Z₂⟩ = -1                       (both |01⟩ and |10⟩ have anti-aligned spins)
+⟨X₁X₂⟩ = 2cos(θ/2)sin(θ/2) = sinθ  (X₁X₂|01⟩ = |10⟩)
 ```
 
 **E(θ):**
 ```
-E(θ) = -1.117 + 0.171 cosθ + 0.171 cosθ - 0.222(1) + 0.162 sinθ + 0.162(-sinθ)
-     = -1.117 + 0.342 cosθ - 0.222
-     = -1.339 + 0.342 cosθ
+E(θ) = -1.052373 + 0.397937 cosθ + 0.397937 cosθ + 0.011280 + 0.180931 sinθ
+     = -1.041093 + 0.795874 cosθ + 0.180931 sinθ
 ```
 
-**Minimizing**: `∂E/∂θ = -0.342 sinθ = 0` → `θ = 0` or `θ = π`.
+**Minimizing**: writing `a cosθ + b sinθ = R cos(θ - φ)` with
+`R = √(0.795874² + 0.180931²) = 0.816181`:
+```
+E_min = -1.041093 - 0.816181 = -1.857274 Ha   at θ* = π + arctan(0.180931/0.795874) ≈ 3.3651 rad
+```
 
-At `θ = π`: `E = -1.339 - 0.342 = -1.681` Hartree. But exact `E₀ ≈ -1.137` Hartree...
+`E_min = E₀` to all digits shown: the variational principle holds with equality because this
+one-parameter ansatz can reach the exact ground state (any real superposition in the
+`{|01⟩, |10⟩}` block). Sanity checks: `E(π) = -1.836968` Ha recovers Hartree-Fock, and adding
+`E_nuc = 0.719969` Ha gives the total energy `-1.137306` Ha.
 
-The discrepancy indicates this simple ansatz is not expressive enough for H₂ near equilibrium —
-the full UCCSD ansatz (which includes X₁X₂ and Y₁Y₂ rotation terms) is needed. This exercise
-illustrates that even a simple ansatz produces a VQE energy, but ansatz expressibility is critical.
+**What an under-expressive ansatz does**: suppose we had instead used
+`|ψ(θ)⟩ = CNOT_{1→2}(Ry(θ)₁ ⊗ I₂)|00⟩ = cos(θ/2)|00⟩ + sin(θ/2)|11⟩`. Repeating the
+calculation gives `E(θ) = -1.063653 + 0.180931 sinθ`, minimized at `E = -1.244585` Ha —
+exactly the lowest eigenvalue of the `{|00⟩, |11⟩}` block, but `0.61` Ha **above** `E₀`.
+This is the correct lesson about expressivity: an ansatz that cannot reach the ground state
+still obeys `E(θ) ≥ E₀` — it can only **over**estimate the ground-state energy, never
+undershoot it. (If a VQE "result" ever comes out below the exact ground energy, the
+Hamiltonian, the measurement, or the arithmetic is wrong — the variational principle leaves
+no third option.)
 
 ---
 
@@ -329,6 +346,68 @@ illustrates that even a simple ansatz produces a VQE energy, but ansatz expressi
   intractable to evaluate directly for large `N`.
 - Shot overhead and barren plateaus are key practical limitations; chemical accuracy requires
   `~10^6-10^8` circuit evaluations for realistic molecules.
+
+---
+
+## Exercises
+
+**1.** A Hamiltonian has eigenvalues `{-2, -1, 0, +3}` (in some energy unit). A trial state has
+overlap `|c₀|² = 0.9` with the ground state and `|c₁|² = 0.1` with the first excited state
+(zero overlap with the rest). Compute `⟨H⟩` and confirm it satisfies the variational principle.
+What is the lowest possible `⟨H⟩` over all states *orthogonal* to the ground state?
+
+<details><summary>Solution</summary>
+
+`⟨H⟩ = 0.9(-2) + 0.1(-1) = -1.9 ≥ E₀ = -2`. ✓
+
+For states orthogonal to the ground state, `c₀ = 0`, so `⟨H⟩ = Σ_{k≥1}|cₖ|²Eₖ ≥ E₁ = -1`,
+with equality for the first excited state. This is the basis of variational methods for excited
+states (deflation): minimizing over the orthogonal complement of `|E₀⟩` yields `E₁`.
+
+</details>
+
+**2.** Decompose the single-qubit Hamiltonian `H = [[1, 0], [0, -3]]` into Pauli operators
+using `c_P = Tr[PH]/2`.
+
+<details><summary>Solution</summary>
+
+`c_I = Tr[H]/2 = (1 - 3)/2 = -1`, `c_Z = Tr[ZH]/2 = (1 + 3)/2 = 2`, `c_X = c_Y = 0`
+(H is diagonal, and `X`, `Y` have zero diagonal). So `H = -I + 2Z`.
+Check: `-I + 2Z = [[-1+2, 0], [0, -1-2]] = [[1, 0], [0, -3]]`. ✓
+
+</details>
+
+**3.** For the worked example's ansatz `|ψ(θ)⟩ = cos(θ/2)|01⟩ + sin(θ/2)|10⟩` and the 2-qubit
+H₂ Hamiltonian, evaluate `E(θ)` at `θ = 0`, `θ = π/2`, and `θ = π`. Which of these is the
+Hartree-Fock energy, and why is `θ = π/2` (the maximally entangled state) *not* optimal?
+
+<details><summary>Solution</summary>
+
+Using `E(θ) = -1.041093 + 0.795874 cosθ + 0.180931 sinθ`:
+
+- `E(0) = -1.041093 + 0.795874 = -0.245219 Ha` (this is `⟨01|H|01⟩`, a highly excited configuration)
+- `E(π/2) = -1.041093 + 0.180931 = -0.860162 Ha`
+- `E(π) = -1.041093 - 0.795874 = -1.836968 Ha` = `E_HF` (the state is `|10⟩ = |HF⟩`)
+
+The optimum `θ* ≈ 3.365` is close to `π`: the true ground state is mostly Hartree-Fock with a
+small admixture of `|01⟩` (amplitude ≈ 0.11). Entanglement in VQE is a resource to be dosed by
+the Hamiltonian, not maximized for its own sake — the Bell state at `θ = π/2` grossly
+over-rotates and lands `~1 Ha` above the ground state.
+
+</details>
+
+**4.** You estimate the term `0.180931 X₁X₂` by measuring `X₁X₂` (eigenvalues `±1`) with `S`
+shots. Using `Var(⟨X₁X₂⟩) ≤ 1/S`, how many shots guarantee the statistical error of this
+term's energy contribution is below chemical accuracy (`1.6 mHa`)?
+
+<details><summary>Solution</summary>
+
+The term's standard error is `σ = |c| · σ(⟨X₁X₂⟩) ≤ 0.180931/√S`. Requiring
+`0.180931/√S < 1.6 × 10⁻³` gives `S > (0.180931/0.0016)² ≈ 1.28 × 10⁴` shots — about 13,000
+shots for one Pauli term of one energy evaluation. Multiply by the number of terms and the
+number of optimizer iterations to see why VQE shot budgets reach `10⁶-10⁸` quickly.
+
+</details>
 
 ---
 

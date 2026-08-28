@@ -1,15 +1,15 @@
 # VQA Trainer
 
-A focused problem trainer for variational quantum algorithms. 28 problems across 6
+A focused problem trainer for variational quantum algorithms. 179 problems across 7
 categories — from VQE fundamentals and the parameter shift rule through QAOA, ansatz
-design, barren plateaus, and noise mitigation. Three answer modes: multiple choice,
+design, barren plateaus, noise mitigation, and quantum optimal control. Three answer modes: multiple choice,
 exact numeric (for parameter shift calculations), and open-ended free-form.
 
 ---
 
 ## Features
 
-- **28 curated problems** across 6 VQA categories
+- **179 curated problems** across 7 VQA categories
 - **Three answer modes:**
   - **Multiple choice** — auto-graded instantly
   - **Numeric** — exact value with tolerance and partial credit (for parameter shift
@@ -83,7 +83,11 @@ Hint button shows remaining hint count. Submit enables on valid input.
 
 ## Problem Bank
 
-### VQE Fundamentals (6 problems)
+179 problems: VQE Fundamentals (30), Noise and Mitigation (28), Ansatz Design (27),
+Parameter Shift Rule (27), QAOA (27), Barren Plateaus (25), and Quantum Optimal
+Control (15). The tables below show a representative sample from each category.
+
+### VQE Fundamentals (30 problems, sample below)
 
 | ID | Difficulty | Mode | Topic |
 |---|---|---|---|
@@ -94,7 +98,7 @@ Hint button shows remaining hint count. Submit enables on valid input.
 | vqe_accuracy | Advanced | MC | Chemical accuracy threshold (1.6 × 10⁻³ Hartree) |
 | vqe_freeform | Advanced | Free-form | Analyse trade-offs between expressibility and trainability |
 
-### QAOA (5 problems)
+### QAOA (27 problems, sample below)
 
 | ID | Difficulty | Mode | Topic |
 |---|---|---|---|
@@ -104,7 +108,7 @@ Hint button shows remaining hint count. Submit enables on valid input.
 | qaoa_depth | Advanced | MC | Depth scaling with problem size |
 | qaoa_freeform | Advanced | Free-form | When does QAOA converge to the exact solution? |
 
-### Parameter Shift Rule (5 problems)
+### Parameter Shift Rule (27 problems, sample below)
 
 | ID | Difficulty | Mode | Topic |
 |---|---|---|---|
@@ -114,7 +118,7 @@ Hint button shows remaining hint count. Submit enables on valid input.
 | ps_higher_order | Advanced | MC | Higher-order parameter shift for non-Pauli generators |
 | ps_freeform | Advanced | Free-form | Prove the parameter shift rule from Euler decomposition |
 
-### Ansatz Design (4 problems)
+### Ansatz Design (27 problems, sample below)
 
 | ID | Difficulty | Mode | Topic |
 |---|---|---|---|
@@ -123,7 +127,7 @@ Hint button shows remaining hint count. Submit enables on valid input.
 | ansatz_hardware | Intermediate | MC | Native gate sets and connectivity constraints |
 | ansatz_freeform | Advanced | Free-form | Design a 4-qubit HEA for a linear coupling map |
 
-### Barren Plateaus (4 problems)
+### Barren Plateaus (25 problems, sample below)
 
 | ID | Difficulty | Mode | Topic |
 |---|---|---|---|
@@ -132,7 +136,7 @@ Hint button shows remaining hint count. Submit enables on valid input.
 | bp_mitigation | Intermediate | MC | Layer-by-layer training and local cost functions |
 | bp_freeform | Advanced | Free-form | Relate barren plateaus to the 2-design property |
 
-### Noise and Mitigation (4 problems)
+### Noise and Mitigation (28 problems, sample below)
 
 | ID | Difficulty | Mode | Topic |
 |---|---|---|---|
@@ -185,13 +189,14 @@ vqa-trainer/
 │   └── models.py                Problem, TrainerConfig, Attempt, SessionStats,
 │                                GradeMode (AUTO/MC/CLAUDE), Verdict enums
 ├── problems/
-│   ├── __init__.py              ALL_PROBLEMS aggregated from all modules
-│   ├── vqe_fundamentals.py      6 problems
-│   ├── qaoa.py                  5 problems
-│   ├── parameter_shift.py       5 problems (2 numeric auto-graded)
-│   ├── ansatz_design.py         4 problems
-│   ├── barren_plateaus.py       4 problems
-│   └── noise_and_mitigation.py  4 problems
+│   ├── __init__.py              all_problems(): auto-discovers one file per problem
+│   ├── vqe_fundamentals/        30 problems
+│   ├── noise_and_mitigation/    28 problems
+│   ├── ansatz_design/           27 problems
+│   ├── parameter_shift/         27 problems
+│   ├── qaoa/                    27 problems
+│   ├── barren_plateaus/         25 problems
+│   └── quantum_optimal_control/ 15 problems
 ├── grading/
 │   └── auto_grader.py           grade_mc() and grade_numeric() — local, no API
 ├── workers/
@@ -284,4 +289,6 @@ Problem(
 )
 ```
 
-Add to `ALL_PROBLEMS` in `problems/__init__.py`. No other changes needed.
+Save each problem as its own file inside the appropriate `problems/<category>/`
+directory, assigned to a module-level `PROBLEM`. `problems/__init__.py` auto-discovers
+every problem file, so no registration step is needed.

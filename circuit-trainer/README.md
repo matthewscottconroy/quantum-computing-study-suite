@@ -22,6 +22,8 @@ questions are graded by Claude (`claude-sonnet-4-6`).
   submission
 - **Session history** — sortable table of past sessions with per-category score breakdown
 - **CollapsiblePanel** — hints and solution steps animate open on click
+- **Sprint mode** — 10 rapid-fire prediction questions with a 60-second countdown each,
+  auto-graded only, instant right/wrong flash and auto-advance
 
 ---
 
@@ -30,7 +32,6 @@ questions are graded by Claude (`claude-sonnet-4-6`).
 ```
 anthropic>=0.93.0
 qiskit>=2.0.0
-qiskit-aer>=0.17.0
 PyQt6>=6.6.0
 matplotlib>=3.8.0
 numpy>=1.26.0
@@ -50,8 +51,9 @@ answers and render circuit images.
 ## API Key
 
 Only needed for circuit explanation (free-form) problems. Set `ANTHROPIC_API_KEY` in
-your environment. If not set, free-form problems will error at grading time with a
-descriptive message; all other problem types work offline.
+your environment, or write the key to `~/.config/quantum-study/api_key.txt`. If neither
+is set, free-form problems will error at grading time with a descriptive message; all
+other problem types work offline.
 
 ---
 
@@ -96,6 +98,32 @@ After submission:
 
 Session summary with accuracy and per-category scores. History screen shows all past
 sessions in a sortable table.
+
+### Sprint Mode
+
+Started with the **Start Sprint ⏱** button on the setup screen (the difficulty
+selector applies; category checkboxes are ignored):
+
+- **10 questions, 60 seconds each** — a visible countdown runs in the top bar
+  (turns red under 10 seconds). Hitting zero counts the question as wrong and
+  auto-advances.
+- **Prediction categories only** — questions are drawn from the five generators
+  with deterministic, auto-checkable answers: Measurement probabilities,
+  Single-gate output, Gate sequence, Circuit unitary, and Multi-qubit circuit
+  output. No Claude grading is ever used.
+- **Instant feedback** — answering (click or A/B/C/D keys) flashes ✓/✗ for
+  under a second, then the next question loads automatically. No hints, no
+  worked solutions mid-sprint.
+- **End screen** — score, accuracy, average response time, and a per-category
+  breakdown table.
+
+Sprint sessions are saved to `trainer_history.json` in the standard session
+schema (attempts keep their real generator category), with an extra
+session-level `"sprint": true` tag so they can be distinguished later; the
+history screen and repo-level dashboard read them like any other session.
+
+Timing constants live in `config.py`: `SPRINT_QUESTION_COUNT` (10),
+`SPRINT_SECONDS` (60), `SPRINT_FLASH_MS` (900).
 
 ---
 
@@ -174,8 +202,9 @@ circuit-trainer/
 ├── ui/
 │   ├── main_window.py           Screen controller
 │   ├── screens/
-│   │   ├── setup_screen.py      Category/difficulty/count selection
+│   │   ├── setup_screen.py      Category/difficulty/count selection + sprint launch
 │   │   ├── problem_screen.py    Problem display and answer input
+│   │   ├── sprint_screen.py     Sprint mode: countdown question screen + end screen
 │   │   ├── summary_screen.py    Session results chart
 │   │   └── history_screen.py    Past sessions table
 │   └── widgets/
@@ -236,6 +265,9 @@ generation is always synchronous inside a `QThread` worker so the UI stays respo
 | `PHASE_TOLERANCE` | 1e-3 | Global phase threshold for state vector comparison |
 | `DEFAULT_PROBLEM_COUNT` | 12 | Pre-filled problem count |
 | `CIRCUIT_DPI` | 130 | DPI for Qiskit circuit rendering |
+| `SPRINT_QUESTION_COUNT` | 10 | Questions per sprint |
+| `SPRINT_SECONDS` | 60 | Countdown per sprint question (timeout = wrong) |
+| `SPRINT_FLASH_MS` | 900 | Right/wrong flash duration before auto-advance |
 
 ---
 
@@ -246,10 +278,11 @@ generation is always synchronous inside a `QThread` worker so the UI stays respo
   gap, not a code bug.
 - **Notation pool** has 10 static questions; long sessions will see repeats.
 - **Gate sequence pool** has 5–6 fixed sequences per difficulty level.
-- Free-form explanation problems require the `ANTHROPIC_API_KEY` environment variable.
+- Free-form explanation problems require an Anthropic API key (`ANTHROPIC_API_KEY` env
+  var or `~/.config/quantum-study/api_key.txt`).
 
 ---
 
 ## Data Persistence
 
-Sessions written to `~/.local/share/quantum-study/circuit_trainer_history.json`.
+Sessions written to `~/.local/share/quantum-study/trainer_history.json`.

@@ -33,8 +33,9 @@ systems most likely to first yield quantum advantage over classical simulation.
 
 A quantum system of `n` spin-1/2 particles has a Hilbert space of dimension `2^n`. A general
 state requires `2^n` complex numbers to describe. For `n = 50` spins: `2^{50} ≈ 10^{15}` complex
-numbers × 16 bytes each ≈ `10^{16}` bytes = `10^7` petabytes. This exceeds all available
-computer memory by orders of magnitude.
+numbers × 16 bytes each ≈ `1.8 × 10^{16}` bytes = 18 petabytes — already beyond the RAM of the
+largest supercomputers (~10 PB). Just ten more spins (`n = 60`) push this to `≈ 18` exabytes,
+thousands of times all available computer memory.
 
 More formally: exact diagonalization (finding all eigenstates) scales as `O(8^n)` operations;
 storage requires `O(4^n)` bytes.
@@ -148,9 +149,11 @@ target for quantum advantage demonstrations.
 For `n` lattice sites: `4^n` Hilbert space dimension (each site can have `|0⟩, |↑⟩, |↓⟩, |↑↓⟩`).
 Mapping to qubits: 2 qubits per site via Jordan-Wigner. For an `L×L` Hubbard model: `2L²` qubits.
 
-**Fault-tolerant resource estimate**: Babbush et al. (2018) estimated that a `10×10` Hubbard
-model requires `~10,000` logical qubits and `~10^{13}` T gates — well beyond NISQ capabilities
-but achievable with large-scale fault-tolerant quantum computers.
+**Fault-tolerant resource estimate**: Fault-tolerant estimates for a `~10×10` Hubbard model
+(Babbush et al. 2018, linear-T encoding; Kivlichan et al. 2020) are on the order of hundreds to
+a few thousand logical qubits and `~10^5-10^7` T/Toffoli gates — far cheaper than quantum
+chemistry targets like FeMoco (`~10^{13}-10^{14}` T gates), though still beyond NISQ
+capabilities.
 
 ---
 
@@ -197,7 +200,8 @@ split exactly. The **first-order Trotter (Lie-Trotter) formula**:
 e^{-i(A+B)t} ≈ (e^{-iAt/n} e^{-iBt/n})^n
 ```
 
-The error is `O(t²/n)` per step, `O(t²/n) × n = O(t²/n)` total (for fixed `t`). More precisely:
+The error is `O((t/n)²)` per step; accumulated over `n` steps this gives `O(t²/n)` total (for
+fixed `t`). More precisely:
 
 ```
 ||e^{-i(A+B)t} - (e^{-iAt/n} e^{-iBt/n})^n|| ≤ t² ||[A,B]|| / (2n)
@@ -211,7 +215,7 @@ The **second-order Suzuki formula**:
 e^{-iHt} ≈ (e^{-iAt/2} e^{-iBt} e^{-iAt/2})^n
 ```
 
-Error: `O(t³/n²)` per step, `O(t³/n^2)` total → better scaling with `n`.
+Error: `O((t/n)³)` per step, hence `O(t³/n²)` total after `n` steps → better scaling with `n`.
 
 The `2k`-th order formula has error `O((t/n)^{2k+1})`. For fixed target error `ε` and evolution
 time `t`:
@@ -220,10 +224,12 @@ time `t`:
 
 ### Trotter vs. Qubitization
 
-For fault-tolerant quantum simulation, **qubitization** (Berry et al., 2019) achieves optimal
-gate count `O(N ||H||_1 / ε)` for simulating a Hamiltonian with `||H||_1 = Σ_j |cⱼ|` (sum of
-Pauli coefficients). Compared to Trotter which requires `O(N^2 ||H||^2 t / ε)`, qubitization
-is significantly better for target applications.
+For fault-tolerant quantum simulation, **qubitization** (Low & Chuang, 2017; applied to
+chemistry by Berry et al., 2019) achieves the optimal query count
+`O(λt + log(1/ε))` for time evolution, where `λ = ||H||_1 = Σ_j |cⱼ|` (sum of Pauli
+coefficients): linear in `t` and only *logarithmic* in `1/ε`. Trotter formulas, by contrast,
+scale polynomially in `1/ε` (e.g. `O(t²/ε)` steps at first order). For high-accuracy targets
+such as chemical accuracy, qubitization is dramatically cheaper.
 
 ---
 
@@ -263,7 +269,7 @@ by `~100×`, bringing estimates closer to `~10^6` physical qubits.
 - **Hubbard**: `H = -t Σ (c†ᵢσ cⱼσ + h.c.) + U Σ nᵢ↑nᵢ↓`
 - **JW mapping**: `cⱼ = (⊗_{k<j} Zₖ) ⊗ (Xⱼ+iYⱼ)/2`
 - **First-order Trotter error**: `O(t² ||[A,B]|| / n)` for `n` steps
-- **Qubitization cost**: `O(||H||_1 t / ε)` where `||H||_1 = Σ |cⱼ|`
+- **Qubitization cost**: `O(||H||_1 t + log(1/ε))` queries, where `||H||_1 = Σ |cⱼ|`
 
 ---
 
@@ -277,7 +283,7 @@ by `~100×`, bringing estimates closer to `~10^6` physical qubits.
 
 ```
 U(δt) ≈ e^{-iH_X δt} e^{-iH_ZZ δt}
-       = [⊗ᵢ Rx(2hδt)]  ×  [e^{iJδt Z₁Z₂} e^{iJδt Z₂Z₃} e^{iJδt Z₃Z₄}]
+       = [⊗ᵢ Rx(-2hδt)]  ×  [e^{iJδt Z₁Z₂} e^{iJδt Z₂Z₃} e^{iJδt Z₃Z₄}]
 ```
 
 **Implementing `e^{iJδt ZᵢZⱼ}`**:
@@ -315,6 +321,114 @@ system but illustrates the scaling challenge for larger models.
   qubitization reduce gate count for fault-tolerant simulations.
 - FeMoco (nitrogen fixation catalyst) is the flagship quantum advantage target; requires `~100+`
   logical qubits and `~10^{12}-10^{14}` T gates with current estimates.
+
+---
+
+## Exercises
+
+**Exercise 1**: Solve the 2-site TFIM `H = -J Z₁Z₂ - h(X₁ + X₂)` exactly at `J = h = 1`:
+find the ground-state energy. (Hint: work in the subspace spanned by
+`{|00⟩, (|01⟩+|10⟩)/√2, |11⟩}` — the antisymmetric state decouples.)
+
+<details><summary>Solution</summary>
+
+`H` commutes with the swap of the two sites, and the antisymmetric state
+`(|01⟩-|10⟩)/√2` is an eigenstate with energy `+J = +1` (the `X` terms map it out of... check:
+`(X₁+X₂)(|01⟩-|10⟩) = (|11⟩+|00⟩) - (|00⟩+|11⟩) = 0`, and `ZZ` gives `-1`, so energy `+J`).
+
+In the symmetric sector with basis `{|00⟩, s = (|01⟩+|10⟩)/√2, |11⟩}`:
+
+```
+H_sym = [[-1, -√2,  0],
+         [-√2,  1, -√2],
+         [ 0, -√2, -1]]
+```
+
+(`⟨00|H|00⟩ = ⟨11|H|11⟩ = -J = -1`; `⟨s|H|s⟩ = +J = +1`; `(X₁+X₂)` couples `s` to both `|00⟩`
+and `|11⟩` with amplitude `√2`.)
+
+By the `|00⟩ ↔ |11⟩` symmetry, try `v = (1, x, 1)`: the eigenvalue equations give
+`x² + √2x - 2 = 0`, so `x = (-√2 + √10)/2 ≈ 0.874` for the ground state, with
+
+```
+E₀ = -1 - √2·x = -√5 ≈ -2.236
+```
+
+Sanity checks: at `h = 0` the ground energy would be `-1`; at `J = 0` it would be `-2`;
+the interacting value `-√5` beats both, and matches the 2-site closed form `-√(J² + 4h²)`.
+
+</details>
+
+**Exercise 2**: A Hamiltonian splits as `H = A + B` with `||[A, B]|| = 8`. Using the
+first-order Trotter bound, how many steps `n` are needed to simulate to time `t = 2` with
+error `ε ≤ 0.01`? What does the *second-order* formula's `O(t³/n²)` scaling suggest instead?
+
+<details><summary>Solution</summary>
+
+First order: `error ≤ t²||[A,B]||/(2n) ≤ ε` gives
+
+```
+n ≥ t²||[A,B]||/(2ε) = 4·8/(2·0.01) = 1600 steps
+```
+
+Second order: total error `~ t³·C/n²` for a commutator-dependent constant `C`; solving
+`n ~ √(t³C/ε)` gives an `n` that grows like `1/√ε` instead of `1/ε` — for the same
+commutator scale, on the order of a few hundred steps rather than 1600 (e.g. `n ≈ √(8·8/0.01) ≈ 80`
+if `C ≈ ||[A,B]||`, illustrating the order-of-magnitude gain; the precise constant involves
+nested commutators). Higher-order product formulas push the exponent closer to `n ~ (1/ε)^{1/2k}`.
+
+</details>
+
+**Exercise 3**: Using the Jordan-Wigner mapping `cⱼ = (⊗_{k<j} Zₖ)(Xⱼ + iYⱼ)/2`, show that
+(a) the number operator is `n₂ = c₂†c₂ = (I - Z₂)/2`, and (b) the nearest-neighbor hopping term
+becomes `c₁†c₂ + c₂†c₁ = (X₁X₂ + Y₁Y₂)/2`.
+
+<details><summary>Solution</summary>
+
+Write `Aⱼ = (Xⱼ + iYⱼ)/2`, so that `c₁ = A₁` and `c₂ = Z₁A₂`. Two identities do all the work
+(using `X² = Y² = I`, `XY = iZ = -YX`, `XZ = -iY`, `YZ = iX`):
+
+```
+A†A = (X - iY)(X + iY)/4 = (2I + i[X,Y])/4 = (2I - 2Z)/4 = (I - Z)/2
+A†Z = (XZ - iYZ)/2 = (-iY - i·iX)/2 = (X - iY)/2 = A†
+```
+
+(a) `c₂†c₂ = A₂†Z₁·Z₁A₂ = A₂†A₂ = (I - Z₂)/2` — the JW string squares to identity in any
+density term. As required, `(I - Z)/2` has eigenvalue 0 on `|0⟩` (empty) and 1 on `|1⟩`
+(occupied).
+
+(b) `c₁†c₂ = A₁†Z₁A₂ = A₁†A₂` (the second identity, applied on site 1, absorbs the string).
+Expanding `A₁†A₂ = (X₁ - iY₁)(X₂ + iY₂)/4` and adding its Hermitian conjugate cancels the
+cross terms `i(X₁Y₂ - Y₁X₂)/4` and doubles the rest:
+
+```
+c₁†c₂ + c₂†c₁ = (X₁X₂ + Y₁Y₂)/2
+```
+
+For *non-adjacent* hopping such as `c₁†c₃`, the intermediate string operator survives:
+`(X₁Z₂X₃ + Y₁Z₂Y₃)/2` — the origin of the `O(L)` Pauli weights of JW in 2D lattices.
+
+</details>
+
+**Exercise 4**: Estimate the classical memory needed to store one state vector of (a) `n = 40`
+and (b) `n = 60` spins at double complex precision (16 bytes per amplitude). Where does each
+sit relative to real hardware, and what does this imply for verifying quantum simulators?
+
+<details><summary>Solution</summary>
+
+(a) `2⁴⁰ × 16 B ≈ 1.8 × 10¹³ B ≈ 18 TB` — feasible on a large-memory cluster node or a small
+distributed job; `n ≈ 40-45` is roughly where brute-force state-vector simulation peaks today.
+
+(b) `2⁶⁰ × 16 B ≈ 1.8 × 10¹⁹ B ≈ 18 EB` — thousands of times all RAM of the largest
+supercomputers.
+
+Implication: beyond `n ≈ 50`, direct verification of a quantum simulation by classical
+state-vector methods is impossible; validation must rely on structured limits (exactly solvable
+lines like the 1D TFIM, tensor-network benchmarks at low entanglement, symmetry/energy
+sanity checks) — which is why quantum advantage claims in simulation target regimes where every
+one of those classical crutches fails simultaneously.
+
+</details>
 
 ---
 

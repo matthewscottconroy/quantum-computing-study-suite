@@ -134,8 +134,9 @@ bit[2] c;
 float[64] theta = π / 4;
 int[32] shots = 1000;
 
-// Gate with expressions
-gate rz_custom(angle[32] λ) q {
+// Custom gate — gate parameters are untyped (implicitly angles);
+// typed parameters like angle[32] are only allowed on `def` subroutines
+gate rz_custom(λ) q {
     U(0, 0, λ) q;
 }
 
@@ -201,16 +202,22 @@ qc2 = loads(qasm2_str)
 qasm3_str = dumps3(qc)
 print(qasm3_str)
 
-# Load from file
+# Round-trip through a file
+with open('circuit.qasm', 'w') as f:
+    f.write(qasm2_str)
 with open('circuit.qasm') as f:
     qc_from_file = loads(f.read())
 ```
+
+Note: importing OpenQASM 3 (`qiskit.qasm3.loads`) requires the optional `qiskit_qasm3_import` package (`pip install qiskit_qasm3_import`); exporting does not.
 
 **QASM and transpilation:**
 ```python
 from qiskit import transpile
 from qiskit_ibm_runtime.fake_provider import FakeManilaV2
 
+# FakeManilaV2 models the retired 5-qubit Manila device — fine for
+# offline study, but not representative of current IBM hardware.
 backend = FakeManilaV2()
 qc_t = transpile(qc, backend, optimization_level=3)
 
@@ -261,23 +268,30 @@ compiled = circuit_to_qasm_str(tk_circuit)
 
 ## Module 6 — Pulse-Level Control with QASM 3 `defcal`
 
-**Objective:** Use QASM 3's pulse-level extensions to define custom calibrations for hardware gates.
+**Objective:** Understand QASM 3's pulse-level extensions for defining custom gate calibrations.
+
+> **Currency note (important):** Pulse-level control was **removed from Qiskit** — `qiskit.pulse` was deprecated in 1.x and deleted in Qiskit 2.0 — and **IBM retired pulse-level access on its hardware at the end of 2024**. `defcal`/OpenPulse remains part of the portable OpenQASM 3 specification and is still used by some other vendors and research stacks, so treat this module as background/spec knowledge, not something you can execute on IBM systems today.
 
 ```qasm
 OPENQASM 3.0;
 
-// Declare a port and frame
-port p0;
-frame fq0 = newframe(p0, 5e9, 0.0);  // 5 GHz qubit frame
+// Select the calibration grammar before any cal/defcal block
+defcalgrammar "openpulse";
 
-// Define a custom gate calibration
-defcal x q {
-    play(gaussian(100ns, 40ns, 0.2), fq0);
+// Shared calibration definitions live in a cal block
+cal {
+    // Declare a port and frame
+    extern port p0;
+    frame fq0 = newframe(p0, 5e9, 0.0);  // 5 GHz qubit frame
 }
 
-// Use the calibrated gate
-qubit q;
-x q;
+// Define a custom gate calibration (body uses OpenPulse grammar)
+defcal x $0 {
+    play(fq0, gaussian(0.2, 100ns, 40ns));
+}
+
+// Use the calibrated gate on physical qubit $0
+x $0;
 ```
 
 **Key concepts:**

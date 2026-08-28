@@ -140,7 +140,7 @@ If we have a two-qubit system in state `|Ψ⟩ = Σᵢⱼ cᵢⱼ|ij⟩`, what i
 
 The **partial trace** over system B, written `Tr_B`, takes an operator on `ℋ_A ⊗ ℋ_B` and returns an operator on `ℋ_A`:
 
-$$\rho_A = \text{Tr}_B[\rho_{AB}] = \sum_j (\langle j |_B \otimes I_A)\,\rho_{AB}\,(|j\rangle_B \otimes I_A)$$
+$$\rho_A = \text{Tr}_B[\rho_{AB}] = \sum_j (I_A \otimes \langle j|_B)\,\rho_{AB}\,(I_A \otimes |j\rangle_B)$$
 
 where `{|j⟩_B}` is any orthonormal basis for `ℋ_B`. The result is independent of which basis is chosen.
 
@@ -187,7 +187,7 @@ $$(A \otimes B)(|\psi\rangle \otimes |\phi\rangle) = A|\psi\rangle \otimes B|\ph
 $$(A \otimes B)(C \otimes D) = (AC) \otimes (BD)$$
 
 **Partial trace**:
-$$\rho_A = \text{Tr}_B[\rho_{AB}] = \sum_j ({}_B\langle j| \otimes I_A)\,\rho_{AB}\,(|j\rangle_B \otimes I_A)$$
+$$\rho_A = \text{Tr}_B[\rho_{AB}] = \sum_j (I_A \otimes \langle j|_B)\,\rho_{AB}\,(I_A \otimes |j\rangle_B)$$
 
 **Trace of tensor product**:
 $$\text{Tr}(A \otimes B) = \text{Tr}(A)\cdot\text{Tr}(B)$$
@@ -208,13 +208,13 @@ $$= \frac{1}{3}\bigl(|100\rangle\langle 100| + |100\rangle\langle 010| + |100\ra
 
 To trace over qubits 2 and 3, we sum over the four 2-qubit basis states `{|00⟩, |01⟩, |10⟩, |11⟩}` for the system (2,3):
 
-$$\rho_1 = \sum_{j,k \in \{0,1\}} (I_1 \otimes \langle jk|_{23})\,\rho_{123}\,(|jk\rangle_{23} \otimes I_1)$$
+$$\rho_1 = \sum_{j,k \in \{0,1\}} (I_1 \otimes \langle jk|_{23})\,\rho_{123}\,(I_1 \otimes |jk\rangle_{23})$$
 
-Let's evaluate each term by identifying which matrix elements survive. For a term `|abc⟩⟨def|` in `ρ₁₂₃`:
+To evaluate each term, note that for a term `|abc⟩⟨def|` in `ρ₁₂₃` (with `a, d` labeling qubit 1 and `bc, ef` labeling qubits 2,3):
 
-$$(I \otimes \langle jk|)|abc\rangle\langle def|(|jk\rangle \otimes I) = |a\rangle\langle d| \cdot \delta_{b,j}\delta_{c,k}\delta_{d',j}\delta_{f,k}$$
+$$(I \otimes \langle jk|)\,|abc\rangle\langle def|\,(I \otimes |jk\rangle) = \delta_{b,j}\delta_{c,k}\,\delta_{e,j}\delta_{f,k}\; |a\rangle\langle d|$$
 
-Wait, let me be more careful. The partial trace over qubits 2,3 extracts the "diagonal" in the 2,3 indices:
+Summing over `j, k`, a term survives only if its ket and bra agree on qubits 2,3 (`bc = ef`) — the partial trace extracts the "diagonal" in the 2,3 indices:
 
 - `|100⟩⟨100|`: qubits 2,3 are `|00⟩`. Contributes `|1⟩⟨1| · ⟨00|00⟩ = |1⟩⟨1|`
 - `|010⟩⟨010|`: qubits 2,3 are `|10⟩`. Contributes `|0⟩⟨0| · ⟨10|10⟩ = |0⟩⟨0|`
@@ -227,7 +227,7 @@ $$\rho_1 = \frac{1}{3}(|1\rangle\langle 1| + |0\rangle\langle 0| + |0\rangle\lan
 
 This is a **mixed state** (classical mixture): qubit 1 is `|0⟩` with probability 2/3 and `|1⟩` with probability 1/3. The three-qubit `|W⟩` state is entangled, so its reduced state is mixed.
 
-**Note**: The W state is entangled, but differently from Bell states. The W state has the property that tracing out any one qubit still leaves the other two qubits entangled — it is **robustly entangled**. The Bell state `|Φ⁺⟩`, by contrast, becomes separable (or more precisely, its partial trace is `I/2`) after losing one qubit.
+**Note**: The W state is entangled, but differently from GHZ-type states. The W state has the property that tracing out any one qubit still leaves the other two qubits entangled — it is **robustly entangled**. The GHZ state `(|000⟩+|111⟩)/√2`, by contrast, loses all entanglement when any one qubit is traced out: the remaining pair is left in the separable classical mixture `(|00⟩⟨00|+|11⟩⟨11|)/2`.
 
 ## Summary
 
@@ -237,6 +237,64 @@ This is a **mixed state** (classical mixture): qubit 1 is `|0⟩` with probabili
 - Product operators act locally: `(A⊗B)(|ψ⟩⊗|φ⟩) = A|ψ⟩ ⊗ B|φ⟩`
 - The **partial trace** `Tr_B[ρ_AB]` gives the reduced state of A; it equals a mixed state whenever A and B are entangled
 - Entanglement is a consequence of the tensor product structure: without `⊗`, there would be no entanglement and quantum computers would offer no superclassical advantage
+
+## Exercises
+
+**Exercise 1**: Write `|+⟩ ⊗ |−⟩` as an explicit 4-component vector in the computational basis. Then determine whether the state `|χ⟩ = (|00⟩ + |01⟩ + |10⟩ - |11⟩)/2` is separable or entangled.
+
+<details><summary>Solution</summary>
+
+Product state:
+
+`|+⟩ ⊗ |−⟩ = ½(|0⟩+|1⟩)(|0⟩-|1⟩) = ½(|00⟩ - |01⟩ + |10⟩ - |11⟩)`, i.e. the vector `(1, -1, 1, -1)/2`.
+
+For `|χ⟩`, arrange the coefficients into the matrix `C = ½[[1, 1],[1, -1]]` (rows = qubit 1, columns = qubit 2). A two-qubit state is separable iff this matrix has rank 1, i.e. iff `det C = 0`. Here `det C = ¼(-1 - 1) = -½ ≠ 0`, so `|χ⟩` is **entangled**. (In fact `CC† = ½I`, so both Schmidt coefficients are `1/√2` — `|χ⟩` is maximally entangled.)
+
+</details>
+
+**Exercise 2**: Compute the `4×4` matrix `Z ⊗ X` and verify that `|1⟩ ⊗ |+⟩` is an eigenvector with eigenvalue `-1`.
+
+<details><summary>Solution</summary>
+
+By the Kronecker product rule (each entry of `Z` multiplies a copy of `X`):
+
+`Z ⊗ X = [[0,1,0,0],[1,0,0,0],[0,0,0,-1],[0,0,-1,0]]`
+
+The state `|1⟩ ⊗ |+⟩ = (0, 0, 1, 1)/√2`. Applying the matrix: rows 3 and 4 give `(-1)·(1/√2)` and `(-1)·(1/√2)` respectively, so the result is `(0, 0, -1, -1)/√2 = -(|1⟩⊗|+⟩)` ✓.
+
+This also follows structurally: `(Z⊗X)(|1⟩⊗|+⟩) = Z|1⟩ ⊗ X|+⟩ = (-|1⟩) ⊗ (+|+⟩) = -|1⟩⊗|+⟩`.
+
+</details>
+
+**Exercise 3**: Using the composition rule `(A⊗B)(C⊗D) = (AC)⊗(BD)`, show that `(X⊗X)(Z⊗Z) = (Z⊗Z)(X⊗X)` — i.e. `X⊗X` and `Z⊗Z` commute, even though `X` and `Z` anticommute individually.
+
+<details><summary>Solution</summary>
+
+Using the composition rule and `XZ = -ZX`:
+
+`(X⊗X)(Z⊗Z) = (XZ)⊗(XZ) = (-ZX)⊗(-ZX) = (-1)(-1)·(ZX)⊗(ZX) = (ZX)⊗(ZX) = (Z⊗Z)(X⊗X)`
+
+The two minus signs from the two factors cancel. This commutation is fundamental to quantum error correction: `X⊗X` and `Z⊗Z` can be measured simultaneously, and their joint eigenspaces are exactly the four Bell states.
+
+</details>
+
+**Exercise 4**: For the two-qubit state `|ψ⟩ = (|00⟩ + |01⟩ + |11⟩)/√3`, compute the reduced density matrix `ρ_B = Tr_A[|ψ⟩⟨ψ|]` of the second qubit, and use its purity `Tr(ρ_B²)` to decide whether the state is entangled.
+
+<details><summary>Solution</summary>
+
+Coefficient matrix (rows = qubit A, columns = qubit B): `C = (1/√3)[[1, 1],[0, 1]]`.
+
+The reduced state of B is `ρ_B = (C†C)ᵀ` in general, which equals `C†C` here because `C` is real:
+
+`C†C = (1/3)[[1, 0],[1, 1]]·[[1, 1],[0, 1]] = (1/3)[[1, 1],[1, 2]]`
+
+Check: `Tr(ρ_B) = (1+2)/3 = 1` ✓.
+
+Purity: `ρ_B² = (1/9)[[2, 3],[3, 5]]`, so `Tr(ρ_B²) = 7/9 < 1`.
+
+Since the reduced state is mixed, the joint pure state is **entangled**. (Equivalently `det C = 1/3 ≠ 0`, so the Schmidt rank is 2. The eigenvalues of `ρ_B` are `(3±√5)/6 ≈ 0.873, 0.127`, giving entanglement entropy `S ≈ 0.55` ebits — entangled but not maximally.)
+
+</details>
 
 ## Further Reading
 

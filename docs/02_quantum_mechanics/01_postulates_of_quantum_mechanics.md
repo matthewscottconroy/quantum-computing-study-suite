@@ -205,6 +205,64 @@ This is `(-i)(|0⟩ - i|1⟩)/√2`. The global factor `-i = e^{-iπ/2}` is a gl
 - The tension between unitary evolution and state collapse (Postulate 3) is the measurement problem — computationally irrelevant but philosophically deep
 - All quantum algorithms are derivable from these four postulates applied to specific circuits and measurement schemes
 
+## Exercises
+
+**Exercise 1**: The unnormalized vector `2|0⟩ + (1+i)|1⟩` is proposed as a qubit state. Normalize it (Postulate 1) and compute the computational-basis measurement probabilities (Postulate 3).
+
+<details><summary>Solution</summary>
+
+Norm squared: `|2|² + |1+i|² = 4 + 2 = 6`. The normalized state is
+
+`|ψ⟩ = (2|0⟩ + (1+i)|1⟩)/√6`
+
+Probabilities: `p(0) = 4/6 = 2/3` and `p(1) = 2/6 = 1/3`. Check: `2/3 + 1/3 = 1` ✓.
+
+</details>
+
+**Exercise 2**: A qubit evolves under the Hamiltonian `H = X` (setting `ℏ = 1`). Show that `U(t) = e^{-iXt} = cos(t)I - i sin(t)X`, and compute the probability of measuring outcome 1 at time `t` if the qubit starts in `|0⟩`. What happens at `t = π/2`?
+
+<details><summary>Solution</summary>
+
+Since `X² = I`, the exponential series splits into even and odd powers:
+
+`e^{-iXt} = Σₙ (-it)ⁿXⁿ/n! = (Σ even)I + (Σ odd)X = cos(t)I - i sin(t)X`
+
+Applied to `|0⟩`: `U(t)|0⟩ = cos(t)|0⟩ - i sin(t)|1⟩`.
+
+By the Born rule: `p(1) = |-i sin t|² = sin²t`. The qubit oscillates between `|0⟩` and `|1⟩` — a **Rabi oscillation**. At `t = π/2`: `U = -iX` and `p(1) = 1` — the qubit has flipped with certainty (the global phase `-i` is unobservable).
+
+</details>
+
+**Exercise 3**: Verify that the operators `M₀ = |0⟩⟨0| + (1/√2)|1⟩⟨1|` and `M₁ = (1/√2)|1⟩⟨1|` satisfy the completeness condition of Postulate 3. For the input state `|+⟩ = (|0⟩+|1⟩)/√2`, compute the outcome probabilities and the post-measurement state after outcome 0.
+
+<details><summary>Solution</summary>
+
+Completeness: `M₀†M₀ = |0⟩⟨0| + ½|1⟩⟨1|` and `M₁†M₁ = ½|1⟩⟨1|`. Their sum is `|0⟩⟨0| + |1⟩⟨1| = I` ✓.
+
+Probabilities for `|+⟩`:
+
+`p(0) = ⟨+|M₀†M₀|+⟩ = ½·1 + ½·½ = 3/4`, `p(1) = ⟨+|M₁†M₁|+⟩ = ½·½ = 1/4` (sum is 1 ✓)
+
+Post-measurement state after outcome 0:
+
+`M₀|+⟩ = (|0⟩ + (1/√2)|1⟩)/√2`, so `|ψ₀⟩ = M₀|+⟩/√(3/4) = (√2|0⟩ + |1⟩)/√3`
+
+Note the state is disturbed (no longer `|+⟩`) but not fully collapsed — this is a **weak measurement**: outcome 0 only partially distinguishes the basis states, so the superposition partially survives.
+
+</details>
+
+**Exercise 4**: Two qubits are prepared in the product state `|ψ⟩ = |+⟩ ⊗ |1⟩` (Postulate 4). Show that measuring qubit 2 in the computational basis gives outcome 1 with certainty and leaves qubit 1 in `|+⟩` — i.e., measuring one factor of a product state does not disturb the other.
+
+<details><summary>Solution</summary>
+
+Expand: `|ψ⟩ = (|01⟩ + |11⟩)/√2`. The measurement of qubit 2 uses projectors `P₀ = I⊗|0⟩⟨0|` and `P₁ = I⊗|1⟩⟨1|`.
+
+`p(1) = ⟨ψ|P₁|ψ⟩ = ½ + ½ = 1` and `p(0) = 0` — outcome 1 is certain.
+
+Post-measurement state: `P₁|ψ⟩/√p(1) = (|01⟩+|11⟩)/√2 = |+⟩⊗|1⟩` — unchanged. Because the state factorizes, the measurement of qubit 2 leaves qubit 1's state exactly `|+⟩`; contrast this with an entangled state like `(|00⟩+|11⟩)/√2`, where measuring qubit 2 collapses qubit 1 as well.
+
+</details>
+
 ## Further Reading
 
 1. **Nielsen & Chuang**, *Quantum Computation and Quantum Information*, §2.2 — definitive presentation of the postulates; §2.2.3 discusses the connection between general and projective measurements

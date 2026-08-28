@@ -108,19 +108,24 @@ the depth-1 QAOA approximation ratio. For an edge `(u,v)`, the contribution to `
 ⟨(I - ZᵤZᵥ)/2⟩ = (1/2)[1 - ⟨ZᵤZᵥ⟩]
 ```
 
-By the symmetry of the problem and the product structure of the depth-1 circuit, this can be
-computed exactly by considering only the local neighborhood of the edge `(u,v)`:
+By the locality of the depth-1 circuit, this can be computed exactly by considering only the
+local neighborhood of the edge `(u,v)`. For a **triangle-free** `d`-regular graph the result is:
 
 ```
-F₁(γ,β) = |E|/2 + (|E|/4) sin(4β)sin(γ) [cos^{d-1}(γ) - sin^{d-1}(γ)]
+F₁(γ,β) = |E| · [1/2 + (1/2) sin(4β) sin(γ) cos^{d-1}(γ)]
 ```
 
-For 3-regular graphs (`d = 3`), this simplifies and is maximized at:
-`γ* ≈ 0.3948` rad, `β* ≈ π/8 = 0.3927` rad, giving:
+(graphs with triangles acquire an extra correction term; triangle-free is the worst case for
+3-regular graphs). For `d = 3`, maximizing `sin(γ)cos²(γ)` gives `sin(γ*) = 1/√3`, i.e.
+`γ* = 0.6155` rad, and `sin(4β*) = 1` gives `β* = π/8 = 0.3927` rad, so:
 
 ```
-r₁ = C₁ / MaxCut ≈ 0.6924
+F₁/|E| = 1/2 + (1/2)(1/√3)(2/3) = 0.6924
+r₁ = C₁ / MaxCut ≥ 0.6924
 ```
+
+(Numerical check: simulating depth-1 QAOA on the 3-regular triangle-free graph `K₃,₃` at
+`(γ*, β*)` gives `F₁ = 6.2321 = 9 × 0.69245`. ✓)
 
 This means QAOA at depth 1 guarantees at least `69.24%` of the optimal cut for any 3-regular
 graph. This is a **provable, unconditional** approximation guarantee — one of the few in quantum
@@ -233,33 +238,43 @@ preserve feasibility:
 
 ## Worked Example: QAOA on a 4-Vertex Triangle + Edge Graph
 
-**Graph**: Vertices `{1,2,3,4}`, edges `{(1,2),(2,3),(3,1),(1,4)}`. MaxCut = 4 (partition
-`{2,4}` vs `{1,3}`).
+**Graph**: Vertices `{1,2,3,4}`, edges `{(1,2),(2,3),(3,1),(1,4)}` — a triangle with a pendant
+edge. **MaxCut = 3**: a triangle contributes at most 2 of its 3 edges to any cut, and the
+pendant edge `(1,4)` can always be cut, so the best possible is `2 + 1 = 3` (e.g., partition
+`S = {1}` cuts `(1,2), (3,1), (1,4)`; also `S = {2,4}` cuts `(1,2), (2,3), (1,4)`). No
+partition cuts all 4 edges.
 
 **Cost Hamiltonian**:
 ```
 H_C = (1/2)[(I-Z₁Z₂) + (I-Z₂Z₃) + (I-Z₃Z₁) + (I-Z₁Z₄)]
     = 2I - (Z₁Z₂ + Z₂Z₃ + Z₃Z₁ + Z₁Z₄)/2
 ```
+Its largest eigenvalue is 3, attained on the six optimal cut bitstrings.
 
 **Depth-1 QAOA circuit** (`n=4` qubits):
 1. Prepare `|++++⟩ = H⊗4|0000⟩`
-2. Apply `U_C(γ)`: for each edge `(i,j)`, apply `Rzz(γ) = e^{-iγ ZᵢZⱼ/2}` (equivalent to
-   `CNOT_{i→j} · Rz(γ)_j · CNOT_{i→j}`)
-3. Apply `U_M(β)`: apply `Rx(2β)` to each qubit.
+2. Apply `U_C(γ) = e^{-iγH_C}`: for each edge `(i,j)`, apply the two-qubit phase
+   `e^{-iγ(I-ZᵢZⱼ)/2}` (an `Rzz` rotation plus phase, compiled as
+   `CNOT_{i→j} · Rz(-γ)_j · CNOT_{i→j}` up to the global phase `e^{-iγ/2}`, with the
+   convention `Rz(θ) = e^{-iθZ/2}`)
+3. Apply `U_M(β)`: apply `e^{-iβXᵢ} = Rx(2β)` to each qubit.
 
-**Parameter optimization**: At `γ = 0.4`, `β = 0.4` (approximate optimal for this small graph):
+**Parameter optimization** (exact statevector simulation of the 16-dimensional system):
 
 ```
-F₁ ≈ 3.3  (expected cut value out of maximum 4)
-Approximation ratio ≈ 3.3/4 = 0.825
+At (γ, β) = (0.4, 0.4):     F₁ = 2.593,  ratio = 2.593/3 = 0.864
+At the optimum (γ*, β*) ≈ (0.652, 1.901):  F₁* = 2.713,  ratio = 0.904
 ```
 
-This exceeds the depth-1 guarantee of 0.6924 for this specific graph, illustrating that instance-
-specific optimization can significantly exceed the worst-case guarantee.
+Both exceed the worst-case 3-regular guarantee of 0.6924, illustrating that
+instance-specific optimization on small graphs typically far exceeds the worst-case bound.
+(Note `F₁* < 3`: depth-1 QAOA does not reach the optimum exactly.)
 
-**Measurement**: Sample 1000 shots from `|ψ(γ,β)⟩`. Most frequent outcome: `|0101⟩` (cut `S={1,3}`)
-and `|1010⟩` (cut `S={2,4}`), each appearing ~200 times. Both correspond to 4-edge cuts. ✓
+**Measurement**: Sampling from `|ψ(γ*, β*)⟩`, the four balanced optimal cuts `|1100⟩, |1010⟩,
+|0101⟩, |0011⟩` (writing `z₁z₂z₃z₄`) appear with probability `0.132` each and the two
+singleton-1 cuts `|1000⟩, |0111⟩` with probability `0.105` each — in total, an optimal cut is
+sampled with probability `≈ 0.74` per shot, so a handful of shots suffices to find the true
+MaxCut for this instance.
 
 ---
 
@@ -275,6 +290,65 @@ and `|1010⟩` (cut `S={2,4}`), each appearing ~200 times. Both correspond to 4-
 - **Parameter concentration** allows pre-computing optimal angles on small instances and
   transferring them to large ones, reducing optimization overhead.
 - QAOA generalizes to arbitrary QUBO problems and constrained optimization via modified mixers.
+
+---
+
+## Exercises
+
+**1.** For the 5-cycle `C₅` (vertices `0..4`, edges forming a ring), find MaxCut by hand. Then,
+using the triangle-free formula with `d = 2`, find the optimal depth-1 angles and the value
+`F₁*`. What approximation ratio does depth-1 QAOA achieve on `C₅`?
+
+<details><summary>Solution</summary>
+
+An odd cycle cannot be 2-colored, so at least one edge is uncut: `MaxCut(C₅) = 4`.
+For `d = 2`: `F₁ = 5[1/2 + (1/2)sin(4β)sin(γ)cos(γ)] = 5[1/2 + (1/4)sin(4β)sin(2γ)]`,
+maximized at `β* = π/8`, `γ* = π/4`, giving `F₁* = 5 × 3/4 = 3.75` (statevector simulation
+confirms `F₁(π/4, π/8) = 3.7500`). Ratio: `3.75/4 = 0.9375` — well above the 3-regular
+worst case because low degree helps depth-1 QAOA.
+
+</details>
+
+**2.** Show that the cost unitary factor for one edge acts on computational basis states as
+`e^{-iγ(I-ZᵢZⱼ)/2}|zᵢzⱼ⟩ = |zᵢzⱼ⟩` if `zᵢ = zⱼ` and `e^{-iγ}|zᵢzⱼ⟩` if `zᵢ ≠ zⱼ`.
+
+<details><summary>Solution</summary>
+
+`(I - ZᵢZⱼ)/2` has eigenvalue `0` on aligned states (`ZᵢZⱼ = +1`) and `1` on anti-aligned
+states (`ZᵢZⱼ = -1`). Exponentiating a diagonal operator applies `e^{-iγ·(eigenvalue)}`:
+phase `1` for aligned, `e^{-iγ}` for anti-aligned. Summing over edges, `U_C(γ)` applies the
+phase `e^{-iγ·cut(z)}` to basis state `|z⟩` — the cost function enters the circuit purely as
+a cut-dependent phase, which is why `U_C` is cheap to implement.
+
+</details>
+
+**3.** For depth `p = 3` QAOA on a 3-regular graph with `n = 16` vertices: how many variational
+parameters, how many edges, and how many CNOT gates (compiling each edge phase as
+CNOT-Rz-CNOT) does one circuit execution use?
+
+<details><summary>Solution</summary>
+
+Parameters: `2p = 6` (namely `γ₁,γ₂,γ₃,β₁,β₂,β₃`) — independent of `n`; this is why QAOA
+avoids some barren plateau issues at low depth. Edges: `|E| = 3n/2 = 24`. CNOTs: each of the
+24 edge phases needs 2 CNOTs per layer, so `2 × 24 × 3 = 144` CNOTs (plus `16 × 3 = 48`
+single-qubit `Rx` gates and 16 initial Hadamards).
+
+</details>
+
+**4.** A 3-regular graph instance has `MaxCut = 100`. What expected cut value must QAOA achieve
+to beat (a) the depth-1 worst-case guarantee, (b) the Goemans-Williamson guarantee? If depth-1
+QAOA on this instance reaches `F₁ = 85`, has it demonstrated any quantum advantage?
+
+<details><summary>Solution</summary>
+
+(a) `0.6924 × 100 = 69.24`. (b) `0.878 × 100 = 87.8`. An instance value of `F₁ = 85` beats
+the QAOA worst case but is *below* the GW guarantee — and GW is a polynomial-time classical
+algorithm, so no advantage is demonstrated. Even exceeding 87.8 on one instance would prove
+nothing: GW's 0.878 is a worst-case bound, and on typical instances both classical heuristics
+and GW do much better. Claims of quantum advantage require beating the *best classical
+algorithm on the same instances*, not a worst-case constant.
+
+</details>
 
 ---
 

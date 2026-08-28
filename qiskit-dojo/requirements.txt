@@ -1,0 +1,5 @@
+# UI + optional AI review. qiskit / qiskit-aer / numpy / matplotlib come
+# from the shared study venv at ../.venv (used by the execution harness).
+PyQt6>=6.6
+anthropic>=0.25
+matplotlib>=3.8

@@ -15,7 +15,7 @@ Abstract quantum circuits specify *what* to compute, not *how* to run it on a sp
 
 | Constraint | Example |
 |---|---|
-| Native gate set | `{CX, RZ, SX, X}` on IBM hardware |
+| Native gate set | `{CZ, RZ, SX, X}` on current IBM Heron devices; `{ECR, RZ, SX, X}` on Eagle; `{CX, RZ, SX, X}` on older (retired) Falcon devices |
 | Qubit connectivity | Not all-to-all; defined by coupling map |
 | Gate fidelity variation | Some two-qubit pairs have much better fidelity |
 | Calibration drift | Gates are recalibrated daily |
@@ -51,7 +51,15 @@ Any U ∈ SU(2) can be written:
 U = e^(iα) Rz(β) Ry(γ) Rz(δ)
 ```
 
-**IBM native gates: {CX, RZ, SX, X}**
+**IBM native gate sets by hardware generation:**
+
+| Generation | Two-qubit basis | Full basis set |
+|---|---|---|
+| Heron (current: ibm_torino, ibm_fez, …) | CZ | `{CZ, RZ, SX, X}` |
+| Eagle (ibm_brisbane, ibm_sherbrooke, …) | ECR (echoed cross-resonance) | `{ECR, RZ, SX, X}` |
+| Falcon (retired) — historical note | CX | `{CX, RZ, SX, X}` |
+
+The decompositions below use the historical CX basis for readability; on ECR/CZ hardware the transpiler produces the analogous ECR/CZ decompositions (CX itself costs one ECR or CZ plus single-qubit gates).
 
 | Abstract Gate | Native Decomposition |
 |---|---|
@@ -97,7 +105,7 @@ A two-qubit gate `CX(q0, q1)` requires q0 and q1 to be physically adjacent. If t
 
 | Algorithm | Strategy | Quality | Speed |
 |---|---|---|---|
-| Stochastic SWAP | Random SWAP insertion + scoring | Good | Fast |
+| Stochastic SWAP | Random SWAP insertion + scoring (pass removed in Qiskit 2.0) | Good | Fast |
 | SABRE | Lookahead heuristic, bidirectional | Better | Moderate |
 | SABRE (v2) | Improved heuristic | State of the art | Moderate |
 | Exact (ILP) | Integer linear program, optimal | Optimal | Slow (small circuits) |
@@ -120,6 +128,8 @@ A two-qubit gate `CX(q0, q1)` requires q0 and q1 to be physically adjacent. If t
 from qiskit import transpile
 from qiskit_ibm_runtime.fake_provider import FakeNairobiV2
 
+# FakeNairobiV2 models the retired 7-qubit Nairobi device (CX basis) —
+# useful offline, but current IBM devices are ECR- or CZ-based.
 backend = FakeNairobiV2()
 
 # Full transpile with SABRE routing
@@ -173,16 +183,20 @@ print(qc_t.count_ops())
 
 ```python
 from qiskit.transpiler.passes import (
-    Optimize1qGates,
-    CXCancellation,
+    Optimize1qGatesDecomposition,
+    InverseCancellation,   # replaces CXCancellation, removed in Qiskit 2.0
     CommutativeCancellation,
     ConsolidateBlocks,
     UnitarySynthesis,
 )
+from qiskit.circuit.library import CXGate
+
+# Cancel adjacent CX·CX = I pairs (and any other self-inverse gates you list)
+cx_cancel = InverseCancellation([CXGate()])
 ```
 
 **Exercises:**
-- Apply `CXCancellation` manually to a circuit with redundant CNOTs
+- Apply `InverseCancellation([CXGate()])` manually to a circuit with redundant CNOTs
 - Verify that KAK decomposition of a SWAP uses exactly 3 CX gates
 - Build a circuit, run through optimization level 3, and count the gate reduction
 
@@ -213,61 +227,81 @@ from qiskit.transpiler.passes import (
 ### Custom Pass Manager
 
 ```python
+from qiskit.circuit.library import CXGate
 from qiskit.transpiler import PassManager, CouplingMap
 from qiskit.transpiler.passes import (
-    SetLayout,
-    ApplyLayout,
     SabreLayout,
     SabreSwap,
     BasisTranslator,
     Optimize1qGatesDecomposition,
-    CXCancellation,
+    InverseCancellation,
 )
 from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
 
 coupling_map = CouplingMap.from_line(5)
 
 pm = PassManager([
-    # Layout
+    # Layout — SabreLayout applies the layout itself and also performs
+    # routing by default (no separate ApplyLayout needed)
     SabreLayout(coupling_map, max_iterations=3, seed=42),
-    ApplyLayout(),
-    # Routing
+    # Routing — explicit stage; a no-op here if SabreLayout already routed
     SabreSwap(coupling_map, heuristic='decay', seed=42),
     # Translation
     BasisTranslator(sel, ['cx', 'rz', 'sx', 'x']),
     # Optimization
     Optimize1qGatesDecomposition(basis=['rz', 'sx', 'x']),
-    CXCancellation(),
+    InverseCancellation([CXGate()]),
 ])
 
 qc_t = pm.run(qc)
+```
+
+For standard pipelines, prefer the preset builder — it is what `transpile()` uses internally and is required knowledge for the runtime-primitives (ISA circuit) workflow:
+
+```python
+from qiskit.transpiler import generate_preset_pass_manager
+
+# backend: a BackendV2 (from QiskitRuntimeService or a fake provider);
+# alternatively pass coupling_map=... and basis_gates=... directly
+pm = generate_preset_pass_manager(optimization_level=3, backend=backend)
+qc_isa = pm.run(qc)
 ```
 
 ### Writing a Custom Pass
 
 ```python
 from qiskit.transpiler.basepasses import TransformationPass
-from qiskit.dagcircuit import DAGCircuit
+from qiskit.dagcircuit import DAGCircuit, DAGOpNode
 
 class RemoveDoubleX(TransformationPass):
-    """Cancel consecutive X gates."""
-    
+    """Cancel adjacent pairs of X gates on the same qubit."""
+
     def run(self, dag: DAGCircuit) -> DAGCircuit:
+        # Collect pairs first, then remove: never mutate the DAG while
+        # iterating it, and never remove the same node twice.
+        matched = set()
+        pairs = []
         for node in dag.topological_op_nodes():
-            if node.op.name == 'x':
-                successors = [s for s in dag.successors(node)
-                              if s.type == 'op' and s.op.name == 'x'
-                              and s.qargs == node.qargs]
-                for succ in successors:
-                    dag.remove_op_node(node)
-                    dag.remove_op_node(succ)
+            if node in matched or node.op.name != 'x':
+                continue
+            for succ in dag.successors(node):
+                # Successors include wire/output nodes, so check the type
+                # with isinstance (the old `node.type == 'op'` API is gone)
+                if (isinstance(succ, DAGOpNode) and succ not in matched
+                        and succ.op.name == 'x' and succ.qargs == node.qargs):
+                    pairs.append((node, succ))
+                    matched.update((node, succ))
+                    break
+        for node, succ in pairs:
+            dag.remove_op_node(node)
+            dag.remove_op_node(succ)
         return dag
 ```
 
 **Exercises:**
 - Build a pass manager that only performs routing and translation, no optimization
 - Write a custom pass that counts the number of T gates and stores in `property_set`
-- Chain `DoWhileController` with `CXCancellation` until no further cancellation is possible
+- Chain `DoWhileController` with `InverseCancellation([CXGate()])` until no further cancellation is possible
 
 ---
 
@@ -285,24 +319,34 @@ class RemoveDoubleX(TransformationPass):
 | T1, T2 times | Set maximum useful circuit depth |
 | Readout error | Affects measurement fidelity |
 
-### Backend Properties API
+### Backend Target API
+
+The BackendV1 `backend.properties()` / `props.gate_error(...)` interface was removed with BackendV1 in Qiskit 2.0. Hardware characteristics now live on the `Target`:
 
 ```python
+# Requires qiskit-ibm-runtime (fake backends live in its fake_provider)
 from qiskit_ibm_runtime.fake_provider import FakeNairobiV2
 
+# FakeNairobiV2 snapshots the retired Nairobi device; its two-qubit
+# basis gate is 'cx' (current Eagle/Heron devices use 'ecr'/'cz').
 backend = FakeNairobiV2()
-props = backend.properties()
+target = backend.target
 
-# Gate error for a specific gate
-cx_error = props.gate_error('cx', [0, 1])
+# Error and duration for a specific gate instance
+cx_props = target['cx'][(0, 1)]
+print(cx_props.error, cx_props.duration)
 
-# Best qubit pair for CX
-from qiskit.transpiler import CouplingMap
-cm = CouplingMap(backend.coupling_map)
+# Readout error is the 'measure' instruction's error
+meas_err_q0 = target['measure'][(0,)].error
 
-# Error-aware routing (Qiskit v1)
-from qiskit.transpiler.passes import SabreSwap
-# Pass error map into routing heuristic
+# Enumerate all CX pairs and find the best one
+best = min(target['cx'], key=lambda pair: target['cx'][pair].error)
+
+# The coupling map is derived from the target
+cm = target.build_coupling_map()
+
+# Qubit coherence times
+print(target.qubit_properties[0].t1, target.qubit_properties[0].t2)
 ```
 
 ### Noise-Aware Layout
@@ -310,10 +354,11 @@ from qiskit.transpiler.passes import SabreSwap
 ```python
 from qiskit.transpiler.passes import VF2PostLayout, SabreLayout
 
+target_basis = ['cx', 'rz', 'sx', 'x']  # match the backend target's basis
+
 # VF2PostLayout: after initial layout, try to improve using error rates
 pm_noise_aware = PassManager([
     SabreLayout(coupling_map, max_iterations=5),
-    ApplyLayout(),
     VF2PostLayout(
         target=backend.target,
         max_trials=50,

@@ -109,10 +109,12 @@ With `c₁ = 1, c₂ = 3`:
 C(0) ≈ (3 C(λ₀) - C(3λ₀)) / 2
 ```
 
-For a **quadratic model** `C(λ) = C(0) + a₁λ + a₂λ²` (three measurements needed):
+For a **quadratic model** `C(λ) = C(0) + a₁λ + a₂λ²` (three measurements needed), Lagrange
+extrapolation to `λ = 0` gives:
 ```
-C(0) ≈ (c₂c₃ C(c₁λ₀) - c₁c₃ C(c₂λ₀) + c₁c₂ C(c₃λ₀)) / ((c₁-c₂)(c₁-c₃)(c₂-c₃))
+C(0) ≈ Σᵢ C(cᵢλ₀) · ∏_{j≠i} cⱼ/(cⱼ - cᵢ)
 ```
+(e.g., for `c = (1, 2, 3)` the weights are `3, -3, 1`, which sum to 1).
 
 Higher-order extrapolation removes higher-order noise contributions but amplifies shot noise.
 
@@ -284,8 +286,10 @@ C(0) ≈ [3 × 0.450 - 1 × 0.320] / (3-1) = (1.350 - 0.320) / 2 = 1.030/2 = 0.5
 `0.515` is within `1%`. Unmitigated value `0.450` was `12%` off. ZNE improved accuracy
 from 12% to 1% error at cost of doubling circuit evaluations. ✓
 
-**Error estimate**: The ZNE output has standard error amplified by factor `|3/(3-1)| + |1/(3-1)| = 2`
-compared to each measurement. With `σ_meas = 0.01`, `σ_ZNE ≈ √(9+1)/2 × 0.01 = 0.016`.
+**Error estimate**: The extrapolation weights are `3/2` and `-1/2`. For independent shot noise
+the standard errors add in quadrature: `σ_ZNE = √((3/2)² + (1/2)²) σ_meas = (√10/2) σ_meas ≈
+1.58 × 0.01 ≈ 0.016`. (The worst case for fully correlated errors is the sum of absolute
+weights, `3/2 + 1/2 = 2`.)
 
 ---
 
@@ -304,6 +308,64 @@ compared to each measurement. With `σ_meas = 0.01`, `σ_ZNE ≈ √(9+1)/2 × 0
 - **Fundamental limit** (Takagi et al.): no error mitigation method can avoid exponential
   sampling overhead in circuit depth × error rate. Error correction, not mitigation, is the
   long-term solution.
+
+---
+
+## Exercises
+
+**1.** With gate folding you measure `C(λ₀) = 0.620` and `C(3λ₀) = 0.500`. (a) Give the linear
+ZNE estimate of `C(0)`. (b) A third point `C(5λ₀) = 0.420` becomes available; give the
+quadratic (Richardson) estimate. Which do you trust more, and what is the trade-off?
+
+<details><summary>Solution</summary>
+
+(a) `C(0) ≈ [3(0.620) - 0.500]/2 = 0.680`.
+(b) Fit `C(λ) = c + bλ + aλ²` through `(1, 0.62), (3, 0.50), (5, 0.42)`: solving gives
+`a = 0.005`, `b = -0.08`, `c = C(0) = 0.695`. The data show curvature (the second differences
+are non-zero), so the quadratic estimate has less model bias — but its extrapolation
+coefficients are larger, so it amplifies shot noise more. Higher-order Richardson trades
+systematic error for statistical error.
+
+</details>
+
+**2.** A PEC implementation has one-norm `γ = 1.15` per two-qubit gate. For a circuit with 60
+such gates, compute the total quasi-probability norm `γ_total` and the sampling overhead factor
+`γ_total²` relative to an unmitigated estimator.
+
+<details><summary>Solution</summary>
+
+`γ_total = 1.15⁶⁰ = e^{60 ln 1.15} ≈ 4.4 × 10³`. Overhead: `γ_total² ≈ 1.9 × 10⁷`. To reach
+the same standard error as an unmitigated run of `10⁴` shots, PEC would need `~2 × 10¹¹`
+shots — this is the exponential-in-depth wall (`γ_total = γ^n`) that limits PEC to shallow
+circuits, exactly as the Takagi et al. lower bound requires.
+
+</details>
+
+**3.** Virtual distillation with `M = 2` copies is applied to
+`ρ = (1-ε)|ψ⟩⟨ψ| + ε I/d` with `ε = 0.05`. Estimate the residual error scale
+`(ε/(1-ε))²` and compare with the unmitigated error `ε`.
+
+<details><summary>Solution</summary>
+
+`(0.05/0.95)² ≈ 2.8 × 10⁻³`, versus `5 × 10⁻²` unmitigated — an ~18× suppression for a 2×
+qubit overhead (plus the swap-test circuitry). With `M = 3`: `(0.0526)³ ≈ 1.5 × 10⁻⁴`.
+The suppression is exponential in `M`, but so are the width overhead and the sensitivity of
+the normalization `Tr[ρ^M]` to shot noise.
+
+</details>
+
+**4.** A qubit prepared in `|1⟩` idles for `t = 10 μs` with `T₁ = 100 μs`. Using the amplitude
+damping channel, compute `γ` and the probability the qubit is still measured in `|1⟩`
+(ignore measurement error).
+
+<details><summary>Solution</summary>
+
+`γ = 1 - e^{-t/T₁} = 1 - e^{-0.1} ≈ 0.0952`. From the Kraus operators, `|1⟩⟨1|` maps to
+`(1-γ)|1⟩⟨1| + γ|0⟩⟨0|`, so `P(1) = 1 - γ = e^{-0.1} ≈ 0.905`. A ~10% error from idling
+alone — this is why idle-heavy circuits benefit from dynamical decoupling and why `T₁` limits
+useful circuit duration to a small fraction of `T₁`.
+
+</details>
 
 ---
 

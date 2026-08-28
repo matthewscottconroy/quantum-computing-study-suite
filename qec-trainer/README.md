@@ -1,6 +1,6 @@
 # QEC Trainer
 
-A focused problem trainer for quantum error correction. 30 curated problems across 5
+A focused problem trainer for quantum error correction. 178 curated problems across 6
 categories — from 3-qubit repetition codes through the surface code and fault tolerance
 thresholds. Multiple choice and free-form questions; free-form answers are graded by
 Claude (`claude-sonnet-4-6`).
@@ -9,7 +9,7 @@ Claude (`claude-sonnet-4-6`).
 
 ## Features
 
-- **30 curated problems** across 5 QEC categories
+- **178 curated problems** across 6 QEC categories
 - **Two answer modes** — multiple choice (auto-graded instantly) and free-form
   (Claude-graded with detailed feedback)
 - **3 difficulty levels** — beginner, intermediate, advanced
@@ -18,6 +18,9 @@ Claude (`claude-sonnet-4-6`).
   with score 0 and continue the session
 - **Session history** — past sessions with per-category score breakdown
 - **Result screen** — shows worked explanation and model answer after each submission
+- **Decoder Game** — interactive syndrome-decoding rounds with a difficulty ladder
+  (3-qubit repetition → 5-qubit repetition → distance-3 surface code), verified
+  locally with GF(2)/symplectic arithmetic — no API key needed
 
 ---
 
@@ -85,9 +88,46 @@ sessions.
 
 ---
 
+## Decoder Game
+
+Launched with **Play Decoder Game** on the setup screen. 12 rounds of hands-on
+syndrome decoding climbing a difficulty ladder (3 rounds per level):
+
+1. **3-qubit repetition code** — a random X error (weight ≤ 1) is applied; the
+   Z₁Z₂ / Z₂Z₃ syndrome is shown; pick the correction from 4 choices
+   (including "no error").
+2. **5-qubit repetition code** — weight-1 or weight-2 X errors; distance 5
+   corrects both unambiguously from the 4-bit syndrome.
+3. **Distance-3 rotated surface code, weight-1 errors** — 9 data qubits on a
+   3×3 grid with 4 X-checks and 4 Z-checks drawn as squares (lit red when
+   fired). Click data qubits to cycle a proposed correction (· → X → Z → Y),
+   then submit.
+4. **Surface code, weight-2 errors** — same grid, harder syndromes.
+
+**Verification is exact GF(2)/symplectic computation** (`core/decoder_game.py`):
+a correction succeeds iff `correction ⊕ error` lies in the stabilizer group —
+it must commute with every stabilizer generator *and* act trivially on the
+logical operators. Degenerate corrections (differing from the error by a
+stabilizer) are therefore accepted on the surface code. The hardcoded surface
+layout (X-checks {1,2}, {0,1,3,4}, {4,5,7,8}, {6,7}; Z-checks {0,3},
+{1,2,4,5}, {3,4,6,7}, {5,8}; logical X = X₀X₃X₆, logical Z = Z₀Z₁Z₂ — 0-indexed)
+was verified to be a [[9,1,3]] code by exhaustive symplectic checks.
+
+Score and streaks are tracked during the game; the end screen shows the total,
+accuracy, best streak, and a per-level breakdown. Each game is saved to
+`qec_history.json` in the standard session schema under the category
+**"Decoder Game"**, so it appears in the history screen and the repo-level
+dashboard alongside the quiz categories.
+
+---
+
 ## Problem Bank
 
-### Repetition Code (8 problems)
+178 problems: Repetition Code (34), Stabilizer Formalism (34), Fault Tolerance (33),
+Steane Code (32), Surface Code (30), and Bosonic Codes (15). The tables below show a
+representative sample from each category.
+
+### Repetition Code (34 problems, sample below)
 
 | ID | Difficulty | Type | Topic |
 |---|---|---|---|
@@ -100,7 +140,7 @@ sessions.
 | rep_5qubit | Advanced | MC | 5-qubit perfect code: parameters [[5,1,3]] |
 | shor_9 | Advanced | Free-form | Shor's 9-qubit code — concatenation structure |
 
-### Stabilizer Formalism (7 problems)
+### Stabilizer Formalism (34 problems, sample below)
 
 | ID | Difficulty | Type | Topic |
 |---|---|---|---|
@@ -112,7 +152,7 @@ sessions.
 | stab_commute | Intermediate | MC | Stabilizers must commute — why? |
 | stab_freeform | Advanced | Free-form | Derive the syndrome measurement circuit for a stabilizer |
 
-### Steane Code (5 problems)
+### Steane Code (32 problems, sample below)
 
 | ID | Difficulty | Type | Topic |
 |---|---|---|---|
@@ -122,7 +162,7 @@ sessions.
 | steane_zstabs | Intermediate | MC | Z stabilizers of the Steane code |
 | eastin_knill | Advanced | Free-form | Eastin-Knill theorem statement and implications |
 
-### Surface Code (5 problems)
+### Surface Code (30 problems, sample below)
 
 | ID | Difficulty | Type | Topic |
 |---|---|---|---|
@@ -132,7 +172,7 @@ sessions.
 | surface_plaquette | Advanced | MC | Plaquette and vertex stabilizers in the toric code |
 | surface_freeform | Advanced | Free-form | Why does the surface code threshold improve with distance? |
 
-### Fault Tolerance (5 problems)
+### Fault Tolerance (33 problems, sample below)
 
 | ID | Difficulty | Type | Topic |
 |---|---|---|---|
@@ -172,15 +212,18 @@ qec-trainer/
 ├── main.py
 ├── config.py                    MODEL, DATA_DIR, defaults
 ├── core/
-│   └── models.py                Problem, TrainerConfig, Attempt, SessionStats,
-│                                GradeMode, Verdict enums
+│   ├── models.py                Problem, TrainerConfig, Attempt, SessionStats,
+│   │                            GradeMode, Verdict enums
+│   └── decoder_game.py          Decoder Game logic: codes, syndromes, GF(2)
+│                                success verification, round generation
 ├── problems/
-│   ├── __init__.py              ALL_PROBLEMS list aggregated from all modules
-│   ├── repetition_code.py       8 problems
-│   ├── stabilizer_formalism.py  7 problems
-│   ├── steane_code.py           5 problems
-│   ├── surface_code.py          5 problems
-│   └── fault_tolerance.py       5 problems
+│   ├── __init__.py              all_problems(): auto-discovers one file per problem
+│   ├── repetition_code/         34 problems
+│   ├── stabilizer_formalism/    34 problems
+│   ├── fault_tolerance/         33 problems
+│   ├── steane_code/             32 problems
+│   ├── surface_code/            30 problems
+│   └── bosonic_codes/           15 problems
 ├── grading/
 │   └── auto_grader.py           grade_mc(problem, answer) → Attempt (local)
 ├── workers/
@@ -193,7 +236,8 @@ qec-trainer/
 │   │   ├── problem_screen.py    Question display, MC radio buttons or free-form box
 │   │   ├── result_screen.py     Verdict, feedback, model answer
 │   │   ├── summary_screen.py    Session stats
-│   │   └── history_screen.py    Past sessions table
+│   │   ├── history_screen.py    Past sessions table
+│   │   └── decoder_screen.py    Decoder Game rounds, surface-code grid, results
 │   └── widgets/
 │       └── loading_overlay.py   Grading spinner
 └── persistence.py
@@ -245,12 +289,13 @@ category, difficulty, user answer, score, verdict).
 
 ## Adding Problems
 
-Add a new `Problem` to any `problems/*.py` module:
+Add a new Python file inside the appropriate `problems/<category>/` directory, defining
+a single module-level `PROBLEM`:
 
 ```python
 from core.models import Problem, GradeMode
 
-Problem(
+PROBLEM = Problem(
     id="unique_snake_case_id",
     category="Category Name",          # must match an existing category string
     difficulty="beginner",             # "beginner" | "intermediate" | "advanced"
@@ -263,4 +308,5 @@ Problem(
 )
 ```
 
-Then add to `ALL_PROBLEMS` in `problems/__init__.py`. No other changes needed.
+`problems/__init__.py` auto-discovers every problem file, so no registration step
+is needed.

@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import anthropic
 
-from config import CLAUDE_MODEL, GENERATION_MAX_TOKENS, EVALUATION_MAX_TOKENS
+from config import CLAUDE_MODEL, GENERATION_MAX_TOKENS, EVALUATION_MAX_TOKENS, API_KEY_FILE
 from core.models import Question, Evaluation
 from ai.response_parser import parse_question_response, parse_evaluation_response
 
@@ -19,10 +19,13 @@ class EvaluationError(Exception):
 
 def _client() -> anthropic.Anthropic:
     key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key and API_KEY_FILE.exists():
+        key = API_KEY_FILE.read_text().strip()
     if not key:
         raise GenerationError(
-            "ANTHROPIC_API_KEY is not set. "
-            "Export it with: export ANTHROPIC_API_KEY=sk-ant-..."
+            "No Anthropic API key found. "
+            "Export it with: export ANTHROPIC_API_KEY=sk-ant-... "
+            f"or put it in {API_KEY_FILE}"
         )
     return anthropic.Anthropic(api_key=key)
 

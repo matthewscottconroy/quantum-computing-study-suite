@@ -35,6 +35,7 @@ class SetupScreen(QWidget):
     session_started    = pyqtSignal(object)   # TrainerConfig
     history_requested  = pyqtSignal()
     reference_requested = pyqtSignal()
+    decoder_requested  = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -194,6 +195,21 @@ class SetupScreen(QWidget):
         tip.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 13px;")
         tip_card.layout().addWidget(tip)
         right.addWidget(tip_card)
+
+        decoder_card = self._card("Decoder Game")
+        decoder_tip = QLabel(
+            "Hands-on syndrome decoding: read the fired stabilizer checks and "
+            "pick the correction. Ladder: 3-qubit repetition → 5-qubit "
+            "repetition → distance-3 surface code (weight-1, then weight-2 "
+            "errors). Auto-verified by GF(2) computation — no API key needed."
+        )
+        decoder_tip.setWordWrap(True)
+        decoder_tip.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 13px;")
+        decoder_card.layout().addWidget(decoder_tip)
+        decoder_btn = QPushButton("Play Decoder Game")
+        decoder_btn.clicked.connect(self.decoder_requested)
+        decoder_card.layout().addWidget(decoder_btn)
+        right.addWidget(decoder_card)
         right.addStretch()
         content.addLayout(right, 2)
 

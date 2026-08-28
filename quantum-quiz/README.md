@@ -1,6 +1,6 @@
 # Quantum Quiz
 
-An AI-powered quiz application covering 10 quantum computing subjects. Each question is
+An AI-powered quiz application covering 11 quantum computing subjects. Each question is
 generated on-demand by Claude (`claude-sonnet-4-6`) with optional Qiskit context (circuit
 diagrams, statevectors, Hamiltonians) embedded in the prompt. Open-ended answers are graded
 by Claude with per-point feedback and a model answer.
@@ -9,8 +9,13 @@ by Claude with per-point feedback and a model answer.
 
 ## Features
 
-- **10 subjects, 114 topics** — from linear algebra through quantum algorithm design
-- **4 question types** — conceptual explanation, calculation, circuit design, proof sketch
+- **11 subjects, 124 topics** — from linear algebra through IBM certification (C1000-179) prep
+- **7 question types** — conceptual explanation, mathematical derivation, compare and
+  contrast, circuit design, error analysis, proof sketch, teach-back
+- **Teach-back (Feynman) questions** — you are asked to explain a topic to an imagined
+  newcomer; graded on factual accuracy, completeness, analogy quality, and jargon level
+- **Viva mode** — optional follow-up probing: after a well-answered question, Claude asks
+  one probe derived from your actual answer
 - **3 difficulty levels** — beginner, intermediate, advanced (or randomised per question)
 - **Qiskit-enriched prompts** — relevant subjects automatically receive rendered circuit
   images, statevector printouts, or Hamiltonian strings to ground questions in real code
@@ -29,10 +34,8 @@ by Claude with per-point feedback and a model answer.
 ```
 anthropic>=0.93.0
 qiskit>=2.0.0
-qiskit-aer>=0.17.0
 PyQt6>=6.6.0
 matplotlib>=3.8.0
-pillow>=10.0.0
 numpy>=1.26.0
 pylatexenc>=2.10
 ```
@@ -42,9 +45,9 @@ Install:
 pip install -r requirements.txt
 ```
 
-Qiskit and qiskit-aer are the heaviest dependencies. If you only want the quiz without
-circuit rendering, you can remove those two packages — questions for Qiskit/QASM subjects
-will still be generated but without embedded circuit images.
+Qiskit is the heaviest dependency. If you only want the quiz without circuit rendering,
+you can remove it — questions for Qiskit/QASM subjects will still be generated but
+without embedded circuit images.
 
 ---
 
@@ -71,11 +74,12 @@ Anthropic API call per question.
 
 ### Setup Screen
 
-1. **Select subjects** — all 10 are checked by default; deselect any you want to skip
+1. **Select subjects** — all 11 are checked by default; deselect any you want to skip
 2. **Pick difficulty** — Beginner / Intermediate / Advanced / Mixed
-3. **Pick question types** — any combination of the four types
+3. **Pick question types** — any combination of the seven types
 4. **Set question count** — default 10
-5. Click **Start Quiz**
+5. **Study modes** — optionally enable **Viva mode: follow-up probing** (off by default)
+6. Click **Start Quiz**
 
 The total topic pool is shown as you adjust selections. All-none combinations are
 rejected with a warning.
@@ -116,6 +120,42 @@ skip option.
 
 ---
 
+## Study Modes
+
+### Teach-back (Feynman) questions
+
+A seventh question type alongside the six standard ones. A teach-back question asks you
+to **explain the topic to a bright undergraduate who has never seen quantum computing** —
+plain language, a well-chosen analogy, the core idea intact. Grading uses a distinct
+rubric:
+
+- **Factual accuracy** — no errors introduced, even in simplification
+- **Completeness** — the core idea is fully conveyed, not a fragment
+- **Analogy quality** — apt, minimally leaky analogies; credit for flagging where an
+  analogy breaks down
+- **Appropriate level** — no unexplained jargon
+
+The model answer returned for a teach-back question is itself a model *explanation*
+aimed at the same newcomer, not a textbook treatment. Enable or disable it via the
+question-type checkboxes on the setup screen like any other type.
+
+### Viva mode (follow-up probing)
+
+An optional session-level toggle on the setup screen (off by default). When enabled:
+after your answer is graded, if you scored **4 or higher**, clicking **Next Question**
+first presents **one follow-up probe** generated from your actual answer — targeting its
+weakest point or probing one level deeper. The follow-up:
+
+- is shown with a **FOLLOW-UP** badge and graded normally
+- is recorded as an ordinary history record with topic
+  `"<original topic> (viva follow-up)"` (history schema unchanged)
+- is an **extra** question — it does not consume a slot in the configured count
+- is capped at one per base question; follow-ups never spawn further follow-ups
+
+With Viva mode off, the app behaves exactly as before.
+
+---
+
 ## Subject and Topic Inventory
 
 | Subject | Topics |
@@ -130,6 +170,7 @@ skip option.
 | Foundations of QM | 14 — measurement problem, Copenhagen, Many-Worlds, pilot wave, EPR, Bell's theorem, CHSH, Tsirelson bound, loophole-free tests, decoherence, pointer states, no-cloning/deleting, Holevo bound, teleportation, Hardy's axioms |
 | Quantum Algorithm Design | 16 — phase kickback, QPE, amplitude amplification, QFT circuit, Deutsch-Jozsa, Shor, Grover, HHL, VQE, QAOA, Hamiltonian simulation, qubitization/LCU, query complexity, BBBV, hidden subgroup |
 | Transpiling | 10+ — basis gate translation, coupling map routing, SWAP insertion, optimization passes, noise-aware compilation, custom pass managers |
+| Qiskit Certification (C1000-179) | 10 — exam-style Qiskit v2.x API drills: SamplerV2/EstimatorV2 PUBs and result access, generate_preset_pass_manager and ISA circuits, execution modes, visualization function selection, OpenQASM 2/3, little-endian ordering, quantum_info operators |
 
 ---
 
@@ -149,11 +190,12 @@ quantum-quiz/
 │   ├── statevector_contexts.py  Statevector printouts
 │   └── hamiltonian_contexts.py  SparsePauliOp Hamiltonian strings
 ├── ai/
-│   ├── prompt_builder.py        Assembles generation and evaluation prompts
+│   ├── prompt_builder.py        Assembles generation, evaluation, and viva-probe prompts
 │   └── response_parser.py       Strips JSON fences, validates response fields
 ├── workers/
 │   ├── question_worker.py       QThread: build context → prompt → Claude → emit Question
-│   └── evaluation_worker.py     QThread: grade answer → emit Evaluation
+│   ├── evaluation_worker.py     QThread: grade answer → emit Evaluation
+│   └── viva_worker.py           QThread: viva follow-up probe from the user's answer
 ├── ui/
 │   ├── main_window.py           Screen controller (QStackedWidget, 5 pages)
 │   ├── screens/
@@ -207,7 +249,7 @@ Claude is prompted to return a JSON object with `score`, `feedback`, `model_answ
 
 ## Data Persistence
 
-Sessions are appended to `~/.local/share/quantum-study/quantum_quiz_history.json` as a
+Sessions are appended to `~/.local/share/quantum-study/quiz_history.json` as a
 JSON array. Each entry records: timestamp, subjects, difficulty, question count, average
 score, and per-question records (subject, topic, question text, user answer, score,
 feedback, model answer).

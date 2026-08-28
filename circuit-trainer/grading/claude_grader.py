@@ -6,7 +6,7 @@ import os
 
 import anthropic
 
-from config import CLAUDE_MODEL, CLAUDE_MAX_TOKENS
+from config import CLAUDE_MODEL, CLAUDE_MAX_TOKENS, API_KEY_FILE
 from core.models import Problem, Attempt
 
 
@@ -17,10 +17,13 @@ class GradingError(Exception):
 def grade_free_form(problem: Problem, user_answer: str) -> Attempt:
     """Call Claude to grade a FREE_FORM answer. Returns Attempt. Raises GradingError."""
     key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key and API_KEY_FILE.exists():
+        key = API_KEY_FILE.read_text().strip()
     if not key:
         raise GradingError(
-            "ANTHROPIC_API_KEY is not set. "
-            "Export it with: export ANTHROPIC_API_KEY=sk-ant-..."
+            "No Anthropic API key found. "
+            "Export it with: export ANTHROPIC_API_KEY=sk-ant-... "
+            f"or put it in {API_KEY_FILE}"
         )
 
     prompt = _build_prompt(problem, user_answer)

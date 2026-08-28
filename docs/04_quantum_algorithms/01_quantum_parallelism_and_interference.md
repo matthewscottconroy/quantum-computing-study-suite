@@ -43,7 +43,7 @@ With a **single application** of `O_f`, we have created a superposition of all i
 
 Here is the catch: measuring the register collapses the superposition. If we measure the first `n` qubits (the input register), we get a uniformly random `x*` with probability `1/2ⁿ`, and the second register collapses to `|f(x*)⟩`. We learn `f(x*)` — one evaluation, chosen randomly. No better than a random classical evaluation.
 
-**The information-theoretic barrier**: Holevo's bound says that `n` qubits can communicate at most `n` classical bits of information. A measurement of `n` qubits returns at most `n` classical bits. So from `2ⁿ` computed values, we can extract at most `n` bits — only `n/log(2ⁿ) = 1` bit per value on average. Quantum parallelism does not overcome the measurement barrier.
+**The information-theoretic barrier**: Holevo's bound says that `n` qubits can communicate at most `n` classical bits of information. A measurement of `n` qubits returns at most `n` classical bits. So from the `2ⁿ` computed values, we can extract at most `n` bits — an exponentially small fraction (`n/2ⁿ`) of what was "computed". Quantum parallelism does not overcome the measurement barrier.
 
 **The right question to ask**: Instead of "what is `f(x*)`?" we need to ask questions whose answers are encoded in *global properties* of the function: "Is `f` constant or balanced?" (Deutsch-Jozsa), "What is the hidden period of `f`?" (Shor), "What is the location of the unique `x*` with `f(x*) = 1`?" (Grover). These global properties can be extracted with high probability using interference, even though individual values cannot.
 
@@ -72,7 +72,7 @@ The circuit `H·Z·H|+⟩` gives `|1⟩` with certainty. What happened?
   - From `|0⟩`: `(1/√2) · (1/√2) = +1/2`
   - From `|1⟩`: `(-1/√2) · (-1/√2) = +1/2` ← these add! **Constructive interference** at `|1⟩`
 
-The circuit used interference to concentrate all amplitude on `|1⟩`. This is `H·Z·H = X` (a bit flip) — and we have computed `Z = 1` on the input and extracted the answer via interference.
+The circuit used interference to concentrate all amplitude on `|1⟩`. Indeed, the full sequence starting from `|0⟩` is `H·Z·H|0⟩ = X|0⟩ = |1⟩` (the identity `H·Z·H = X`): the phase flip applied between the two Hadamards was converted by interference into a deterministic, measurable bit flip.
 
 ### Interference as the Key Resource
 
@@ -229,6 +229,64 @@ This perfect separation — certain outcome `00` for constant, impossible for ba
 - **Phase kickback**: when a controlled-U is applied with target in an eigenstate `|u⟩`, the phase `e^{iφ}` appears on the control qubit; the target is unchanged; this is the core mechanism of Deutsch-Jozsa, QPE, and Shor
 - Phase oracle from bit oracle: `O_f|x⟩|−⟩ = (-1)^{f(x)}|x⟩|−⟩` — preparing the ancilla in `|−⟩` converts XOR into a phase flip
 - Quantum speedups require choosing problems where the **answer** is a global property of `f` that can be extracted via interference, not just one value of `f`
+
+## Exercises
+
+**Exercise 1**: Compute `H^{⊗2}|11⟩` explicitly using the formula `H^{⊗n}|x⟩ = (1/√2ⁿ)Σ_y (-1)^{x·y}|y⟩`. Which outcomes interfere destructively if this state is superposed with `H^{⊗2}|00⟩`?
+
+<details><summary>Solution</summary>
+
+With `x = 11`, the phase of `|y⟩` is `(-1)^{y₁+y₂}`:
+
+`H^{⊗2}|11⟩ = (1/2)(|00⟩ - |01⟩ - |10⟩ + |11⟩)`
+
+Since `H^{⊗2}|00⟩ = (1/2)(|00⟩ + |01⟩ + |10⟩ + |11⟩)`, the (normalized) sum of the two output states is
+
+`(1/√2)(H^{⊗2}|00⟩ + H^{⊗2}|11⟩) = (1/√2)(|00⟩ + |11⟩)`
+
+The `|01⟩` and `|10⟩` components cancel — destructive interference — while `|00⟩` and `|11⟩` reinforce. (Equivalently: `H^{⊗2}` applied to the Bell-like input `(|00⟩+|11⟩)/√2` returns a state supported only on even-parity strings.)
+
+</details>
+
+**Exercise 2**: Phase kickback with the `T` gate: apply controlled-`T` with control in `|+⟩` and target in `|1⟩` (an eigenstate of `T` with eigenvalue `e^{iπ/4}`). What is the control-qubit state afterward, and with what probability does a subsequent measurement of the control in the `{|+⟩, |−⟩}` basis give `|+⟩`?
+
+<details><summary>Solution</summary>
+
+Phase kickback leaves the target `|1⟩` unchanged and puts the control in
+
+`(|0⟩ + e^{iπ/4}|1⟩)/√2`
+
+Probability of `|+⟩`: `|⟨+|ψ⟩|² = |(1 + e^{iπ/4})/2|² = (1 + cos(π/4))/2 = cos²(π/8) ≈ 0.854`.
+
+(General rule: `P(+) = (1 + cos φ)/2 = cos²(φ/2)` for kicked-back phase `e^{iφ}` — the basis of the Hadamard test for estimating eigenphases.)
+
+</details>
+
+**Exercise 3**: Run the `n = 2` interference circuit of the worked example, but with the *balanced* function `f(x₁x₂) = x₁` instead of a constant function. What is the final state of the input register, and what is the probability of outcome `00`?
+
+<details><summary>Solution</summary>
+
+After `H^{⊗2}` and the phase oracle: `(1/2)Σ_x (-1)^{x₁}|x⟩ = (1/2)(|00⟩ + |01⟩ - |10⟩ - |11⟩)`.
+
+Note `(-1)^{x₁} = (-1)^{s·x}` with `s = 10`, so by the Bernstein-Vazirani identity the final `H^{⊗2}` maps this state exactly to `|s⟩ = |10⟩`.
+
+Check via the amplitude formula: `amp(00) = (1/4)Σ_x (-1)^{f(x)} = (1/4)(1 + 1 - 1 - 1) = 0`.
+
+Final state: `|10⟩`; probability of `00` is exactly `0` — perfect destructive interference at `|00⟩`, as required for a balanced function.
+
+</details>
+
+**Exercise 4**: A quantum circuit applies one oracle call for `f: {0,1}²⁰ → {0,1}` to the uniform superposition, "evaluating" `f` on all `2²⁰ ≈ 10⁶` inputs. (a) What is the maximum number of classical bits extractable by measuring the 21 qubits? (b) What fraction of the million computed function values is that? (c) Reconcile this with the fact that Deutsch-Jozsa still extracts something useful in one query.
+
+<details><summary>Solution</summary>
+
+(a) By Holevo's bound, at most 21 bits (one per qubit measured).
+
+(b) `21/2²⁰ ≈ 2 × 10⁻⁵` — a vanishing fraction of the `~10⁶` computed bits.
+
+(c) There is no contradiction: Deutsch-Jozsa does not read out function values. It asks a **one-bit global question** ("constant or balanced?") whose answer is encoded in the interference pattern of all `2²⁰` amplitudes simultaneously. Interference concentrates that single bit into a high-probability measurement outcome. Quantum advantage comes from converting global properties into measurable interference, never from reading out the parallel evaluations.
+
+</details>
 
 ## Further Reading
 

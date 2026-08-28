@@ -92,12 +92,14 @@ The gradient is computed in `O(N · d²)` operations (matrix multiplications for
 
 ### GRAPE in Practice
 
-GRAPE is the algorithm behind the DRAG pulse (Derivative Removal via Adiabatic Gate) technique
-used in superconducting qubits. DRAG pulses suppress leakage to the `|2⟩` state by using
-quadrature control `(I, Q)` to implement effective DRAG corrections:
+A widely used pulse-shaping technique in superconducting qubits is the DRAG pulse (Derivative
+Removal via Adiabatic Gate; Motzoi et al., 2009). DRAG is an analytic derivation, not a GRAPE
+product — though it is a common starting point and benchmark for GRAPE optimization. DRAG
+pulses suppress leakage to the `|2⟩` state by using quadrature control `(I, Q)`: the in-phase
+envelope `Ω_X(t) = Ω₀(t)` is accompanied by a quadrature component carrying its derivative,
 
 ```
-Ω_X(t) = Ω₀(t) + λ Ω̇_Y(t) / Δ
+Ω_Y(t) = -λ Ω̇_X(t) / Δ
 ```
 
 where `Δ` is the anharmonicity and `λ` is a calibrated parameter. DRAG enables sub-20 ns
@@ -111,14 +113,16 @@ The **Krotov method** (Krotov, 1995) is an alternative to GRAPE that guarantees 
 convergence of the fidelity: each iteration never decreases `F`. This is theoretically appealing
 but practically GRAPE (with line search) achieves comparable convergence.
 
-**Update rule** (monotonically convergent):
+**Update rule** (schematic, first order):
 ```
-u'_{k,j} = u_{k,j} + (α / Im[∂F/∂u]) · Re[⟨Λⱼ|Hₖ|P'ⱼ⟩]
+u'ₖ(t) = uₖ(t) + (α / S(t)) · Im[⟨Λ(t)| ∂H/∂uₖ |ψ'(t)⟩]
 ```
 
-The key difference: GRAPE computes `|P'ⱼ⟩` using the **old** controls for all `j`, then updates.
-Krotov updates controls **sequentially** left-to-right, using updated controls immediately for
-subsequent propagation. This sequential update guarantees monotonic convergence.
+where `S(t) > 0` is a chosen weight (shape) function. The key difference: GRAPE evaluates its
+gradient with the **old** controls at every time step, then updates all of them at once.
+Krotov updates controls **sequentially** left-to-right, propagating `|ψ'(t)⟩` with the
+already-updated controls for subsequent times. This sequential update guarantees monotonic
+convergence.
 
 ---
 
@@ -193,10 +197,14 @@ where `⟨E⟩ = ⟨H⟩ - E₀` is the mean energy above the ground state. The 
 τ_QSL = ℏ π / (2 max(ΔE, ⟨E⟩))
 ```
 
-**Implication for quantum gates**: A single-qubit rotation gate `Ry(π) = X` applied to a qubit
-with energy splitting `ω₀` has minimum gate time `τ ≥ π/(2ω₀)`. For a transmon with
-`ω₀/2π = 5 GHz`: `τ ≥ π/(10π GHz) = 0.1 ns`. In practice, gates take `~10-50 ns` due to
-bandwidth limitations and anharmonicity constraints, not the QSL.
+**Implication for quantum gates**: A `π` rotation such as `Rx(π) = -iX` (equal to `X` up to
+global phase) must take `|0⟩` to `|1⟩` — an evolution between orthogonal states. For a qubit
+with energy splitting `ℏω₀`, suppose the total Hamiltonian (drive included) is capped in norm
+at the qubit's own energy scale, `‖H‖ ≤ ℏω₀/2`; then `ΔE ≤ ℏω₀/2`, and the Mandelstam-Tamm
+bound gives `τ ≥ πℏ/(2ΔE) ≥ π/ω₀`. (A stronger drive raises `ΔE` and lowers the bound
+proportionally.) For a transmon with `ω₀/2π = 5 GHz`:
+`τ ≥ π/(2π × 5 GHz) = 0.1 ns`. In practice, gates take `~10-50 ns` — limited by drive
+amplitude, pulse bandwidth, and anharmonicity constraints, not by the QSL.
 
 ### QSL for Unitary Synthesis
 
@@ -260,33 +268,47 @@ anharmonicity), even without knowing the exact anharmonicity.
 - **GRAPE gradient**: `∂F/∂u_{k,j} = 2Δt · Re[⟨Λⱼ|(-iHₖ)|Pⱼ⟩]`
 - **Mandelstam-Tamm QSL**: `τ ≥ πℏ / (2ΔE)`
 - **Margolus-Levitin QSL**: `τ ≥ πℏ / (2⟨E-E₀⟩)`
-- **DRAG correction**: `Ω_X(t) = Ω₀ + (λ/Δ) dΩ_Y/dt`
+- **DRAG correction**: `Ω_X(t) = Ω₀(t)`, `Ω_Y(t) = -(λ/Δ) dΩ_X/dt`
 
 ---
 
-## Worked Example: Single-Qubit GRAPE Iteration
+## Worked Example: Single-Qubit GRAPE Run
 
-**System**: Single qubit with `H₀ = (ω₀/2) Z`, control `H₁ = X`. Target gate: `X` (bit flip).
-Duration: `T = π/ω₀` (one half-Rabi period). Piece-wise constant: `N = 4` intervals.
+**System**: Single qubit with drift `H₀ = (ω₀/2)Z`, control `H₁ = X`. Target gate: `X` (bit
+flip). Duration `T = π/ω₀`, piece-wise constant control with `N = 4` intervals
+(`Δt = T/4`). Work in units `ω₀ = 1`.
 
-**Initial control**: `u₁,ⱼ = ω₀/2` for all `j` (constant drive).
+**Initial control**: `u_j = ω₀/2 = 0.5` for all `j` (constant drive — what a naive Rabi pulse
+would be *if the drift were absent*).
 
-**Forward propagation** (sketch, `Δt = T/4 = π/(4ω₀)`):
-- `U_j = exp(-i(H₀ + u·X)Δt)` for each interval.
-- `P₄ = U₄ U₃ U₂ U₁ |0⟩` (final state).
+**Initial fidelity**: with constant `u`, `U(T) = exp(-i(Z/2 + uX)T)`. For `u = 0.5` the
+rotation axis is tilted 45° out of the equatorial plane, and evaluating
+`F = |Tr[X†U(T)]|²/4` gives:
+```
+F₀ = sin²(π/√2)/2 = 0.3166
+```
+The drift `H₀` is not negligible, so the constant drive badly fails to invert the qubit —
+a good starting point for optimization.
 
-**Fidelity** at constant drive: `F₀ = |⟨0|X·P₄|0⟩|² ≈ 0.85` (not fully inverted for this
-crude discretization).
+**Gradient computation**: numerically (or via the forward/backward propagator formula
+`∂F/∂u_j = 2Δt Re[⟨Λⱼ|(-iX)|Pⱼ⟩]`), the initial gradient is symmetric in time:
+```
+∂F/∂u = (-0.308, +0.089, +0.089, -0.308)
+```
+GRAPE should *reduce* the drive at the edges and *increase* it in the middle.
 
-**Gradient computation**:
-For interval `j=2`: `∂F/∂u_{1,2} = 2Δt Re[⟨Λ₂|(-iX)|P₂⟩]`
-
-**After 1 GRAPE step** (with step size `α = 0.1`):
-`u_{1,2} ← 0.5 + 0.1 × grad ≈ 0.5 + 0.1 × 0.3 = 0.53`
-
-After 20-50 iterations, GRAPE converges to the optimal pulse. Typical convergence: `F > 0.9999`
-(99.99% fidelity) for `N = 20` intervals. This quantitatively reproduces the fidelities achieved
-by optimized pulses on actual hardware.
+**Gradient ascent** (fixed step `α = 0.3`, `u ← u + α ∂F/∂u`):
+```
+iteration   1:  F = 0.377
+iteration  10:  F = 0.931
+iteration  50:  F = 1.000000 (converged to numerical precision)
+```
+The converged pulse is `u* ≈ (-0.49, +1.34, +1.34, -0.49)` — strongly time-dependent and
+symmetric, compensating the drift rotation. With `N = 20` intervals the same procedure also
+reaches `F > 0.999999` in under 200 iterations, converging to a smooth ramped pulse. Even
+crude piece-wise constant parameterizations reach the `>99.99%` fidelities quoted for
+optimized pulses on hardware; real devices are instead limited by decoherence during the
+pulse and by model inaccuracies (which robust control addresses).
 
 ---
 
@@ -304,6 +326,62 @@ by optimized pulses on actual hardware.
   parameter space.
 - **Robust control** (DRAG, composite pulses) makes gates insensitive to calibration errors —
   critical for real hardware performance.
+
+---
+
+## Exercises
+
+**1.** A qubit evolves under a Hamiltonian with energy standard deviation
+`ΔE/ℏ = 2π × 10 MHz`. What is the Mandelstam-Tamm minimum time to reach an orthogonal state?
+
+<details><summary>Solution</summary>
+
+`τ_MT = πℏ/(2ΔE) = π/(2 × 2π × 10⁷ rad/s) = 2.5 × 10⁻⁸ s = 25 ns`. Any control scheme
+confined to this energy uncertainty — however cleverly shaped — cannot flip the qubit faster.
+
+</details>
+
+**2.** A resonant Rabi drive gives `H = (Ω/2)X` in the rotating frame with
+`Ω/2π = 25 MHz`. (a) How long is a `π`-pulse (X gate)? (b) Show this saturates the
+Mandelstam-Tamm bound for this Hamiltonian.
+
+<details><summary>Solution</summary>
+
+(a) `τ_π = π/Ω = π/(2π × 2.5 × 10⁷) = 20 ns`.
+(b) For `|0⟩` under `(Ω/2)X`: `⟨H⟩ = 0` and `⟨H²⟩ = (ℏΩ/2)²`, so `ΔE = ℏΩ/2` and
+`τ_MT = πℏ/(2·ℏΩ/2) = π/Ω` — exactly the `π`-pulse duration. A resonant constant drive is
+time-optimal for this control set; pulse shaping buys robustness and spectral selectivity,
+not raw speed.
+
+</details>
+
+**3.** Reproduce the worked example's starting point: for `H = (ω₀/2)Z + u·X` with `u = ω₀/2`
+applied for `T = π/ω₀`, show the gate fidelity to `X` is `F = sin²(π/√2)/2 ≈ 0.317`.
+
+<details><summary>Solution</summary>
+
+Write `H = (ω₀/√2)·n̂·σ` with `n̂ = (1,0,1)/√2` (in units `ω₀ = 1`, `H = (Z+X)/2`, `|H| = 1/√2`).
+Then `U(T) = cos(a)I - i sin(a)(X+Z)/√2` with rotation angle `a = |H|·T = π/√2 ≈ 2.221`.
+So `Tr[X†U] = -i sin(a)·(1/√2)·Tr[X(X+Z)] = -i√2 sin(a)`, giving
+`F = |Tr[X†U]|²/4 = 2sin²(π/√2)/4 = sin²(π/√2)/2 = 0.3166`. The drift tilts the rotation
+axis 45° away from `x̂` and changes the effective rotation angle, so the constant drive both
+rotates about the wrong axis and by the wrong amount.
+
+</details>
+
+**4.** A DRAG-corrected pulse uses a Gaussian `Ω_X(t) = Ω₀ e^{-(t-t₀)²/2σ²}` with `σ = 5 ns`,
+`Ω₀/2π = 40 MHz`, `λ = 0.5`, and anharmonicity `|Δ|/2π = 250 MHz`. Estimate the peak amplitude
+of the quadrature correction `Ω_Y = -(λ/Δ) dΩ_X/dt` relative to `Ω₀`.
+
+<details><summary>Solution</summary>
+
+`|dΩ_X/dt|` peaks at `t = t₀ ± σ` with value `Ω₀ e^{-1/2}/σ`. So
+`max|Ω_Y|/Ω₀ = λ e^{-1/2}/(|Δ|σ) = 0.5 × 0.6065/(2π × 2.5 × 10⁸ × 5 × 10⁻⁹) ≈ 0.039`.
+The DRAG correction is only ~4% of the main pulse amplitude, yet it suppresses `|2⟩` leakage
+by an order of magnitude — small quadrature corrections targeting a specific error channel
+are typical of robust-control solutions.
+
+</details>
 
 ---
 

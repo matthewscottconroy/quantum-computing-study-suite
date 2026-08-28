@@ -205,8 +205,9 @@ codes to stabilizer codes. Encoding and decoding circuits are always Clifford ci
 Syndrome measurement ancilla preparation and measurement can also be done with Clifford circuits.
 
 The **Gottesman-Knill theorem**: a quantum circuit consisting entirely of Clifford gates, Pauli
-measurements, and classical feed-forward can be efficiently simulated on a classical computer in
-time `O(n² log n)`. This means Clifford circuits, while useful for QEC, are not by themselves
+measurements, and classical feed-forward can be efficiently simulated on a classical computer —
+with the Aaronson-Gottesman tableau algorithm, in `O(n)` time per Clifford gate and `O(n²)` per
+measurement. This means Clifford circuits, while useful for QEC, are not by themselves
 computationally universal — and captures precisely which quantum operations QEC provides "for
 free."
 
@@ -300,8 +301,8 @@ g₂ = Z⊗Z⊗Z⊗Z   (all-Z)
 **Code space** (dimension `2² = 4`):
 ```
 |00_L⟩ = (|0000⟩ + |1111⟩)/√2
-|01_L⟩ = (|0011⟩ + |1100⟩)/√2
-|10_L⟩ = (|0101⟩ + |1010⟩)/√2
+|01_L⟩ = (|0101⟩ + |1010⟩)/√2
+|10_L⟩ = (|0011⟩ + |1100⟩)/√2
 |11_L⟩ = (|0110⟩ + |1001⟩)/√2
 ```
 
@@ -310,6 +311,10 @@ g₂ = Z⊗Z⊗Z⊗Z   (all-Z)
 X̄₁ = X⊗X⊗I⊗I,   Z̄₁ = Z⊗I⊗Z⊗I
 X̄₂ = X⊗I⊗X⊗I,   Z̄₂ = Z⊗Z⊗I⊗I
 ```
+
+One can check the labeling is consistent: `X̄₁|00_L⟩ = (|1100⟩ + |0011⟩)/√2 = |10_L⟩` (flips
+the first logical bit), `Z̄₁|10_L⟩ = -|10_L⟩` (reads it), and similarly `X̄₂|00_L⟩ = |01_L⟩`,
+`Z̄₂|01_L⟩ = -|01_L⟩` for the second logical qubit.
 
 **Syndrome detection**: A single X error on qubit `j` anticommutes with `g₂ = ZZZZ` (since `ZX = -XZ`).
 Syndrome bit `s₂ = -1`. Cannot correct (we don't know `j`), but we know an error occurred.
@@ -341,6 +346,79 @@ with distance 2.
 
 ---
 
+## Exercises
+
+**Exercise 1.** Using the even/odd overlap rule, determine whether `P = X⊗Y⊗Z` and
+`Q = Z⊗Z⊗X` commute or anticommute.
+
+<details><summary>Solution</summary>
+
+Compare position by position: position 1 has `X` vs `Z` (anticommute), position 2 has `Y` vs
+`Z` (anticommute), position 3 has `Z` vs `X` (anticommute). Three positions anticommute — an
+odd number — so `P` and `Q` **anticommute**. Equivalently, in symplectic notation
+`P = (110|011)` and `Q = (001|110)`: `a_P·b_Q + b_P·a_Q = (1·1+1·1+0·0) + (0·0+1·0+1·1)
+= 2 + 1 = 1 (mod 2)`.
+
+</details>
+
+**Exercise 2.** Find three independent stabilizer generators for the GHZ state
+`|GHZ⟩ = (|000⟩ + |111⟩)/√2` and verify that each fixes the state.
+
+<details><summary>Solution</summary>
+
+Take `g₁ = XXX`, `g₂ = ZZI`, `g₃ = IZZ`. Verification:
+`XXX(|000⟩+|111⟩)/√2 = (|111⟩+|000⟩)/√2` ✓;
+`ZZI` gives phase `(+1)(+1) = +1` on `|000⟩` and `(-1)(-1) = +1` on `|111⟩` ✓;
+`IZZ` similarly ✓. They pairwise commute (`XXX` overlaps each `Z`-pair in two positions) and
+are independent, so they generate the full stabilizer group of order `2³ = 8`, pinning down a
+unique state (`n = 3` generators for `k = 0`).
+
+</details>
+
+**Exercise 3.** The two-qubit stabilizer group `S = ⟨XX, ZZ⟩` defines a `k = 0` code. List all
+four elements of `S` and identify the unique stabilized state.
+
+<details><summary>Solution</summary>
+
+`S = {II, XX, ZZ, XX·ZZ}`. Compute `XX·ZZ = (XZ)⊗(XZ) = (-iY)⊗(-iY) = -YY`. So
+`S = {II, XX, ZZ, -YY}`. The stabilized state must satisfy `ZZ|ψ⟩=|ψ⟩` (support on `|00⟩,
+|11⟩`) and `XX|ψ⟩=|ψ⟩` (symmetric combination): `|ψ⟩ = |Φ⁺⟩ = (|00⟩+|11⟩)/√2`, the Bell
+state. Note `-YY ∈ S` while `YY ∉ S`: indeed `YY|Φ⁺⟩ = -|Φ⁺⟩`.
+
+</details>
+
+**Exercise 4.** For the `[[4,2,2]]` code, compute the syndrome `(g₁, g₂) = (XXXX, ZZZZ)` for
+each of the errors `X₃`, `Z₃`, and `Y₃`. What does the code learn, and why can it not correct?
+
+<details><summary>Solution</summary>
+
+`X₃` commutes with `XXXX` and anticommutes with `ZZZZ` (one overlapping position): syndrome
+`(+1, -1)`. `Z₃` anticommutes with `XXXX`, commutes with `ZZZZ`: `(-1, +1)`. `Y₃` anticommutes
+with both: `(-1, -1)`. The syndrome reveals the *type* of single-qubit error (X, Z, or Y) but
+is identical for all four qubit positions — `X₁, X₂, X₃, X₄` all give `(+1, -1)`. With the
+error location unknown and the candidates inequivalent (e.g. `X₁X₃ = X̄₂` is a logical
+operator, so `X₁` and `X₃` act differently on the code space), no safe correction exists:
+distance 2 detects but does not correct.
+
+</details>
+
+**Exercise 5.** Write down the graph-state stabilizer generators for the triangle graph
+(vertices 1, 2, 3, all pairs connected) and verify that the generators pairwise commute.
+
+<details><summary>Solution</summary>
+
+Each vertex has the other two as neighbors:
+`K₁ = X₁Z₂Z₃`, `K₂ = Z₁X₂Z₃`, `K₃ = Z₁Z₂X₃`.
+`K₁` vs `K₂`: position 1 (`X` vs `Z`) anticommutes, position 2 (`Z` vs `X`) anticommutes,
+position 3 (`Z` vs `Z`) commutes — two anticommuting positions, even, so they commute. The
+same count applies to the other two pairs by symmetry. ✓ (Any two generators of any graph
+state commute this way: `K_u` and `K_v` for adjacent `u,v` clash exactly at the two positions
+`u` and `v`.)
+
+</details>
+
+---
+
 ## Further Reading
 
 1. **Gottesman, D.** — *Stabilizer Codes and Quantum Error Correction*, PhD thesis, Caltech (1997).
@@ -350,6 +428,6 @@ with distance 2.
 3. **Hein, M. et al.** — "Entanglement in graph states and its applications," arXiv:quant-ph/0602096.
    Graph states, multipartite entanglement, and measurement-based computation.
 4. **Aaronson, S. and Gottesman, D.** — "Improved simulation of stabilizer circuits," *Phys. Rev.
-   A* 70, 052328 (2004). The O(n²) classical simulation algorithm.
+   A* 70, 052328 (2004). The tableau simulation algorithm: O(n) per gate, O(n²) per measurement.
 5. **Wilde, M.** — *Quantum Information Theory*, Cambridge University Press, 2nd ed. (2017).
    Chapter 10–11 for stabilizer codes in the information-theoretic context.

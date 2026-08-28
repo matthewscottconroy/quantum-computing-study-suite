@@ -11,13 +11,16 @@ from ui.screens.setup_screen import SetupScreen
 from ui.screens.problem_screen import ProblemScreen
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
+from ui.screens.sprint_screen import SprintScreen, SprintSummaryScreen
 from ui.widgets.loading_overlay import LoadingOverlay
-from config import APP_NAME, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT
+from config import APP_NAME, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT, SPRINT_SECONDS
 
-PAGE_SETUP   = 0
-PAGE_PROBLEM = 1
-PAGE_SUMMARY = 2
-PAGE_HISTORY = 3
+PAGE_SETUP          = 0
+PAGE_PROBLEM        = 1
+PAGE_SUMMARY        = 2
+PAGE_HISTORY        = 3
+PAGE_SPRINT         = 4
+PAGE_SPRINT_SUMMARY = 5
 
 
 class MainWindow(QMainWindow):
@@ -41,11 +44,15 @@ class MainWindow(QMainWindow):
         self._problem = ProblemScreen()
         self._summary = SummaryScreen()
         self._history = HistoryScreen()
+        self._sprint  = SprintScreen()
+        self._sprint_summary = SprintSummaryScreen()
 
-        self._stack.addWidget(self._setup)    # 0
-        self._stack.addWidget(self._problem)  # 1
-        self._stack.addWidget(self._summary)  # 2
-        self._stack.addWidget(self._history)  # 3
+        self._stack.addWidget(self._setup)           # 0
+        self._stack.addWidget(self._problem)         # 1
+        self._stack.addWidget(self._summary)         # 2
+        self._stack.addWidget(self._history)         # 3
+        self._stack.addWidget(self._sprint)          # 4
+        self._stack.addWidget(self._sprint_summary)  # 5
 
         self._overlay = LoadingOverlay(self)
 
@@ -58,6 +65,10 @@ class MainWindow(QMainWindow):
         self._summary.restart_requested.connect(self._on_restart)
         self._summary.review_mistakes.connect(self._on_review_mistakes)
         self._history.back_requested.connect(self._on_history_back)
+        self._sprint.answer_chosen.connect(self._on_sprint_answer)
+        self._sprint.timed_out.connect(self._on_sprint_timeout)
+        self._sprint.advance_requested.connect(self._on_sprint_advance)
+        self._sprint_summary.restart_requested.connect(self._on_restart)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -80,6 +91,15 @@ class MainWindow(QMainWindow):
     def _on_problem_ready(self, problem: Problem) -> None:
         self._current_problem = problem
         self._overlay.hide_overlay()
+        if self._session.config.sprint:
+            self._sprint.load_problem(
+                problem,
+                number=self._session.problem_number(),
+                total=self._session.config.problem_count,
+            )
+            self._stack.setCurrentIndex(PAGE_SPRINT)
+            self._sprint.setFocus()
+            return
         self._problem.load_problem(
             problem,
             number=self._session.problem_number(),
@@ -124,6 +144,40 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             self._session.record_skip()
             self._advance()
+
+    # ── Sprint mode ───────────────────────────────────────────────────────────
+
+    def _on_sprint_answer(self, choice_idx: int, elapsed_secs: int) -> None:
+        if self._current_problem is None or self._session is None:
+            return
+        attempt = grade(self._current_problem, str(choice_idx))
+        attempt.elapsed_secs = elapsed_secs
+        self._session.record(attempt)
+        self._sprint.show_flash(attempt)
+
+    def _on_sprint_timeout(self, elapsed_secs: int) -> None:
+        """Countdown hit zero: counts as wrong, then auto-advances."""
+        if self._current_problem is None or self._session is None:
+            return
+        attempt = Attempt(
+            problem=self._current_problem,
+            user_answer="",
+            is_correct=False,
+            score=0,
+            feedback="Time expired — counted as wrong.",
+            elapsed_secs=min(elapsed_secs, SPRINT_SECONDS),
+        )
+        self._session.record(attempt)
+        self._sprint.show_flash(attempt, timed_out=True)
+
+    def _on_sprint_advance(self) -> None:
+        if self._session is None:
+            return
+        if self._session.is_complete():
+            self._sprint_summary.load_stats(self._session.stats)
+            self._stack.setCurrentIndex(PAGE_SPRINT_SUMMARY)
+        else:
+            self._fetch_next()
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
@@ -182,6 +236,7 @@ class MainWindow(QMainWindow):
         self._session = None
         self._current_problem = None
         self._review_queue = []
+        self._sprint.stop_timers()
         self._stack.setCurrentIndex(PAGE_SETUP)
 
     def _on_history(self) -> None:

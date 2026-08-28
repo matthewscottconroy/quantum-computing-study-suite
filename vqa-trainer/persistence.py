@@ -8,7 +8,7 @@ from config import HISTORY_FILE, DATA_DIR
 from core.models import SessionStats
 
 _HALF_LIFE_DAYS = 14.0
-_FLAGGED_FILE = DATA_DIR / "flagged.json"
+_FLAGGED_FILE = DATA_DIR / "vqa_flagged.json"
 
 
 def _load_raw() -> list[dict]:

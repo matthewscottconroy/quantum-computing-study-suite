@@ -122,10 +122,10 @@ Build a comprehensive, rigorous understanding of the quantum computing model —
 | Algorithm | Problem | Speedup | Mechanism |
 |---|---|---|---|
 | Deutsch-Jozsa | Constant vs balanced function | Exponential (exact) | Phase kickback, interference |
-| Bernstein-Vazirani | Find hidden string | Quadratic (exact) | Single-query amplitude amplification |
+| Bernstein-Vazirani | Find hidden string | n classical queries → 1 quantum query (exact) | Phase kickback + Hadamard (Fourier) sampling |
 | Simon's algorithm | Find period in GF(2) | Exponential | Quantum Fourier sampling |
 | Shor's algorithm | Integer factoring | Exponential | QFT + hidden subgroup |
-| Grover's algorithm | Unstructured search | Quadratic | Amplitude amplification |
+| Grover's algorithm | Unstructured search | Quadratic; k* ≈ (π/4)√(N/M) iterations for M marked items | Amplitude amplification |
 | HHL algorithm | Linear systems | Exponential* | QPE + conditional rotation |
 | VQE | Ground state energy | Heuristic | Variational hybrid |
 | QAOA | Combinatorial optimization | Heuristic | Variational hybrid |

@@ -137,18 +137,29 @@ The diagonal (populations) are unchanged; the off-diagonals (coherences) are sup
 
 ### Depolarizing Channel
 
-The **depolarizing channel** applies I, X, Y, or Z each with probability `p/4` (or equivalently, replaces the state with the maximally mixed state with probability `p`):
+The **depolarizing channel** leaves the state alone with probability `1-p` and, with probability `p`, applies a uniformly random Pauli (I, X, Y, or Z, each with probability `p/4`):
 
-$$\varepsilon_\text{dep}(\rho) = (1-p)\rho + \frac{p}{4}(I\rho I + X\rho X + Y\rho Y + Z\rho Z) = (1-p)\rho + \frac{p}{2} \cdot \frac{I}{2} \cdot 2$$
+$$\varepsilon_\text{dep}(\rho) = (1-p)\rho + \frac{p}{4}(I\rho I + X\rho X + Y\rho Y + Z\rho Z)$$
 
-Using `XρX + YρY + ZρZ = 2(I/2)Tr(ρ) - ρ = I - ρ` (this identity holds for qubits):
+The key algebraic identity for qubits is:
 
-$$\varepsilon_\text{dep}(\rho) = \left(1 - \frac{3p}{4}\right)\rho + \frac{3p}{4}\cdot\frac{I}{2} \cdot \frac{2}{3}$$
+$$X\rho X + Y\rho Y + Z\rho Z = 2I\,\text{Tr}(\rho) - \rho = 2I - \rho \quad \text{(for Tr}\,\rho = 1)$$
 
-More cleanly: letting `p̃ = 3p/4`:
-$$\varepsilon_\text{dep}(\rho) = (1-p)\rho + p\frac{I}{2}$$
+(Proof via the Bloch form: writing `ρ = (I + r·σ)/2`, conjugation by `X` flips the signs of `r_y` and `r_z`, conjugation by `Y` flips `r_x, r_z`, and conjugation by `Z` flips `r_x, r_y`. Summing the three conjugates, each `σᵢ` appears with coefficient `+1` once and `-1` twice, so the sum is `(3I - r·σ)/2 = 2I - (I + r·σ)/2 = 2I - ρ`.)
 
-Effect on Bloch vector: `r → (1-p)r`. The Bloch vector shrinks uniformly toward the center. For `p=1`, the state becomes maximally mixed.
+Substituting into the channel:
+
+$$\varepsilon_\text{dep}(\rho) = (1-p)\rho + \frac{p}{4}\bigl(\rho + 2I - \rho\bigr) = (1-p)\rho + \frac{p}{2}I = (1-p)\rho + p\,\frac{I}{2}$$
+
+So "apply a uniformly random Pauli with probability `p`" is exactly the same as "replace the state with the maximally mixed state `I/2` with probability `p`."
+
+Effect on Bloch vector: `r → (1-p)r`. The Bloch vector shrinks uniformly toward the center, and at `p = 1` the state is maximally mixed.
+
+**Alternative convention**: Some texts define the depolarizing channel as applying a *non-trivial* Pauli (X, Y, or Z, each with probability `p/3`) with total error probability `p`:
+
+$$\varepsilon'_\text{dep}(\rho) = (1-p)\rho + \frac{p}{3}(X\rho X + Y\rho Y + Z\rho Z) = (1-p)\rho + \frac{p}{3}(2I - \rho) = \left(1 - \tfrac{4p}{3}\right)\rho + \frac{4p}{3}\cdot\frac{I}{2}$$
+
+In this convention the Bloch vector scales as `r → (1 - 4p/3)r`, and the state becomes maximally mixed already at `p = 3/4` (a uniformly random Pauli, including I, corresponds to complete depolarization). The two conventions are related by `p_{\text{mixed}} = 4p_{\text{Pauli}}/3`; always check which one a paper uses before plugging in error rates.
 
 ### Amplitude Damping Channel
 
@@ -249,15 +260,10 @@ $$\rho(p) = (1-p)\cdot\frac{1}{2}\begin{pmatrix}1&1\\1&1\end{pmatrix} + p\cdot\f
 
 Before: `r = (1, 0, 0)` (the state `|+⟩` is on the +x axis of the Bloch sphere).
 
-After: Reading from the density matrix `ρ = (I + r·σ)/2`:
-- `r_z = ρ_{00} - ρ_{11} = 1/2 - 1/2 = 0`
-- `r_x = ρ_{01} + ρ_{10} = (1-2p) + (1-2p) = 2(1-2p)` — wait, this isn't right. For density matrix `ρ = [[a,b],[c,d]]` with `ρ = (I+r·σ)/2`:
-  - `r_z = a - d`, `r_x = b + c` (actually `r_x = 2 Re(ρ_{01})`, since the off-diagonal of `(r_x X + r_y Y)/2` is `(r_x - ir_y)/2`)
-
-More carefully: `ρ = ½[[1+r_z, r_x-ir_y],[r_x+ir_y, 1-r_z]]`. So:
-- `r_x = 2Re(ρ_{10}) = 2Re((1-2p)/2) = 1-2p`
-- `r_y = -2Im(ρ_{10}) = 0`
-- `r_z = 0`
+After: read the Bloch vector off the density matrix using `ρ = ½[[1+r_z, r_x - ir_y],[r_x + ir_y, 1-r_z]]`, i.e. `r_z = ρ_{00} - ρ_{11}`, `r_x = 2Re(ρ_{10})`, `r_y = 2Im(ρ_{10})`:
+- `r_z = 1/2 - 1/2 = 0`
+- `r_x = 2Re((1-2p)/2) = 1-2p`
+- `r_y = 2Im((1-2p)/2) = 0`
 
 After: `r = (1-2p, 0, 0)`. The Bloch vector shrinks along the x-axis.
 
@@ -281,9 +287,9 @@ This is the **binary entropy function** `H(p)`.
 
 - `S(0) = 0`: pure state (no phase damping)
 - `S(1/2) = 1`: maximally mixed (maximum entropy)
-- `S(1) = 0`: pure state `|−⟩` (the state has been projected to `|−⟩`; at `p=1`, `ZρZ = |−⟩⟨−|`)
+- `S(1) = 0`: pure state `|−⟩` (the state has been unitarily rotated to `|−⟩`; at `p=1`, `ZρZ = |−⟩⟨−|` since `Z|+⟩ = |−⟩`)
 
-The von Neumann entropy increases from 0 to 1 bit as the phase damping increases from 0 to 1/2, then decreases back to 0 at `p=1` — because at `p=1` the state has been projected onto a definite pure state again.
+The von Neumann entropy increases from 0 to 1 bit as the phase damping increases from 0 to 1/2, then decreases back to 0 at `p=1` — because at `p=1` the channel acts as the unitary `Z`, leaving a definite pure state again.
 
 ## Summary
 
@@ -294,6 +300,72 @@ The von Neumann entropy increases from 0 to 1 bit as the phase damping increases
 - **Decoherence** arises from entanglement with the environment, causing coherences (off-diagonal density matrix elements) to vanish
 - **T₁** (energy relaxation) and **T₂** (dephasing) are the key timescales; current superconducting qubits achieve `T₁, T₂ ∼ 100μs` with gate times `∼ 10-100ns`
 - The **von Neumann entropy** `S(ρ) = -Tr(ρ log ρ)` measures the degree of mixedness: 0 for pure, log d for maximally mixed
+
+## Exercises
+
+**Exercise 1**: Which of the following are valid density matrices? (a) `A = ½[[1,1],[1,1]]`, (b) `B = [[0.7, 0.3],[0.3, 0.3]]`, (c) `C = [[0.5, 0.6],[0.6, 0.5]]`. For the valid ones, decide whether they are pure or mixed.
+
+<details><summary>Solution</summary>
+
+All three are Hermitian with unit trace, so the question is positive semidefiniteness (both eigenvalues `≥ 0`). For a `2×2` Hermitian matrix, eigenvalues are `Tr/2 ± √((Tr/2 - d)² ... )` — simplest is to check the determinant (product of eigenvalues) and trace (sum).
+
+**(a)** `det A = ¼(1·1 - 1·1) = 0`, `Tr A = 1`. Eigenvalues `{1, 0}` — valid, and since `A² = A` it is a **pure state**: `A = |+⟩⟨+|`.
+
+**(b)** `det B = 0.21 - 0.09 = 0.12 > 0` and `Tr B = 1 > 0`, so both eigenvalues are positive (they are `≈ 0.861, 0.139`) — valid. `Tr(B²) = 0.861² + 0.139² ≈ 0.76 < 1`, so **mixed**.
+
+**(c)** `det C = 0.25 - 0.36 = -0.11 < 0` — one eigenvalue is negative (`{1.1, -0.1}`). **Not a valid density matrix**: it would assign a negative probability to the `|−⟩` outcome of an X measurement.
+
+</details>
+
+**Exercise 2**: Show that the ensemble "`|0⟩` with probability 3/4, `|1⟩` with probability 1/4" and the ensemble "`|a⟩ = (√3|0⟩+|1⟩)/2` with probability 1/2, `|b⟩ = (√3|0⟩-|1⟩)/2` with probability 1/2" have the **same** density matrix. What does this imply physically?
+
+<details><summary>Solution</summary>
+
+First ensemble: `ρ₁ = ¾|0⟩⟨0| + ¼|1⟩⟨1| = [[3/4, 0],[0, 1/4]]`.
+
+Second ensemble: `|a⟩⟨a| = ¼[[3, √3],[√3, 1]]` and `|b⟩⟨b| = ¼[[3, -√3],[-√3, 1]]`, so
+
+`ρ₂ = ½(|a⟩⟨a| + |b⟩⟨b|) = ½·¼[[6, 0],[0, 2]] = [[3/4, 0],[0, 1/4]] = ρ₁` ✓
+
+The off-diagonal terms cancel. Since all measurement statistics are functions of `ρ` alone (`p(m) = Tr(Eₘρ)`), **no experiment can distinguish which ensemble was prepared**. A density matrix does not carry a unique decomposition into pure states — classical ignorance about "which pure state we have" is not a physically meaningful question beyond `ρ` itself.
+
+</details>
+
+**Exercise 3**: Verify the identity `XρX + YρY + ZρZ = 2I - ρ` explicitly for `ρ = |0⟩⟨0|`, and then prove it for arbitrary single-qubit `ρ` with `Tr ρ = 1`.
+
+<details><summary>Solution</summary>
+
+For `ρ = |0⟩⟨0| = [[1,0],[0,0]]`:
+
+- `X|0⟩⟨0|X = |1⟩⟨1|`
+- `Y|0⟩⟨0|Y = (i|1⟩)(⟨1|(-i)) = |1⟩⟨1|`
+- `Z|0⟩⟨0|Z = |0⟩⟨0|`
+
+Sum: `2|1⟩⟨1| + |0⟩⟨0| = [[1,0],[0,2]]`. And `2I - ρ = [[2,0],[0,2]] - [[1,0],[0,0]] = [[1,0],[0,2]]` ✓.
+
+General proof: write `ρ = (I + r_x X + r_y Y + r_z Z)/2`. Conjugating by a Pauli `σᵢ` leaves `I` and `σᵢ` fixed and negates the other two Paulis (since they anticommute with `σᵢ`). Summing over `i = x, y, z`: the `I` term contributes `3·(I/2)`, and each `σⱼ` term appears once with `+` and twice with `-`, contributing `-(r·σ)/2`. Total: `(3I - r·σ)/2 = 2I - (I + r·σ)/2 = 2I - ρ`. (For unnormalized `ρ`, the same computation gives `2I·Tr(ρ) - ρ`.)
+
+</details>
+
+**Exercise 4**: Apply the amplitude damping channel with `γ = 1/2` to the state `|+⟩⟨+|`. Compute the output density matrix, its Bloch vector, and its purity.
+
+<details><summary>Solution</summary>
+
+Input: `ρ = ½[[1,1],[1,1]]` (entries `a = b = c = d = ½`). Using the amplitude damping action
+
+`ε_AD(ρ) = [[a + γd, √(1-γ)b],[√(1-γ)c, (1-γ)d]]`
+
+with `γ = ½`: `a + γd = ½ + ¼ = ¾`, `(1-γ)d = ¼`, off-diagonals `√(½)·½ = 1/(2√2)`:
+
+`ε_AD(ρ) = [[3/4, 1/(2√2)],[1/(2√2), 1/4]]`
+
+Bloch vector: `r_x = 2·1/(2√2) = 1/√2 ≈ 0.707`, `r_y = 0`, `r_z = 3/4 - 1/4 = 1/2`.
+
+`|r|² = 1/2 + 1/4 = 3/4 < 1` — the state has moved off the sphere surface (mixed) and drifted **toward the north pole** (`r_z` increased from 0 to 1/2), reflecting energy relaxation toward `|0⟩`.
+
+Purity: `Tr(ρ'²) = (1 + |r|²)/2 = (1 + 3/4)/2 = 7/8`.
+
+</details>
 
 ## Further Reading
 

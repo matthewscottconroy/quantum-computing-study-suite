@@ -186,7 +186,7 @@ builder detects these and adds specific instructions:
 
 ## Data Persistence
 
-Sessions are appended to `~/.local/share/quantum-study/math_quiz_history.json`.
+Sessions are appended to `~/.local/share/quantum-study/math_history.json`.
 Each record contains: timestamp, subjects, difficulty, question count, average score,
 and per-question detail (subject, topic, user answer, score, feedback, model answer).
 

@@ -89,15 +89,16 @@ NP ⊄ BQP   (quantum computers cannot solve all NP problems)
 
 This relationship is particularly subtle and important. Evidence that `NP ⊄ BQP`:
 - The Unstructured Search speedup of Grover is only quadratic; the best known QC algorithm for
-  generic NP-complete problems achieves at most quadratic speedup, not polynomial.
+  generic NP-complete problems achieves at most quadratic speedup, not superpolynomial.
 - Bennett-Bernstein-Brassard-Vazirani (1997): relative to a random oracle, `NP ⊄ BQP`.
-- Aaronson (2010): quantum query complexity lower bounds suggest that generic NP problems require
-  exponential quantum queries.
+- Beyond such black-box evidence, `NP ⊄ BQP` remains unproven; it is widely believed because no
+  quantum algorithm with superpolynomial advantage on any NP-complete problem has been found.
 
 Evidence that `BQP ⊄ NP`:
 - Fourier sampling problem (Bernstein-Vazirani; see below) is in BQP but not obviously in NP.
-- More strongly, Aaronson-Arkhipov (2011) showed that boson sampling, which is related to BQP,
-  cannot be in `NP` unless the polynomial hierarchy (PH) collapses.
+- More strongly, Aaronson-Arkhipov (2011) showed that exact boson sampling — a sampling task
+  solvable by linear-optical quantum devices — cannot be efficiently simulated classically
+  unless the polynomial hierarchy (PH) collapses to its third level.
 
 ---
 
@@ -141,7 +142,7 @@ the 2-local Hamiltonian problem is also QMA-complete (Kempe, Kitaev, Regev, 2006
 2. **Quantum simulation**: Simulating quantum systems exactly is QMA-hard; approximate simulation
    may have different complexity.
 3. **Quantum PCP**: If a quantum analogue of the PCP theorem holds, then even approximating
-   ground-state energies to constant error is QMA-hard.
+   ground-state energies to constant relative error is QMA-hard.
 
 ---
 
@@ -192,13 +193,15 @@ model separates quantum vs. classical in a clean way where tight bounds are prov
 quadratic speedup.
 
 **Bernstein-Vazirani**: Find hidden string `s` given `f(x) = s·x mod 2` — quantum: `1` query,
-classical: `n` queries — exponential query speedup.
+classical: `n` queries — an `n`-vs-1 (linear) query speedup; the *recursive* Fourier sampling
+version yields a superpolynomial separation.
 
 **Simon's problem**: Find the period `s` of `f(x) = f(x⊕s)` — quantum: `O(n)` queries,
 classical: `Ω(2^{n/2})` — exponential speedup. Foundation of Shor's algorithm.
 
-**Collision problem**: Find `x ≠ y` with `f(x) = f(y)` — quantum: `O(N^{1/3})` queries
-(Brassard et al., 2002), classical: `Θ(√N)` — cubic speedup.
+**Collision problem**: Find `x ≠ y` with `f(x) = f(y)` for a 2-to-1 function — quantum:
+`Θ(N^{1/3})` queries (algorithm: Brassard-Høyer-Tapp; matching lower bound: Aaronson-Shi),
+classical: `Θ(√N)` — a polynomial speedup (exponent `1/2 → 1/3`).
 
 ### Polynomial Method and Adversary Method
 
@@ -221,11 +224,12 @@ The general adversary method gives tight bounds for many functions.
 The **PCP theorem** (Arora-Safra-ALMSS, 1992-1998) is one of the deepest results in complexity:
 
 **Theorem**: Every NP verification proof can be rewritten as a "probabilistically checkable proof"
-that can be verified by checking only `O(1)` random bits, with error `< 1/2`.
+that a verifier can check by reading only `O(1)` bits of the proof, chosen using `O(log n)`
+random bits, with error `< 1/2`.
 
-**Consequence (hardness of approximation)**: If `P ≠ NP`, then there is no polynomial-time
-algorithm achieving better than a constant approximation ratio for MaxClique, MAX-3SAT, and many
-other optimization problems.
+**Consequence (hardness of approximation)**: If `P ≠ NP`, then no polynomial-time algorithm
+approximates MAX-3SAT (and many other optimization problems) beyond a certain constant ratio,
+and MaxClique cannot be approximated within factor `n^{1-ε}` for any `ε > 0`.
 
 ### Quantum PCP
 
@@ -234,11 +238,17 @@ rewritten as a "quantum probabilistically checkable proof" with constant localit
 error. The QPCP conjecture is far from proven — it is one of the most important open problems
 in quantum complexity.
 
-**If QPCP holds**: Even approximating the ground-state energy of a 2-local Hamiltonian to
-constant additive error is QMA-hard. This would have dramatic implications:
-- VQE cannot achieve constant accuracy in polynomial time (for generic Hamiltonians).
-- QAOA cannot efficiently solve MaxCut to constant approximation ratio (under QPCP + ETH).
+**If QPCP holds**: Even approximating the ground-state energy of a local Hamiltonian to constant
+*relative* precision (additive error `ε·m` for `m` local terms) is QMA-hard. This would have
+dramatic implications:
+- VQE cannot achieve even this coarse accuracy in polynomial time (for generic Hamiltonians),
+  assuming QMA-hard problems are intractable.
 - Classical simulation of quantum chemistry is fundamentally intractable even approximately.
+
+Note that QPCP is *not* needed to limit quantum optimization heuristics like QAOA on classical
+problems: the classical PCP theorem already makes approximating MaxCut beyond ratio `16/17`
+NP-hard, which limits *any* algorithm — quantum included — assuming `NP ⊄ BQP`. QPCP concerns
+the genuinely quantum question of QMA-hardness for ground-state energies, and remains open.
 
 **Obstacles to QPCP**: Unlike the classical PCP theorem, which uses algebraic techniques
 (sum-check protocol, low-degree testing), quantum proofs don't admit easy "randomized checking."
@@ -254,7 +264,7 @@ exponential overhead.
 - **QMA-completeness**: `k`-Local Hamiltonian ∈ QMA-complete for `k ≥ 2`
 - **QIP = PSPACE**: Quantum interactive proofs with 3 messages capture all of PSPACE
 - **Grover**: `Q(search) = O(√N)`, classical `Ω(N)` — quadratic separation
-- **Collision**: `Q(collision) = O(N^{1/3})`, classical `Θ(√N)` — cubic separation
+- **Collision**: `Q(collision) = Θ(N^{1/3})`, classical `Θ(√N)` — polynomial separation
 
 ---
 
@@ -273,11 +283,13 @@ reveals `sᵢ`; no query reveals more than 1 bit).
 5. Apply `H^{⊗n}`: the Hadamard of `Σ_x (-1)^{s·x} |x⟩` is `|s⟩` (quantum Fourier analysis).
 6. Measure: outcome is `s` with certainty. ✓
 
-**Exponential query separation**: The Bernstein-Vazirani algorithm uses 1 query; a classical
-algorithm needs `n` queries. The separation is `O(n) vs. O(1)` — exponential in `n`.
+**Query separation**: The Bernstein-Vazirani algorithm uses 1 query; a classical algorithm
+needs exactly `n` queries. The separation is `n` vs. `1` — an unbounded factor, though only
+linear in `n` (for a genuinely superpolynomial separation one uses recursive Fourier sampling
+or Simon's problem).
 
-**Note**: This is a *query complexity* separation. In the circuit complexity model, classical
-algorithms also use `O(n)` time (linear in input size), not exponential. The distinction
+**Note**: This is a *query complexity* separation. In the circuit complexity model, both
+quantum and classical algorithms use `O(n)` total time (the input must be read). The distinction
 is important: query complexity separations do not directly imply computational advantage.
 
 ---
@@ -290,9 +302,100 @@ is important: query complexity separations do not directly imply computational a
   `k`-local Hamiltonian) is QMA-complete.
 - **QIP = PSPACE**: quantum interactive proofs are remarkably powerful.
 - **Quantum query complexity** provides the cleanest separations: Grover (quadratic), Simon
-  (exponential), Bernstein-Vazirani (exponential in query count).
+  (exponential), Bernstein-Vazirani (`n` queries vs. 1).
 - The **quantum PCP conjecture** would imply that approximating ground-state energies is
   QMA-hard; it remains unproven and is a central open problem.
+
+---
+
+## Exercises
+
+**Exercise 1**: A BQP machine answers correctly with probability `2/3`. It is run `k` times
+independently and the majority answer is taken. (a) Give a bound on the majority-vote error
+using Hoeffding's inequality. (b) How large must `k` be to push the error below `2^{-20}`?
+
+<details><summary>Solution</summary>
+
+(a) The majority errs only if at most `k/2` runs are correct, i.e. the empirical success rate
+falls `1/6` below its mean `2/3`. Hoeffding:
+
+```
+P(majority wrong) ≤ exp(-2k(1/6)²) = exp(-k/18)
+```
+
+(b) `exp(-k/18) ≤ 2^{-20}` requires `k ≥ 18 · 20 · ln 2 ≈ 250` repetitions. (For instance,
+`k = 100` already gives error `≤ e^{-100/18} ≈ 0.004`.) Polynomially many repetitions give
+exponentially small error — this is why the constant `1/3` in BQP's definition is arbitrary.
+
+</details>
+
+**Exercise 2**: Illustrate the Feynman path-sum idea behind `BQP ⊆ PSPACE` on a toy circuit:
+compute the transition amplitude `⟨0|HTH|0⟩` by summing over the intermediate computational
+basis states, then give the acceptance probability.
+
+<details><summary>Solution</summary>
+
+Insert the identity `Σ_y |y⟩⟨y|` between the gates:
+
+```
+⟨0|HTH|0⟩ = Σ_{y∈{0,1}} ⟨0|H|y⟩ ⟨y|T|y⟩ ⟨y|H|0⟩
+          = (1/√2)(1)(1/√2) + (1/√2)(e^{iπ/4})(1/√2)
+          = (1 + e^{iπ/4})/2
+```
+
+(`T` is diagonal, so only diagonal terms appear.) Acceptance probability:
+`|(1 + e^{iπ/4})/2|² = (1 + cos(π/4))/2 = cos²(π/8) ≈ 0.854`.
+
+The general point: an `m`-gate circuit's amplitude is a sum of `2^{O(nm)}` products, each of
+which is computable with `poly(n, m)` space; the sum can be accumulated term by term reusing
+space. Exponential *time*, polynomial *space* — hence `BQP ⊆ PSPACE`.
+
+</details>
+
+**Exercise 3**: Consider the 2-qubit, 2-local Hamiltonian `H = -Z₁Z₂ - X₁`. (a) Show the two
+terms anticommute. (b) Use that to find all eigenvalues of `H` and the ground-state energy.
+(This is a toy instance of the Local Hamiltonian problem — solvable by hand here, QMA-complete
+in general.)
+
+<details><summary>Solution</summary>
+
+(a) `X₁` anticommutes with `Z₁` (and commutes with `Z₂`), so `(Z₁Z₂)(X₁) = -X₁(Z₁Z₂)`.
+
+(b) Write `H = -(A + B)` with `A = Z₁Z₂`, `B = X₁`, where `A² = B² = I` and `AB = -BA`:
+
+```
+H² = (A + B)² = A² + B² + AB + BA = 2I   (cross terms cancel by anticommutation)
+```
+
+Every eigenvalue `λ` of `H` satisfies `λ² = 2`, so `λ = ±√2`, each with multiplicity 2
+(the 4-dimensional space splits evenly since `Tr H = 0`). Ground-state energy: `E₀ = -√2`.
+
+The Local Hamiltonian problem asks precisely such questions (`E₀ ≤ a` or `≥ b`?) for sums of
+polynomially many local terms — where no such algebraic shortcut exists and the problem becomes
+QMA-complete.
+
+</details>
+
+**Exercise 4**: Classify each known query separation as *polynomial* or *superpolynomial*
+(in the input size `n`, with oracle domain `N = 2ⁿ`), and state one problem for which quantum
+computers provably give **no** asymptotic query advantage: (a) Grover search, (b) Simon's
+problem, (c) Bernstein-Vazirani, (d) collision, (e) parity of all `N` bits.
+
+<details><summary>Solution</summary>
+
+- (a) Grover: `Θ(√N)` vs `Θ(N)` — quadratic in `N`, i.e. polynomial (and exponential in `n`
+  on both sides).
+- (b) Simon: `O(n)` vs `Ω(2^{n/2})` — **superpolynomial (exponential)** separation.
+- (c) Bernstein-Vazirani: `1` vs `n` — polynomial (linear) separation.
+- (d) Collision: `Θ(N^{1/3})` vs `Θ(N^{1/2})` — polynomial separation.
+- (e) Parity: computing the parity of all `N` oracle bits needs `Θ(N)` classical queries and
+  `Θ(N/2)` quantum queries (polynomial-method lower bound of Beals et al.) — only a factor-2
+  saving, i.e. **no asymptotic quantum advantage**.
+
+Moral: quantum query advantages range from "none" to "exponential" depending on the *structure*
+of the problem; unstructured problems (search, parity) admit at most polynomial gains.
+
+</details>
 
 ---
 
@@ -306,5 +409,5 @@ is important: query complexity separations do not directly imply computational a
    relative to random oracle.
 4. **Kempe, J., Kitaev, A., and Regev, O.** — "The complexity of the local Hamiltonian problem,"
    *SIAM J. Comput.* 35, 1070 (2006). 2-local QMA completeness.
-5. **Aharonov, D. and Arad, I.** — "The BCS-HLT-RW quantum PCP conjecture," arXiv:1309.7495.
-   Survey of the quantum PCP problem.
+5. **Aharonov, D., Arad, I., and Vidick, T.** — "The quantum PCP conjecture," arXiv:1309.7495
+   (2013). Survey of the quantum PCP problem.

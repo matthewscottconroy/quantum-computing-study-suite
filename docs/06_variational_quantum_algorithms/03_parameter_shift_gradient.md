@@ -41,8 +41,7 @@ Rz(θ) = [[e^{-iθ/2}, 0       ],
           [0,         e^{iθ/2}]]
 ```
 
-The eigenvalues of `P/2` are `±1/2`, so `P/2` has eigenvalues `±1/2` and spectrum
-`{-1/2, +1/2}`.
+The generator `P/2` has spectrum `{-1/2, +1/2}`.
 
 More generally, for a generator `G` with two eigenvalues `±r` (and `r > 0`):
 ```
@@ -80,22 +79,23 @@ Consider a circuit where the `i`-th parameter `θ` enters only through a single 
 f(θ) = ⟨ψ(θ)|O|ψ(θ)⟩
 ```
 
-Taking the derivative:
-```
-∂f/∂θ = ⟨ψ₀| U_after† O U_after (-iP/2) Rₚ(θ) U_before |ψ₀⟩ + h.c.
-```
-
-Now use the identity for Pauli rotation gates: `Rₚ'(θ) = -i (P/2) Rₚ(θ)`. The key algebraic
-identity is:
+Absorb the gates after `Rₚ` into an effective observable `A = U_after† O U_after` and the
+gates before it into the input state `|φ⟩ = U_before|ψ₀⟩`, so
+`f(θ) = ⟨φ|Rₚ(θ)† A Rₚ(θ)|φ⟩`. Using `Rₚ'(θ) = -i(P/2)Rₚ(θ)`:
 
 ```
-Rₚ(θ)' = -i(P/2) Rₚ(θ) = (i/2)[Rₚ(θ+π/2) - Rₚ(θ-π/2)]
+∂f/∂θ = (i/2) ⟨φ| Rₚ(θ)† [P, A] Rₚ(θ) |φ⟩
 ```
 
-(This follows from `e^{iα P/2} = cos(α/2)I + i sin(α/2)P` and differentiating with respect
-to the rotation parameter.)
+The key algebraic identity (using `Rₚ(±π/2) = (I ∓ iP)/√2` and `P² = I`) is:
 
-Substituting back:
+```
+Rₚ(π/2)† A Rₚ(π/2) - Rₚ(-π/2)† A Rₚ(-π/2) = i[P, A]
+```
+
+(Expand: `(I+iP)A(I-iP)/2 - (I-iP)A(I+iP)/2 = i(PA - AP)`.) Substituting `[P, A]` back, and
+using `Rₚ(θ)Rₚ(±π/2) = Rₚ(θ ± π/2)`:
+
 ```
 ∂f/∂θ = [f(θ + π/2) - f(θ - π/2)] / 2
 ```
@@ -120,12 +120,15 @@ per parameter.
 For a gate `U(θ) = exp(-iθG)` where the generator `G` has eigenvalues `±r` (and no others):
 
 ```
-∂f/∂θ = r · [f(θ + π/(4r)) - f(θ - π/(4r))] / 2
+∂f/∂θ = r · [f(θ + π/(4r)) - f(θ - π/(4r))]
 ```
 
-For `G = P/2` with `r = 1/2` (Pauli rotations): `∂f/∂θ = [f(θ+π/2) - f(θ-π/2)]/2`. ✓
+**Consistency check** — `G = P/2` with `r = 1/2` (Pauli rotations):
+`∂f/∂θ = (1/2)[f(θ+π/2) - f(θ-π/2)]`, recovering the Pauli rule above. ✓
 
-For `G = P` with `r = 1` (full Pauli, some hardware-native gates): `∂f/∂θ = [f(θ+π/4) - f(θ-π/4)]/2`.
+For `G = P` with `r = 1` (full Pauli, some hardware-native gates):
+`∂f/∂θ = f(θ+π/4) - f(θ-π/4)`. Numerical check: `U(θ) = e^{-iθX}` on `|0⟩` with `O = Z`
+gives `f(θ) = cos(2θ)`, and `f(θ+π/4) - f(θ-π/4) = -2sin(2θ) = f'(θ)` exactly. ✓
 
 ### Generalization to Multi-Eigenvalue Generators
 
@@ -171,17 +174,21 @@ conditioning when the parameter-to-state map has non-uniform Jacobian.
 ### Quantum Fisher Information Matrix (QFIM)
 
 The natural gradient uses the **quantum Fisher information matrix (QFIM)** `F` as a metric tensor
-on the parameter manifold. Its definition:
+on the parameter manifold. For pure states we use the convention (standard in quantum metrology):
 
 ```
-F_{ij} = Re[⟨∂ᵢψ|∂ⱼψ⟩ - ⟨∂ᵢψ|ψ⟩⟨ψ|∂ⱼψ⟩]
-        = Re[⟨∂ᵢψ|(I - |ψ⟩⟨ψ|)|∂ⱼψ⟩]
+F_{ij} = 4 Re[⟨∂ᵢψ|∂ⱼψ⟩ - ⟨∂ᵢψ|ψ⟩⟨ψ|∂ⱼψ⟩]
+        = 4 Re[⟨∂ᵢψ|(I - |ψ⟩⟨ψ|)|∂ⱼψ⟩]
 ```
 
-where `|∂ᵢψ⟩ = ∂|ψ(θ)⟩/∂θᵢ`.
+where `|∂ᵢψ⟩ = ∂|ψ(θ)⟩/∂θᵢ`. (Beware conventions: much of the QNG literature works with the
+**Fubini-Study metric tensor** `g = F/4`, i.e., the same expression without the factor 4.
+Since the natural-gradient update uses a pseudo-inverse, the choice only rescales the
+learning rate — but statements like "F = 1" are convention-dependent, so always say which
+normalization you use.)
 
-`F` is the **Fubini-Study metric** on the space of quantum states: the infinitesimal Bures
-distance between `|ψ(θ)⟩` and `|ψ(θ+dθ)⟩` is `ds² = dθᵀ F dθ`.
+`g = F/4` is the Fubini-Study metric on the space of quantum states: the infinitesimal
+distance between `|ψ(θ)⟩` and `|ψ(θ+dθ)⟩` is `ds² = dθᵀ g dθ`.
 
 ### Quantum Natural Gradient Update
 
@@ -200,15 +207,18 @@ avoid over-shooting when the parameter-to-state map is poorly conditioned.
 
 ### Computing the QFIM
 
-For a parameterized circuit with Pauli rotation gates, the QFIM element `F_{ij}` can be
-computed using parameter shift rules:
+For a circuit whose `i`-th parameter enters through a Pauli rotation `Rₚᵢ(θᵢ) = exp(-iθᵢPᵢ/2)`,
+the diagonal QFIM elements have a closed form. With `|∂ᵢψ⟩ = -i(Pᵢ/2)` inserted at the gate's
+position, `⟨∂ᵢψ|∂ᵢψ⟩ = 1/4` (since `Pᵢ² = I`) and `⟨ψ|∂ᵢψ⟩ = -(i/2)⟨Pᵢ⟩`, giving:
 
 ```
-F_{ij} = (1/2)[⟨ψ(θ+eᵢπ/2)|Pⱼ|ψ(θ-eᵢπ/2)⟩ - ⟨Pⱼ⟩² ]   (diagonal)
+F_{ii} = 1 - ⟨Pᵢ⟩²
 ```
 
-The full off-diagonal QFIM requires additional circuit evaluations but is often approximated
-by its diagonal (block-diagonal QNG) to reduce cost.
+where `⟨Pᵢ⟩` is evaluated in the state just before the gate `Rₚᵢ` (one extra circuit per
+parameter). The full off-diagonal QFIM requires additional circuit evaluations (overlap or
+Hadamard-test circuits) but is often approximated by its diagonal (block-diagonal QNG) to
+reduce cost.
 
 **Cost**: `O(m²)` circuit evaluations for the full QFIM, or `O(m)` for the diagonal approximation.
 
@@ -265,7 +275,7 @@ Var_S(⟨O⟩) = Var(O) / S ≤ 1/S   (since |eigenvalues of O| ≤ 1 for Pauli)
 For the parameter-shift gradient `gᵢ = [f(θ+π/2 eᵢ) - f(θ-π/2 eᵢ)] / 2`:
 
 ```
-Var_S(gᵢ) = Var_S(f(θ+)) + Var_S(f(θ-)) ≤ 2/(4S) = 1/(2S)
+Var_S(gᵢ) = [Var_S(f(θ+)) + Var_S(f(θ-))] / 4 ≤ 2/(4S) = 1/(2S)
 ```
 
 To achieve gradient standard deviation `σ_g` per component:
@@ -277,19 +287,21 @@ For `σ_g = 10^{-2}` (1% gradient accuracy): `S ≥ 5000` shots per parameter pe
 For `m = 100` parameters: `100 × 2 × 5000 = 10^6` shots per gradient step. This is the
 typical regime for NISQ-era VQE.
 
-**Gradient amplification by barren plateaus**: In the barren plateau regime (Chapter 06/05),
-`Var(gᵢ) ∝ 2^{-n}`. To maintain `σ_g = 10^{-2}` at `n = 20`: `S ≥ 2^{20}/200 ≈ 5,000` shots
-*per parameter per iteration*, and this grows exponentially in `n`. This is why barren plateaus
-make training infeasible.
+**Interaction with barren plateaus**: In the barren plateau regime (Chapter 06/05), the
+gradients themselves have magnitude `~2^{-n/2}` (variance `~2^{-n}` over random parameters).
+To resolve such a gradient, the shot-noise standard deviation must be pushed below it:
+`S ≳ 1/(2 · 2^{-n}) = 2^{n-1}` shots per component. At `n = 20` that is already `~5 × 10⁵`
+shots per parameter per iteration, and the requirement doubles with every added qubit. This
+exponential shot scaling is why barren plateaus make training infeasible.
 
 ---
 
 ## Key Formulas
 
 - **Parameter-shift rule**: `∂f/∂θᵢ = [f(θ + π/2 eᵢ) - f(θ - π/2 eᵢ)] / 2`
-- **General generator**: `∂f/∂θᵢ = r[f(θ + π/(4r) eᵢ) - f(θ - π/(4r) eᵢ)] / 2` for generator
-  eigenvalues `±r`
-- **QFIM**: `F_{ij} = Re[⟨∂ᵢψ|∂ⱼψ⟩ - ⟨∂ᵢψ|ψ⟩⟨ψ|∂ⱼψ⟩]`
+- **General generator**: `∂f/∂θᵢ = r[f(θ + π/(4r) eᵢ) - f(θ - π/(4r) eᵢ)]` for generator
+  eigenvalues `±r` (`r = 1/2` recovers the Pauli rule)
+- **QFIM (pure state)**: `F_{ij} = 4 Re[⟨∂ᵢψ|∂ⱼψ⟩ - ⟨∂ᵢψ|ψ⟩⟨ψ|∂ⱼψ⟩]`; Fubini-Study metric `g = F/4`
 - **QNG update**: `θ ← θ - η F⁺ ∇E(θ)`
 - **Shot noise on gradient**: `Var_S(gᵢ) ≤ 1/(2S)`, need `S ≥ 1/(2σ_g²)`
 - **Hessian shift**: `∂²f/∂θᵢ∂θⱼ = [f(++) - f(+-) - f(-+) + f(--)]/4`
@@ -321,15 +333,27 @@ df/dθ|_{θ=π/3} = (-0.866 - 0.866) / 2 = -0.866
 **Finite difference at `ε = 0.1`**:
 ```
 [f(π/3 + 0.1) - f(π/3 - 0.1)] / 0.2 = [cos(π/3+0.1) - cos(π/3-0.1)] / 0.2
-= [cos(1.147) - cos(0.947)] / 0.2 = [0.409 - 0.585] / 0.2 = -0.88
+= [cos(1.147) - cos(0.947)] / 0.2 = [0.41104 - 0.58396] / 0.2 = -0.86458
 ```
 
-**Error**: `|-0.88 - (-0.866)| = 0.014` (1.6% error) due to higher-order terms. The parameter-
-shift has zero systematic error.
+**Error**: `|-0.86458 - (-0.86603)| ≈ 0.0014` (0.17% error) due to higher-order terms — matching
+the leading truncation term `ε²|f‴(θ)|/6 = (0.01)(sin(π/3))/6 ≈ 0.0014`. The parameter-shift
+has zero systematic error.
 
-**QFIM computation**: `F = f(θ+π/2) - ⟨Z⟩² ... ` (see Appendix for single-qubit case).
-For `Ry(θ)`, `F = ∂f/∂θ / (-2⟨Z⟩... )` — single qubit case gives `F = sin²(θ) / (1 - cos²θ) = 1`.
-The QFIM is constant (= 1) for a single Pauli rotation, so QNG = standard gradient for this case.
+**QFIM computation** (convention `F = 4[⟨∂ψ|∂ψ⟩ - |⟨ψ|∂ψ⟩|²]`, as defined above):
+```
+|ψ(θ)⟩ = Ry(θ)|0⟩ = cos(θ/2)|0⟩ + sin(θ/2)|1⟩
+|∂ψ⟩ = (1/2)(-sin(θ/2)|0⟩ + cos(θ/2)|1⟩)
+
+⟨∂ψ|∂ψ⟩ = (1/4)(sin²(θ/2) + cos²(θ/2)) = 1/4
+⟨ψ|∂ψ⟩ = (1/2)(-cos(θ/2)sin(θ/2) + sin(θ/2)cos(θ/2)) = 0
+
+F = 4(1/4 - 0) = 1
+```
+This agrees with the closed form `F = 1 - ⟨Y⟩²` for an `Ry` gate applied to `|0⟩`, since
+`⟨0|Y|0⟩ = 0`. (In the Fubini-Study convention without the factor 4, the same computation
+reads `g = 1/4`.) The QFIM is constant in `θ`, so for this one-parameter circuit QNG reduces
+to standard gradient descent with a rescaled learning rate.
 
 ---
 
@@ -345,6 +369,82 @@ The QFIM is constant (= 1) for a single Pauli rotation, so QNG = standard gradie
   useful when `m ≫ 1` and per-step cost dominates.
 - **Shot noise** sets a fundamental lower bound on gradient quality; in barren plateau regimes,
   the required shot count is exponential in system size, making training infeasible.
+
+---
+
+## Exercises
+
+**1.** For `f(θ) = ⟨0|Ry(θ)† Z Ry(θ)|0⟩ = cos(θ)`, evaluate the parameter-shift gradient at
+`θ = π/6` and compare with the exact derivative.
+
+<details><summary>Solution</summary>
+
+```
+f(π/6 + π/2) = cos(2π/3) = -1/2
+f(π/6 - π/2) = cos(-π/3) = +1/2
+∂f/∂θ = (-1/2 - 1/2)/2 = -1/2
+```
+Exact: `f'(π/6) = -sin(π/6) = -1/2`. ✓ Agreement is exact — the rule has no discretization error.
+
+</details>
+
+**2.** The gate `U(θ) = exp(-iθ X₁X₂)` has generator `G = X₁X₂` with eigenvalues `±1`
+(`r = 1`). For input `|00⟩` and observable `O = Z₁`, first show `f(θ) = cos(2θ)`, then verify
+the two-term rule `∂f/∂θ = r[f(θ + π/(4r)) - f(θ - π/(4r))]` at `θ = 0.37`.
+
+<details><summary>Solution</summary>
+
+`U(θ)|00⟩ = cos(θ)|00⟩ - i sin(θ)|11⟩`, so `⟨Z₁⟩ = cos²θ - sin²θ = cos(2θ)`.
+Rule with `r = 1`: `f(θ+π/4) - f(θ-π/4) = cos(2θ+π/2) - cos(2θ-π/2) = -2sin(2θ)`, which is
+exactly `f'(θ)`. At `θ = 0.37`: the shifted evaluations give
+`cos(2.3108) - cos(-0.8308) = -0.67429 - 0.67429 = -1.34858`, and the exact derivative is
+`-2sin(0.74) = -1.34858`. ✓ Note that the Pauli-rule shift
+`π/2` with prefactor `1/2` would give the wrong answer here — the shift and prefactor are set
+by the generator's eigenvalue gap.
+
+</details>
+
+**3.** Using the Hessian shift formula with `i = j` (shift `s = π/2 eᵢ`), compute
+`∂²f/∂θ²` for `f(θ) = cos(θ)` at `θ = 0`.
+
+<details><summary>Solution</summary>
+
+With `i = j`, the four evaluations become `f(θ+π)`, two copies of `f(θ)`, and `f(θ-π)`:
+```
+∂²f/∂θ² = [f(θ+π) - 2f(θ) + f(θ-π)] / 4 = [(-1) - 2(1) + (-1)]/4 = -1
+```
+Exact: `f''(0) = -cos(0) = -1`. ✓
+
+</details>
+
+**4.** Compute the (scalar) QFIM, convention `F = 4(⟨∂ψ|∂ψ⟩ - |⟨ψ|∂ψ⟩|²)`, for
+(a) `|ψ(θ)⟩ = Rz(θ)|+⟩` and (b) `|ψ(θ)⟩ = Rz(θ)|0⟩`. Interpret the difference.
+
+<details><summary>Solution</summary>
+
+(a) `Rz(θ)|+⟩ = (e^{-iθ/2}|0⟩ + e^{iθ/2}|1⟩)/√2`. Then `|∂ψ⟩ = -i/2(e^{-iθ/2}|0⟩ - e^{iθ/2}|1⟩)/√2`,
+`⟨∂ψ|∂ψ⟩ = 1/4`, `⟨ψ|∂ψ⟩ = -(i/2)⟨Z⟩ = 0`, so `F = 1`. The state moves at maximal speed
+around the equator of the Bloch sphere.
+
+(b) `Rz(θ)|0⟩ = e^{-iθ/2}|0⟩`: `⟨∂ψ|∂ψ⟩ = 1/4` but `⟨ψ|∂ψ⟩ = -i/2`, so
+`F = 4(1/4 - 1/4) = 0`. The parameter only changes a global phase — the physical state does
+not move at all. `F = 0` flags a redundant parameter; the QFIM is singular there and QNG must
+use a pseudo-inverse or regularization. Both results match the closed form `F = 1 - ⟨Z⟩²`
+(generator `Z/2`): `⟨+|Z|+⟩ = 0` gives 1, `⟨0|Z|0⟩ = 1` gives 0.
+
+</details>
+
+**5.** You want each parameter-shift gradient component to have shot-noise standard deviation
+`σ_g ≤ 5 × 10⁻³`. Using `Var_S(gᵢ) ≤ 1/(2S)`, how many shots per shifted circuit are needed?
+For `m = 50` parameters, how many total circuit executions per gradient step?
+
+<details><summary>Solution</summary>
+
+`S ≥ 1/(2σ_g²) = 1/(2 × 2.5 × 10⁻⁵) = 2 × 10⁴` shots per evaluation. Each component needs 2
+evaluations, so one full gradient costs `50 × 2 × 2 × 10⁴ = 2 × 10⁶` circuit executions —
+per optimizer iteration.
+
+</details>
 
 ---
 

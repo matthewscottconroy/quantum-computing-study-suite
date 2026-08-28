@@ -26,15 +26,13 @@ This chapter also covers the fault-tolerant resource measures T-depth and T-coun
 
 The error probability 1/3 is arbitrary — any constant `< 1/2` gives the same class. By running the circuit `O(log(1/δ))` times and taking the majority vote, we can reduce the error to `δ` for any `δ > 0`, at polynomial overhead.
 
-The circuit family `{Cₙ}` must be **uniformly computable**: a classical computer can generate the description of `Cₙ` from `n` in polynomial time. This prevents the circuits from "hardcode" exponentially long classical computations.
+The circuit family `{Cₙ}` must be **uniformly computable**: a classical computer can generate the description of `Cₙ` from `n` in polynomial time. This prevents the circuits from "hardcoding" exponentially long classical computations.
 
 ### Known Inclusions
 
 $$P \subseteq BPP \subseteq BQP \subseteq PP \subseteq PSPACE$$
 
-Additionally:
-
-$$BQP \subseteq NP^{NP} \quad \text{(BQP is in the polynomial hierarchy)}$$
+Whether BQP is contained in the **polynomial hierarchy** (PH) is a major open problem — no inclusion like `BQP ⊆ NP` or `BQP ⊆ NP^NP` is known. In fact there is strong evidence against it: **Raz and Tal (2019)** constructed an oracle relative to which `BQP ⊄ PH`, so any proof that BQP sits inside the polynomial hierarchy would have to use non-relativizing techniques.
 
 The inclusion `BQP ⊆ PSPACE` follows from the fact that quantum computations can be simulated classically using only polynomial *space* (though exponential time). The simulation enumerates the amplitudes of the computation path-by-path.
 
@@ -50,7 +48,7 @@ The relationship between BQP and NP is subtle and important. There is strong evi
 
 $$BQP \not\supseteq NP \quad \text{(quantum computers cannot solve all NP-hard problems)}$$
 
-The evidence: the Grover search algorithm gives a quadratic speedup for NP-complete problems, but no exponential speedup is known. If BQP ⊇ NP, then quantum computers could solve NP-complete problems in polynomial time — but no such algorithm exists, and under plausible complexity-theoretic assumptions (the polynomial hierarchy does not collapse), no such algorithm can exist.
+The evidence: the Grover search algorithm gives a quadratic speedup for NP-complete problems, and the BBBV theorem (Bennett–Bernstein–Brassard–Vazirani 1997) proves this is optimal in the black-box setting — any quantum algorithm searching an unstructured space of `N` candidates needs `Ω(√N)` queries. Beating that would require exploiting problem *structure*, and despite decades of effort no candidate polynomial-time quantum algorithm for an NP-complete problem is known. Whether `NP ⊆ BQP` remains formally open, but it is widely disbelieved.
 
 **Oracle separations**: In the oracle model (where the algorithm can query a black-box function), there exist problems where quantum computers are exponentially faster than classical (the "exponential gap"). But oracle results do not directly imply separations for the real complexity classes. Shor's algorithm is not an oracle result — it genuinely factors numbers efficiently.
 
@@ -101,7 +99,7 @@ These are **unconditional** separations (not relative to oracles) — they prove
 
 **Element distinctness**: Is there any repeated element in a list of `n` items? `Q = O(n^{2/3})` (Ambainis) vs `R = Θ(n)`. Sub-quadratic quantum speedup.
 
-**NAND tree evaluation**: A balanced binary tree of NAND gates; `Q = O(√n)` vs `R = Θ(n)`. Quadratic speedup.
+**NAND tree evaluation**: A balanced binary tree of NAND gates on `n` leaves. The classical randomized complexity is `R = Θ(n^{0.7537...})` (exponent `log₂((1+√33)/4)`, Snir's algorithm shown optimal by Saks–Wigderson) — note this is already sublinear, not `Θ(n)`. Quantumly, the Farhi–Goldstone–Gutmann continuous-time walk algorithm evaluates the tree in time `O(√n)`; in the discrete query model this yields algorithms with `O(√n · log n)` queries (later improved to `n^{1/2+o(1)}`, and `Ω(√n)` queries is a proven lower bound). The quantum speedup is thus polynomial: roughly `n^{0.75} → n^{0.5}`.
 
 **Forrelation**: A specific problem where `Q = O(1)` and `R = Ω(√n/log n)`. An exponential quantum speedup in query complexity (Aaronson-Ambainis 2014, confirmed by Bansal-Sinha 2021 to be related to bounded-degree polynomials).
 
@@ -109,7 +107,7 @@ These are **unconditional** separations (not relative to oracles) — they prove
 
 **Polynomial method**: Any quantum algorithm making `T` queries to `x` computes a multilinear polynomial of degree at most `2T` in the input bits. Therefore, if the function `f(x)` requires a polynomial of degree `d` to approximate it, then `Q(f) ≥ d/2`.
 
-**Adversary method** (Ambainis 2002): A more powerful lower bound. If there are two sets `A, B` of inputs (yes and no instances) with a "hard pair" structure, then `Q(f) = Ω(√(mn·wᵐⁱⁿ/wᵐᵃˣ))` where the parameters measure how hard it is to distinguish the sets.
+**Adversary method** (Ambainis 2002): A more powerful lower bound. One exhibits a relation pairing yes-instances with no-instances that are hard to tell apart: if every input participates in many hard pairs while any single bit position distinguishes only a few of them, then `Q(f)` must be large. Weighted refinements (the negative-weight adversary) in fact characterize quantum query complexity up to constant factors.
 
 These methods prove the optimality of Grover search and other quantum algorithms.
 
@@ -121,7 +119,7 @@ In fault-tolerant quantum computing using surface codes (or other stabilizer cod
 
 **Clifford gates** (H, S, CNOT) can be implemented **transversally** on stabilizer codes — applying the gate bitwise to all physical qubits in the code block preserves the code structure. Transversal gates require `O(d)` physical operations where `d` is the code distance.
 
-**T gates** cannot be implemented transversally (this is a theorem — no single stabilizer code can transversally implement a universal gate set). Instead, T gates require:
+**T gates** cannot be implemented transversally on the surface code, and the Eastin–Knill theorem shows no single code can transversally implement a full universal gate set. (Some codes, like the `[[15,1,3]]` Reed–Muller code, do have a transversal T — but then lack a transversal Clifford gate.) On the surface code, T gates instead require:
 
 1. **Magic state preparation**: Prepare a noisy `|T⟩ = T|+⟩` state using physical T gates
 2. **Magic state distillation**: Purify `k` noisy `|T⟩` states into one high-fidelity `|T⟩` using `O(k)` Clifford operations. The standard 15-to-1 protocol produces one good magic state from 15 noisy ones.
@@ -156,11 +154,11 @@ For quantum chemistry simulations, the T-depth determines the wall-clock time on
 - T-count for one Trotter step: `O(N^4)` or `O(N^3)` (improved methods)
 - Total T-count: `O(N^4/ε)` where `ε` is energy precision
 
-These estimates reveal why fault-tolerant quantum computing requires millions of physical qubits: a 2048-bit RSA key (n = 2048) requires roughly:
-- `~4000` logical qubits
-- `~10⁸` logical gate operations
-- `~10¹⁰–10¹²` physical gate operations (after error correction overhead)
-- Current best estimates: `~4000` logical qubits × code distance `~20` = `~4 × 10⁶` physical qubits, running for ~8 hours
+These estimates reveal why fault-tolerant quantum computing requires millions of physical qubits: a 2048-bit RSA key (n = 2048) requires roughly (Gidney–Ekerå 2021):
+- `~6,000` logical qubits (about `3n` for `n = 2048`)
+- `~10⁹` logical gate operations (≈ 2.7 × 10⁹ Toffolis)
+- `~10¹²` physical gate operations (after error correction overhead)
+- Physical qubits: at code distance `d ≈ 27`, each logical qubit costs `≈ 2d² ≈ 1,500` physical qubits, so `6,000 × 1,500 ≈ 9 × 10⁶` for the data alone; magic-state factories and routing roughly double this to `~2 × 10⁷` physical qubits, running for ~8 hours
 
 ## Circuit Depth Lower Bounds
 
@@ -228,8 +226,7 @@ $$\text{GNFS time} = \exp\left(O\left(n^{1/3}(\log n)^{2/3}\right)\right) = \tex
 
 This is faster than exponential in `n` (the number of bits) but much slower than polynomial. FACTOR is not known to be in P.
 
-**Summary of placements**:
-$$P \subseteq_? \text{FACTOR} \in NP \cap \text{co-NP} \cap BQP \not\supseteq NP_\text{hard}$$
+**Summary of placements**: `FACTOR ∈ NP ∩ co-NP ∩ BQP`; it is not known to be in `P` (or `BPP`), and it is believed not to be NP-complete.
 
 The diagram:
 
@@ -256,6 +253,64 @@ BPP
 - **T-count and T-depth** are the dominant fault-tolerant resource measures; Clifford gates are cheap, T gates cost ~1000x more due to magic state distillation overhead
 - **Integer factoring** (Shor's algorithm) is the flagship BQP problem: in NP ∩ co-NP classically, polynomial quantum time; this separation (assuming classical hardness) constitutes the strongest evidence that BQP ≠ BPP
 - Quantum computers are neither general-purpose speedup machines nor limited to trivial improvements — they excel at specific algebraic and search problems with proven speedups
+
+## Exercises
+
+**Exercise 1**: A BQP machine errs with probability at most `1/3` per run. Compute the exact error probability after taking the majority vote of 5 independent runs, and explain why repeating `O(log(1/δ))` times suffices for error `δ`.
+
+<details><summary>Solution</summary>
+
+The majority is wrong iff at least 3 of the 5 runs err. With per-run error `1/3`:
+
+`P(err) = C(5,3)(1/3)³(2/3)² + C(5,4)(1/3)⁴(2/3) + C(5,5)(1/3)⁵`
+
+`= 10·(4/243) + 5·(2/243) + 1/243 = (40 + 10 + 1)/243 = 51/243 = 17/81 ≈ 0.210`
+
+Five runs cut the error from `0.333` to `0.210`; the Chernoff bound shows the error of a `k`-run majority decays as `e^{-ck}` for a constant `c > 0` (since each run is correct with probability bounded away from `1/2`). Setting `e^{-ck} ≤ δ` gives `k = O(log(1/δ))` — this is why the constant `1/3` in the definition of BQP is arbitrary.
+
+</details>
+
+**Exercise 2**: A Grover search runs over a database of `N = 2²⁰` items with a single marked item. The oracle circuit has T-count `10⁴`. Estimate (a) the number of Grover iterations and (b) the total oracle T-count of the algorithm.
+
+<details><summary>Solution</summary>
+
+**(a)** The optimal iteration count is `⌊(π/4)√N⌋`. Here `√N = 2¹⁰ = 1024`, so
+
+`⌊(π/4)·1024⌋ = ⌊804.2⌋ = 804 iterations`
+
+**(b)** Each iteration makes one oracle call (plus the reflection, whose cost we ignore here):
+
+`804 × 10⁴ ≈ 8.0 × 10⁶ T gates`
+
+Compare classical: `~5×10⁵` expected classical evaluations of the predicate. The quadratic query advantage (`~800` vs `~500,000`) is real, but the fault-tolerant cost per quantum oracle call means the crossover to a practical advantage requires large `N` and cheap oracles — the standard caveat about Grover in practice.
+
+</details>
+
+**Exercise 3**: The 15-to-1 magic state distillation protocol maps 15 states of error `ε` to one state of error `35ε³`. Starting from raw magic states with `ε = 10⁻²`, compute the output error after one and after two rounds of distillation, and the number of raw states consumed per final state after two rounds.
+
+<details><summary>Solution</summary>
+
+Round 1: `ε₁ = 35·(10⁻²)³ = 3.5 × 10⁻⁵`.
+
+Round 2: `ε₂ = 35·(3.5×10⁻⁵)³ = 35·4.29×10⁻¹⁴ ≈ 1.5 × 10⁻¹²`.
+
+Raw-state cost: each round-2 input consumes 15 raw states, and the round-2 protocol consumes 15 round-1 outputs: `15 × 15 = 225` raw states per final magic state (ignoring the Clifford overhead and failure probabilities).
+
+The doubly-exponential error suppression (`ε → ε³ → ε⁹` in scaling) is why two rounds usually suffice for algorithm-scale error targets — and the `~225×` state cost is the origin of the "T gates are 100–1000× more expensive" rule of thumb.
+
+</details>
+
+**Exercise 4**: Classical simulation of an `n`-qubit state vector stores `2ⁿ` complex amplitudes at 16 bytes each (double precision). Find the largest `n` for which the state vector fits in (a) a 64 GiB (`2³⁶` byte) workstation and (b) a 1 PB (`10¹⁵` byte) supercomputer, and comment on what this says about `BQP ⊆ PSPACE` versus practical simulability.
+
+<details><summary>Solution</summary>
+
+**(a)** Need `2ⁿ · 16 ≤ 64 × 2³⁰ = 2³⁶`, i.e. `2ⁿ ≤ 2³²`. Largest `n = 32`.
+
+**(b)** Need `2ⁿ · 16 ≤ 10¹⁵`, i.e. `2ⁿ ≤ 6.25 × 10¹³`. Since `2⁴⁵ ≈ 3.5 × 10¹³` fits (`5.6 × 10¹⁴` bytes) but `2⁴⁶ ≈ 7.0 × 10¹³` does not (`1.13 × 10¹⁵` bytes), the largest is `n = 45`.
+
+Each added qubit doubles the memory — brute-force simulation hits a wall around 45–50 qubits regardless of engineering. Note the contrast with `BQP ⊆ PSPACE`: the *space*-efficient simulation avoids storing the state vector by summing over computation paths, but pays with exponential *time*. Exponential resources appear somewhere in every known classical simulation; the open question `BPP vs BQP` is whether that is fundamentally necessary.
+
+</details>
 
 ## Further Reading
 

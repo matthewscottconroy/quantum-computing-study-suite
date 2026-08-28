@@ -276,25 +276,36 @@ preserving ansätze restrict the parameter space to symmetry-invariant states:
 
 ## Worked Example: ADAPT-VQE on H₂
 
-**Setup**: H₂ with 4 spin-orbitals (2 qubits after reduction). Operator pool contains 3 operators:
-`A₁ = i(X₁Y₂ - Y₁X₂)/2` (single excitation), `A₂ = ...` (another), `A₃ = ...`.
+**Setup**: the 2-qubit reduced H₂ Hamiltonian from Chapter 06/01 at `R = 0.735 Å`:
+```
+H = -1.052373 I + 0.397937 Z₁ - 0.397937 Z₂ - 0.011280 Z₁Z₂ + 0.180931 X₁X₂
+```
+Reference state `|HF⟩ = |10⟩` with `E_HF = -1.836968` Ha (electronic); exact ground energy
+`E₀ = -1.857275` Ha. Operator pool (anti-Hermitian generators of the qubit-mapped excitations):
+```
+A₁ = i(X₁Y₂ - Y₁X₂)/2,   A₂ = i(X₁Y₂ + Y₁X₂)/2,   A₃ = i(Z₁Y₂ - Y₁Z₂)/2
+```
 
 **Iteration 1**:
-- `∂E/∂θ₁|₀ = ⟨HF|[H, A₁]|HF⟩`
-  For H₂: `[H, A₁]` has non-zero matrix element → gradient ≈ `0.32` Hartree.
-- `A₁*` selected. Ansatz: `|ψ(θ₁)⟩ = exp(θ₁ A₁)|HF⟩`
-- Optimize `θ₁`: found `θ₁* = 0.22` rad, `E = -1.134` Hartree.
+- Compute pool gradients `∂E/∂θₖ|₀ = ⟨HF|[H, Aₖ]|HF⟩`. For `A₁`, only the `X₁X₂` term of
+  `H` fails to commute with the excitation between `|10⟩` and `|01⟩`, and a direct evaluation
+  gives `|⟨HF|[H, A₁]|HF⟩| = 2 × 0.180931 = 0.361862` Ha (verified numerically). The other
+  pool gradients vanish: `A₂|HF⟩ = 0`, and `A₃` only connects `|HF⟩` to the orthogonal
+  `{|00⟩, |11⟩}` block, which `H` does not couple to `|HF⟩`.
+- `A₁` selected. Ansatz: `|ψ(θ₁)⟩ = exp(θ₁A₁)|HF⟩`, which rotates within the
+  `{|01⟩, |10⟩}` block containing the ground state.
+- Optimize `θ₁`: `θ₁* ≈ 0.1118` rad, `E = -1.857275` Ha — the exact ground energy of this
+  2-qubit Hamiltonian, because a single generator already spans the relevant symmetry sector.
 
 **Iteration 2**:
-- Check all remaining operators. Max gradient `< 10^{-5}` Hartree.
+- Re-evaluate all pool gradients at `θ₁*`. All are `< 10⁻⁹` Ha (the state is an eigenstate,
+  so `⟨ψ|[H, A]|ψ⟩ = 0` for every `A`).
 - Convergence reached.
 
-**Result**: 1 parameter, `E = -1.134` Hartree vs `E_exact = -1.137` Hartree.
-Error = 3 mHartree ≈ 2× chemical accuracy. One more operator from the pool would push below
-chemical accuracy.
-
-ADAPT-VQE used 1 parameter where full UCCSD requires ~13. This compact ansatz avoids barren
-plateaus and achieves near-chemical accuracy with minimal resources.
+**Result**: 1 parameter recovers the full correlation energy (`-20.3` mHa below Hartree-Fock).
+For H₂ the pool is tiny and one operator suffices; for larger molecules ADAPT-VQE typically
+selects a handful of operators where full UCCSD would allocate hundreds — the compactness, and
+the guaranteed non-zero initial gradient, are what suppress barren plateau problems.
 
 ---
 
@@ -311,6 +322,69 @@ plateaus and achieves near-chemical accuracy with minimal resources.
   without specifying structure in advance.
 - Symmetry preservation and hardware topology matching are critical practical considerations
   that can dramatically reduce circuit complexity and error rates.
+
+---
+
+## Exercises
+
+**1.** A hardware-efficient ansatz on `n = 8` qubits uses `L = 5` layers, each consisting of
+`Ry` and `Rz` rotations on every qubit followed by CNOTs on nearest neighbors in a line.
+Count the trainable parameters and the CNOT gates.
+
+<details><summary>Solution</summary>
+
+Parameters: `2` rotations × `8` qubits × `5` layers = `80` parameters.
+CNOTs: a line of 8 qubits has 7 nearest-neighbor pairs, so `7 × 5 = 35` CNOTs.
+(Adding a final rotation layer after the last entangler, a common variant, would give
+`2 × 8 × 6 = 96` parameters.)
+
+</details>
+
+**2.** The worked example in Chapter 06/01 shows that the ansatz
+`cos(θ/2)|00⟩ + sin(θ/2)|11⟩` cannot represent the H₂ ground state, which lives in
+`span{|01⟩, |10⟩}`. Explain this failure as a *symmetry mismatch* using the operator
+`S = Z₁ + Z₂`.
+
+<details><summary>Solution</summary>
+
+`S = Z₁ + Z₂` generates a symmetry sector label: `|00⟩` and `|11⟩` have `S`-eigenvalues `+2`
+and `-2`, while `|01⟩` and `|10⟩` both have `S = 0`. In the parity-mapped H₂ Hamiltonian,
+the physical 2-electron sector corresponds to `S = 0`. The Bell-type ansatz is confined to the
+`S = ±2` sectors for every `θ`, so no parameter value can produce any overlap with the ground
+state — its variational minimum (`-1.244585` Ha) is simply the lowest eigenvalue *within the
+wrong sector*. A symmetry-preserving ansatz starts from a reference in the correct sector
+(here `|HF⟩ = |10⟩`) and uses only `S`-conserving gates.
+
+</details>
+
+**3.** For the H₂ setup of the worked example, show that the ADAPT initial gradient satisfies
+`⟨HF|[H, A₁]|HF⟩ = ±2c₄`, where `c₄ = 0.180931` is the `X₁X₂` coefficient and
+`A₁ = i(X₁Y₂ - Y₁X₂)/2`.
+
+<details><summary>Solution</summary>
+
+Only the `X₁X₂` term of `H` contributes: all diagonal terms (`I`, `Z₁`, `Z₂`, `Z₁Z₂`) map
+`|10⟩` to a multiple of itself, and for those `⟨HF|[·, A₁]|HF⟩ = ⟨HF|D A₁ - A₁ D|HF⟩` reduces
+to `(d_{10} - d_{10})⟨HF|A₁|HF⟩`-type expressions that vanish because `⟨10|A₁|10⟩ = 0`
+(`A₁|10⟩ ∝ |01⟩`). Direct computation: `A₁|10⟩ = -|01⟩` and `X₁X₂|10⟩ = |01⟩`, so
+`⟨10|[c₄X₁X₂, A₁]|10⟩ = c₄(⟨10|X₁X₂A₁|10⟩ - ⟨10|A₁X₁X₂|10⟩) = c₄(-1 - 1) = -2c₄ = -0.361862` Ha.
+Numerical check (4×4 matrices): `⟨HF|[H, A₁]|HF⟩ = -0.361862`. ✓
+
+</details>
+
+**4.** Using the barren plateau bound `Var[∂E/∂θ] ≤ 2/4ⁿ` for a deep unstructured HEA with a
+global cost, estimate the shots needed to distinguish one gradient component from shot noise
+(SNR = 1, i.e., `S ≈ 1/Var`) at `n = 12`. Compare with a structured ansatz whose gradient
+variance is `1/n²`.
+
+<details><summary>Solution</summary>
+
+Unstructured: `Var ≤ 2/4¹² ≈ 1.2 × 10⁻⁷`, so `S ≈ 1/Var ≈ 8.4 × 10⁶` shots per gradient
+component per iteration. Structured with `Var ≈ 1/n² = 1/144 ≈ 7 × 10⁻³`: `S ≈ 144` shots.
+The five-orders-of-magnitude gap at just 12 qubits — growing as `4ⁿ` — is why ansatz structure,
+not optimizer cleverness, decides trainability.
+
+</details>
 
 ---
 

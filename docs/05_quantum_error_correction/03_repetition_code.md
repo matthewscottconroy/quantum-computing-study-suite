@@ -104,9 +104,11 @@ The **logical Z operator** `Z_L` must:
 - Commute with all stabilizer generators.
 - Have eigenvalue `+1` on `|0_L⟩ = |000⟩` and `-1` on `|1_L⟩ = |111⟩`.
 
-Any of `Z₁, Z₂, Z₃` or their products `Z₁Z₂Z₃` work. The minimal choice is any single `Zᵢ`,
-but the **dressed** logical operator `Z_L = Z₁Z₂Z₃` is preferable (minimum-weight representative
-in the code's normalizer).
+Any single `Zᵢ` works, as does the symmetric product `Z_L = Z₁Z₂Z₃`. These are all the *same*
+logical operation: multiplying a logical operator by a stabilizer does not change its action on
+the code space, and `Z₁Z₂Z₃ · (Z₂Z₃) = Z₁`. The minimum-weight representative of this
+equivalence class therefore has weight 1 — which is exactly why the code has distance 1 as a
+quantum code (a single `Z₁` already acts as a logical operator, undetected by any stabilizer).
 
 The **logical X operator** `X_L = X₁X₂X₃`: maps `|000⟩ → |111⟩` and vice versa.
 
@@ -222,8 +224,22 @@ can correct:
   corrections commute with the logical operators, the net effect is correct.
 - **Identity (no error)**: all syndromes `+1`, no correction.
 
-The minimum distance is `d = 3`: the minimum-weight logical operator is weight 3 (e.g., `X₁X₄X₇`
-acting on one qubit per block), so any 1-qubit error is correctable.
+The minimum distance is `d = 3`: the minimum-weight logical operators have weight 3, one qubit
+per block or one whole sub-block. Explicit weight-3 representatives are:
+
+- `X̄ = Z₁Z₄Z₇` (one `Z` per block): it commutes with every `Z`-type stabilizer trivially, and
+  with each `X`-type stabilizer because they overlap in exactly two positions (e.g. `Z₁Z₄Z₇`
+  meets `X₁...X₆` at positions 1 and 4). Acting on the codewords, it flips the sign of every
+  block factor, `(|000⟩ ± |111⟩) → (|000⟩ ∓ |111⟩)`, so it maps `|0_L⟩ ↔ |1_L⟩`: a logical X̄.
+- `Z̄ = X₁X₂X₃` (all of block 1): it commutes with `Z₁Z₂` and `Z₂Z₃` (two overlapping
+  positions each) and with the X-type stabilizers trivially. It fixes `|000⟩ + |111⟩` and
+  negates `|000⟩ - |111⟩`, so it gives `|0_L⟩ → |0_L⟩`, `|1_L⟩ → -|1_L⟩`: a logical Z̄.
+
+Note the role reversal — a `Z`-type Pauli implements logical X̄ and vice versa — which is
+inherited from the outer phase-flip code. A tempting guess like `X₁X₄X₇` is *not* a logical
+operator at all: it anticommutes with the stabilizers `Z₁Z₂`, `Z₄Z₅`, and `Z₇Z₈` (one
+overlapping position each), so it is a detectable error, not an element of the normalizer.
+Since no weight-1 or weight-2 Pauli acts as a logical operator, any 1-qubit error is correctable.
 
 ---
 
@@ -237,9 +253,10 @@ acting on one qubit per block), so any 1-qubit error is correctable.
 | [[7,1,3]] Steane | 7 | 1 | 3 | All single-qubit |
 | [[5,1,3]] Perfect | 5 | 1 | 3 | All single-qubit |
 
-The 5-qubit "perfect" code achieves the quantum Hamming bound: `n ≥ 4t + 1` for correcting `t`
-errors gives `n ≥ 5` for `t = 1`. Shor's 9-qubit code is not optimal but was the first proof
-of principle.
+The 5-qubit code is "perfect": it saturates the quantum Hamming bound
+`2^k Σ_{j=0}^{t} 3^j C(n,j) ≤ 2^n` (for `n=5, k=1, t=1`: `2 × (1 + 15) = 32 = 2^5`), and it
+also saturates the quantum Singleton bound `n - k ≥ 2(d - 1)`, which for `k = 1, d = 3` gives
+`n ≥ 5`. Shor's 9-qubit code is not optimal but was the first proof of principle.
 
 ---
 
@@ -288,6 +305,77 @@ irrelevant. Logical state restored to `|0_L⟩`. ✓
   the measurement-collapse obstacle.
 - More efficient codes (`[[7,1,3]]` Steane, `[[5,1,3]]` perfect code) improve on Shor but require
   the CSS and stabilizer formalism of the next chapters.
+
+---
+
+## Exercises
+
+**Exercise 1.** Show that `X₁X₄X₇` is not a logical operator of the Shor code by listing every
+stabilizer generator it anticommutes with, and give the full 8-bit syndrome it produces.
+
+<details><summary>Solution</summary>
+
+Check overlaps with the 8 generators. `X₁X₄X₇` shares exactly one qubit with `Z₁Z₂` (qubit 1),
+one with `Z₄Z₅` (qubit 4), and one with `Z₇Z₈` (qubit 7) — an odd number in each case, so it
+anticommutes with all three. It shares no qubits with `Z₂Z₃`, `Z₅Z₆`, `Z₈Z₉`, and it commutes
+with the X-type generators `X₁...X₆` and `X₄...X₉` (all X-type Paulis commute). Syndrome
+(ordering `Z₁Z₂, Z₂Z₃, Z₄Z₅, Z₅Z₆, Z₇Z₈, Z₈Z₉, X₁...X₆, X₄...X₉`):
+`(-1, +1, -1, +1, -1, +1, +1, +1)`. A logical operator must commute with *every* stabilizer;
+`X₁X₄X₇` is instead a correctable (detectable) weight-3 error — the bit-flip correction stage
+sees one flipped qubit in each block.
+
+</details>
+
+**Exercise 2.** The error `Z₁Z₂` (simultaneous phase flips on qubits 1 and 2) strikes a Shor
+codeword. What correction is required?
+
+<details><summary>Solution</summary>
+
+None. `Z₁Z₂` is itself a stabilizer generator, so it acts as the identity on every state in the
+code space: `Z₁Z₂|ψ_L⟩ = |ψ_L⟩`. All syndrome bits read `+1` and the decoder correctly does
+nothing. This is an example of **degeneracy** — a weight-2 physical error with zero logical
+effect — something with no classical analogue.
+
+</details>
+
+**Exercise 3.** In the 3-qubit bit-flip code, suppose *two* bit flips occur: `X₁X₂`. Compute
+the syndrome, determine what the decoder does, and show the net effect on the logical state.
+
+<details><summary>Solution</summary>
+
+`X₁X₂` shares two qubits with `Z₁Z₂` (commutes, `s₁ = +1`) and one qubit with `Z₂Z₃`
+(anticommutes, `s₂ = -1`). Syndrome `(+1, -1)` is exactly the signature of a single flip on
+qubit 3, so the decoder applies `X₃`. The net operation is `X₃ · X₁X₂ = X₁X₂X₃ = X_L`, the
+logical X: `α|000⟩ + β|111⟩ → α|111⟩ + β|000⟩`. The correction *completes* a logical error —
+the code has `d = 3` (for bit flips) and cannot correct 2 of them.
+
+</details>
+
+**Exercise 4.** In the 3-qubit phase-flip code, the state `α|+++⟩ + β|---⟩` suffers a `Z₂`
+error. Compute the syndrome measured by `X₁X₂` and `X₂X₃` and give the correction.
+
+<details><summary>Solution</summary>
+
+`Z₂` anticommutes with any stabilizer containing `X₂`: both `X₁X₂` and `X₂X₃` contain it, so
+the syndrome is `(-1, -1)` — the exact mirror of the bit-flip code's `X₂` syndrome under
+`(Z↔X)`. The correction is `Z₂`, since `Z₂ · Z₂ = I` restores `α|+++⟩ + β|---⟩`.
+
+</details>
+
+**Exercise 5.** A `Z` error can strike any one of the 9 qubits of the Shor code, yet the
+phase-flip syndrome `(X₁...X₆, X₄...X₉)` takes only 4 values. Explain why the code can still
+correct every single-qubit `Z` error.
+
+<details><summary>Solution</summary>
+
+A `Z` error on any qubit of block `b` produces the same syndrome — block 1: `(-1,+1)`,
+block 2: `(-1,-1)`, block 3: `(+1,-1)` — so the syndrome identifies only the *block*, not the
+qubit. But it does not need to: `Z₄`, `Z₅`, `Z₆` differ from one another by the stabilizers
+`Z₄Z₅` and `Z₅Z₆`, so they act *identically* on the code space. Applying, say, `Z₄` corrects
+a `Z₅` error perfectly, because the residual `Z₄Z₅` is a stabilizer. This degeneracy is why
+9 distinct errors need only 3 non-trivial syndromes.
+
+</details>
 
 ---
 

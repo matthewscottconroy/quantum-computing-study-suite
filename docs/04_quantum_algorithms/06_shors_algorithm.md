@@ -37,12 +37,12 @@ then at least one of `gcd(a^{r/2} - 1, N)` or `gcd(a^{r/2} + 1, N)` is a nontriv
 
 $$a^r - 1 = (a^{r/2} - 1)(a^{r/2} + 1)$$
 
-So `N | (a^{r/2}-1)(a^{r/2}+1)`. If `N ∤ (a^{r/2}-1)` (condition 2 says `a^{r/2} ≢ 1`) and `N ∤ (a^{r/2}+1)` (condition 2), then `N` must share a nontrivial common factor with both `(a^{r/2}-1)` and `(a^{r/2}+1)`.
+So `N | (a^{r/2}-1)(a^{r/2}+1)`. Now `N ∤ (a^{r/2}-1)`: since `r` is the *smallest* positive exponent with `a^r ≡ 1 (mod N)` and `0 < r/2 < r`, we have `a^{r/2} ≢ 1 (mod N)`. And `N ∤ (a^{r/2}+1)` is exactly condition 2. Then `N` must share a nontrivial common factor with both `(a^{r/2}-1)` and `(a^{r/2}+1)`.
 
 Since `gcd(a^{r/2}-1, N)` divides `N` but is not 1 and not `N` (from the conditions), it is a nontrivial factor. ✓
 
 **Success probability**: For a random `a` coprime to `N`:
-- `r` is even with probability `≥ 1 - 1/2^{k-1}` where `k` is the number of distinct odd prime factors of `N`
+- The joint event "`r` is even **and** `a^{r/2} ≢ -1 (mod N)`" occurs with probability `≥ 1 - 1/2^{k-1}`, where `k` is the number of distinct odd prime factors of `N`
 - For `N = pq` (RSA modulus, product of two large primes): probability `≥ 1 - 1/2 = 1/2`
 
 So roughly half of all choices of `a` give a useful order, and we can try multiple `a` values until one works.
@@ -115,7 +115,7 @@ The measurement gives a value `j/2ⁿ ≈ s/r` for some random `s`. From this ap
 
 **Key theorem**: If `|φ - s/r| ≤ 1/2^{n+1}` and `r < N ≤ 2ⁿ/2`, then the continued fraction expansion of `φ = j/2ⁿ` includes `s/r` as one of its convergents (rational approximations with denominator `≤ N`).
 
-The continued fraction algorithm runs in `O(n²)` classical time and recovers the rational `s/r` with small denominator. The denominator `r` (or a divisor of `r`) is then a candidate for the order. We verify: `a^r ≡ 1 (mod N)`? If yes, `r` is the order. If the denominator is a divisor `r/k` of `r`, try powers `2, 3, ...` of the candidate until `a^{candidate^k} ≡ 1`.
+The continued fraction algorithm runs in `O(n²)` classical time and recovers the rational `s/r` in lowest terms. The resulting denominator `r'` is a candidate for the order (if `gcd(s, r) > 1`, it is a proper divisor of `r`). We verify: `a^{r'} ≡ 1 (mod N)`? If yes, `r'` is the order. If not, try small multiples `2r', 3r', ...` until `a^{k·r'} ≡ 1 (mod N)`, or rerun the quantum step to sample a new `s`.
 
 ### Success Probability
 
@@ -159,7 +159,7 @@ With best known quantum arithmetic: `O(n² log n)` gates or `O(n³/log n)` Toffo
 - `n` qubits for the system register (to hold values `0,...,N-1`)
 - `O(n)` ancilla for modular exponentiation circuits
 
-Total: `O(n)` logical qubits. For 2048-bit RSA: `~4000` logical qubits.
+Total: `O(n)` logical qubits. For 2048-bit RSA: `~6,000` logical qubits (`≈ 3n` in the Gidney-Ekerå layout).
 
 ## Classical vs. Quantum Complexity
 
@@ -172,7 +172,7 @@ $$T_\text{GNFS} = \exp\left(O\left(n^{1/3}(\log n)^{2/3}\right)\right) = L[1/3, 
 
 where `L[α, c] = exp((c+o(1))(log N)^α (log log N)^{1-α})`. This is **sub-exponential** in `n` (it grows faster than polynomial but slower than exponential in the bit length).
 
-For `N = 2^{2048}` (2048-bit RSA): `T_GNFS ≈ exp(O(2048^{1/3})) ≈ exp(O(128)) ≈ 10^{56}` operations. At `10^{15}` operations/second (exaflop): `10^{41}` seconds — orders of magnitude longer than the age of the universe.
+For `N = 2^{2048}` (2048-bit RSA): evaluating the exponent `(64/9)^{1/3}(\ln N)^{1/3}(\ln\ln N)^{2/3} ≈ 81` gives `T_GNFS ≈ e^{81} ≈ 10^{35}` operations (`≈ 2^{117}`, matching the standard ~112-120-bit security estimates for RSA-2048). At `10^{15}` operations/second (exaflop): `~10^{20}` seconds — orders of magnitude longer than the age of the universe.
 
 ### Shor's Record
 
@@ -183,14 +183,14 @@ This is exponentially faster than the GNFS. The quantum speedup is not just poly
 | | Classical (GNFS) | Quantum (Shor) |
 |-|-----------------|----------------|
 | Complexity | `exp(O(n^{1/3}))` | `O(n³)` |
-| 2048-bit RSA | ~10^56 ops | ~10^10 gates |
+| 2048-bit RSA | ~10^35 ops | ~10^10 gates |
 | Time (quantum HW) | millions of years | ~8 hours (est.) |
 
 ### Physical Resource Requirements
 
 From Gidney & Ekerå (2021), the resource requirements for breaking 2048-bit RSA:
 
-- **Logical qubits**: ~4,000
+- **Logical qubits**: ~6,200 (`≈ 3n` for `n = 2048`)
 - **Physical qubits** (with surface code, distance ~20): ~20,000,000 (20 million)
 - **Logical gates**: ~3 × 10^9
 - **Runtime** at 1μs per gate cycle: ~8 hours
@@ -270,18 +270,15 @@ $$|u_1\rangle = \frac{1}{2}\sum_{j=0}^3 e^{-2\pi i\cdot 1\cdot j/4}|7^j \bmod 15
 
 $$= \frac{1}{2}(|1\rangle - i|7\rangle - |4\rangle + i|13\rangle)$$
 
-Verify `U_7|u_1⟩ = e^{2πi·1/4}|u_1⟩ = i|u_1⟩`:
+Verify `U_7|u_1⟩ = e^{2πi·1/4}|u_1⟩ = i|u_1⟩`. Since `U_7` maps `|1⟩→|7⟩, |7⟩→|4⟩, |4⟩→|13⟩, |13⟩→|1⟩`, applying it term by term:
 
-$$U_7|u_1\rangle = \frac{1}{2}(|7\rangle - i|4\rangle - |13\rangle + i|1\rangle) = \frac{i}{2}(|1\rangle - i|7\rangle - |4\rangle + i|13\rangle) \cdot \frac{i}{i}$$
+$$U_7|u_1\rangle = \frac{1}{2}(|7\rangle - i|4\rangle - |13\rangle + i|1\rangle) = \frac{1}{2}(i|1\rangle + |7\rangle - i|4\rangle - |13\rangle)$$
 
-More directly: `U_7` maps `|1⟩→|7⟩, |7⟩→|4⟩, |4⟩→|13⟩, |13⟩→|1⟩`:
+Factoring out `i` from each amplitude (`i = i·1`, `1 = i·(-i)`, `-i = i·(-1)`, `-1 = i·i`):
 
-$$U_7|u_1\rangle = \frac{1}{2}(|7\rangle - i|4\rangle - |13\rangle + i|1\rangle) = i\cdot\frac{1}{2}(-i|7\rangle - |4\rangle + i|13\rangle + |1\rangle)$$
+$$U_7|u_1\rangle = i \cdot \frac{1}{2}(|1\rangle - i|7\rangle - |4\rangle + i|13\rangle) = i\,|u_1\rangle \checkmark$$
 
-Wait, let me factor out `i`:
-$$\frac{1}{2}(i|1\rangle + |7\rangle - i|4\rangle - |13\rangle) = i \cdot \frac{1}{2}(|1\rangle - i|7\rangle - |4\rangle + i|13\rangle) = i \cdot |u_1\rangle \checkmark$$
-
-So `U_7|u_1⟩ = i|u_1⟩ = e^{iπ/2}|u_1⟩` — eigenvalue `i = e^{2πi·1/4}`, confirming phase `φ₁ = 1/4 = s/r = 1/4` ✓.
+So `U_7|u_1⟩ = i|u_1⟩ = e^{iπ/2}|u_1⟩` — eigenvalue `i = e^{2πi·1/4}`, confirming phase `φ₁ = s/r = 1/4` ✓.
 
 **(c) QPE output**:
 
@@ -298,9 +295,9 @@ Each outcome occurs with probability `1/4`.
 
 From each measurement, applying continued fractions:
 - Output `4/16 = 1/4`: `r` divides `4`; candidates: `1, 2, 4`. Verify `7^4 ≡ 1 (mod 15)` ✓
-- Output `8/16 = 1/2`: `r` divides `2`... but `7^2 = 4 ≢ 1`. So use `lcm` or try multiples: `r = 4` works.
+- Output `8/16 = 1/2`: candidate denominator `r' = 2`, but `7² = 49 ≡ 4 ≢ 1 (mod 15)`. Trying the multiple `2r' = 4`: `7⁴ ≡ 1` ✓, so `r = 4`.
 - Output `12/16 = 3/4`: continued fraction gives `3/4`; denominator 4 → `r = 4` ✓
-- Output `0`: uninformative (`s=0`); try another `a`
+- Output `0`: uninformative (`s=0`); rerun the quantum order-finding step
 
 Thus from outcomes 1, 2, or 3 (probability 3/4), we can recover `r = 4` and factor `N = 15`.
 
@@ -310,10 +307,68 @@ Thus from outcomes 1, 2, or 3 (probability 3/4), we can recover `r = 4` and fact
 - **Reduction**: factoring reduces to order-finding; order `r` of `a` mod `N` gives factors via `gcd(a^{r/2}±1, N)` (when `r` even and `a^{r/2} ≢ -1`)
 - **Quantum core**: QPE on the unitary `U_a|y⟩ = |ay mod N⟩` estimates eigenphases `s/r`; input state `|1⟩ = (1/√r)Σ|u_s⟩` ensures all `r` eigenphases are sampled
 - **Continued fractions**: from `j/2ⁿ ≈ s/r`, recover `r` classically in `O(n²)` time
-- **Circuit cost**: `O(n³)` gates (dominated by modular exponentiation); optimized versions achieve `O(n² log n)`; ~4000 logical qubits and 20M physical qubits for 2048-bit RSA
+- **Circuit cost**: `O(n³)` gates (dominated by modular exponentiation); optimized versions achieve `O(n² log n)`; ~6,000 logical qubits and 20M physical qubits for 2048-bit RSA
 - **Classical hardness**: best classical algorithm (GNFS) requires `exp(O(n^{1/3}))` time — exponentially slower; Shor's algorithm is the strongest evidence for `BQP ≠ BPP`
 - **HSP framework**: Shor's algorithm is a special case of the abelian hidden subgroup problem; Simon's algorithm (period over (ℤ/2)ⁿ) is the direct precursor
 - **Post-quantum implication**: RSA, Diffie-Hellman, and elliptic curve cryptography are broken by Shor; post-quantum standards (NIST 2024: ML-KEM, ML-DSA, SLH-DSA) use lattice-based and hash-based cryptography
+
+## Exercises
+
+**Exercise 1**: Run the classical part of Shor's algorithm by hand for `N = 15` with `a = 2`: compute the order `r`, check the two conditions, and extract the factors.
+
+<details><summary>Solution</summary>
+
+Powers of 2 mod 15: `2, 4, 8, 16 ≡ 1` — so `r = 4`.
+
+Conditions: `r = 4` is even ✓; `a^{r/2} = 2² = 4 ≢ -1 ≡ 14 (mod 15)` ✓.
+
+Factors: `gcd(4 - 1, 15) = gcd(3, 15) = 3` and `gcd(4 + 1, 15) = gcd(5, 15) = 5`. Indeed `15 = 3 × 5` ✓.
+
+</details>
+
+**Exercise 2**: For `N = 15`, classify the bases `a = 4` and `a = 14`: for each, find the order and determine whether the reduction succeeds or the algorithm must pick a new `a`.
+
+<details><summary>Solution</summary>
+
+`a = 4`: `4² = 16 ≡ 1 (mod 15)`, so `r = 2` (even ✓). `a^{r/2} = 4 ≢ -1 (mod 15)` ✓. Factors: `gcd(3, 15) = 3`, `gcd(5, 15) = 5` — success.
+
+`a = 14`: `14² = 196 ≡ 1 (mod 15)`, so `r = 2` (even ✓). But `a^{r/2} = 14 ≡ -1 (mod 15)` — condition 2 **fails**. Indeed `gcd(14-1, 15) = gcd(13,15) = 1` and `gcd(14+1, 15) = gcd(15,15) = 15`, both trivial. The algorithm must choose a new `a`. (`a = 14 ≡ -1` always has order 2 with `a^{r/2} ≡ -1`; it is the canonical "unlucky" choice.)
+
+</details>
+
+**Exercise 3**: Order-finding for `N = 21`, `a = 2` uses `t = 11` ancilla qubits (`2^t = 2048`; `N = 21` is a 5-bit number, and `t = 2·5 + 1 = 11`). The QPE measurement returns `j = 341`. Recover the order via continued fractions and factor 21.
+
+<details><summary>Solution</summary>
+
+The measured phase is `j/2048 = 341/2048 ≈ 0.16650`. Continued fraction expansion: `341/2048 = 1/(6 + 2/341)`, so the convergents are `0, 1/6, 170/1021, 341/2048`. The convergent with denominator `< 21` is `1/6`, giving candidate `r = 6`.
+
+Verify: powers of 2 mod 21: `2, 4, 8, 16, 32 ≡ 11, 22 ≡ 1` — indeed `r = 6` ✓ (and `341 ≈ 2048·(1/6) = 341.3`, consistent with `s = 1`).
+
+Reduction: `r = 6` even ✓; `a^{r/2} = 2³ = 8 ≢ -1 ≡ 20 (mod 21)` ✓. Factors: `gcd(8-1, 21) = gcd(7,21) = 7` and `gcd(8+1, 21) = gcd(9,21) = 3`. So `21 = 3 × 7` ✓.
+
+</details>
+
+**Exercise 4**: In the worked example (`N = 15`, `a = 7`, `r = 4`), suppose the QPE step is repeated twice and returns outcomes `4` and `8` (out of 16). Show what each outcome alone tells you about `r`, and how combining them pins down `r = 4`.
+
+<details><summary>Solution</summary>
+
+Outcome `4`: phase `4/16 = 1/4`, in lowest terms `s/r = 1/4` → candidate `r' = 4`. Check: `7⁴ = 2401 = 160·15 + 1 ≡ 1 (mod 15)` ✓ — this outcome alone already gives `r = 4`.
+
+Outcome `8`: phase `8/16 = 1/2` → candidate `r' = 2` (here `gcd(s, r) = 2`, so the fraction `2/4` collapsed to `1/2` and the denominator is only a divisor of `r`). Check: `7² = 49 ≡ 4 ≢ 1 (mod 15)` — fails, so `r' = 2` is not the order, only a divisor of it.
+
+Combining: the true `r` must be a common multiple of the observed denominators — `lcm(4, 2) = 4` — and `7⁴ ≡ 1` confirms `r = 4`. Taking the `lcm` of denominators from a few runs is the standard way to handle outcomes with `gcd(s, r) > 1`.
+
+</details>
+
+**Exercise 5**: Estimate how many bits of RSA key Shor's algorithm "breaks per gate" compared to GNFS: for `n = 2048`, compare `n³` with `exp(1.9·n^{1/3}(ln n)^{2/3})`-type growth qualitatively — if hardware improves so that both classical and quantum machines get 1000× faster, which side benefits more, and why?
+
+<details><summary>Solution</summary>
+
+Shor: `n³ = 2048³ ≈ 8.6 × 10⁹` gates — polynomial. GNFS: sub-exponential, of order `10^{30}`+ operations for 2048-bit moduli (the precise constant depends on the formula's `o(1)` term; empirically RSA-250, 829 bits, took ~2700 core-years).
+
+A 1000× speedup shifts a *polynomial* algorithm's reach dramatically: for Shor, `1000× ≈ 10³` more gates means handling `n → 10·n` (since `(10n)³ = 1000·n³`) — ten times longer keys. For GNFS, because cost grows like `exp(c·n^{1/3})`, a 1000× speedup only adds a modest additive increment to the manageable key length (roughly, `n^{1/3}` grows by `ln(1000)/c`, a few percent at these sizes). Polynomial scaling means hardware progress translates almost directly into capability; sub-exponential scaling means it barely moves the needle. This asymmetry is why key-length increases cannot defend RSA against a quantum adversary, while they work fine against classical ones.
+
+</details>
 
 ## Further Reading
 

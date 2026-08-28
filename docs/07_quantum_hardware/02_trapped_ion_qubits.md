@@ -35,8 +35,12 @@ quadrupole potential oscillating at frequency `Ω_RF` (typically `1-100 MHz`) cr
 harmonic confining potential via the **pseudo-potential** (ponderomotive) approximation:
 
 ```
-V_eff(x,y,z) = e/4m · |∇V_RF|² / Ω_RF²
+Ψ(x,y,z) = e² |∇V_RF|² / (4 m Ω_RF²)
 ```
+
+(Dimensional check: `e²` carries `C²`, `|∇V_RF|²` carries `(V/m)²`, so the numerator is
+`(C·V)²/m² = J²/m²`; dividing by `m Ω_RF²` with units `kg/s² = J/m²` leaves an energy. With
+a single charge `e` instead of `e²`, the expression would not even have units of energy.)
 
 In the **linear Paul trap** (the most common design for quantum computing), ions align in a 1D
 chain along the trap axis. The trapping frequencies are typically:
@@ -68,7 +72,7 @@ Common species:
 - Transition frequency: `ω₀₁/2π ≈ 12.642 GHz` (microwave).
 - First-order magnetic field insensitive (`clock transition`).
 - Long coherence: `T₂ ~ 1-10 s`.
-- Used by IonQ.
+- Used by IonQ and by Quantinuum (H-series QCCD machines).
 
 **`⁴³Ca⁺` (Calcium-43)**:
 - `|0⟩ = |F=4, m_F=0⟩`, `|1⟩ = |F=3, m_F=0⟩` of the S₁/₂ ground state.
@@ -79,11 +83,12 @@ Common species:
 
 **Optical qubits** use a narrow optical transition:
 
-**`⁴⁰Ca⁺`** (IQ = 0, no hyperfine structure):
+**`⁴⁰Ca⁺`** (nuclear spin `I = 0`, no hyperfine structure):
 - `|0⟩ = |S₁/₂, m=-1/2⟩`, `|1⟩ = |D₅/₂, m=-1/2⟩`.
-- Transition wavelength: 729 nm (optical); lifetime of `|D₅/₂⟩ ~ 1.2 s`.
+- Transition wavelength: 729 nm (optical quadrupole transition); lifetime of `|D₅/₂⟩ ~ 1.2 s`.
 - Gate operations via 729 nm laser.
-- Used by Quantinuum (formerly Honeywell).
+- Used by Alpine Quantum Technologies (AQT) and the University of Innsbruck group.
+  (Quantinuum, by contrast, uses `¹⁷¹Yb⁺` **hyperfine** qubits, not optical qubits.)
 
 Optical qubits are slower to prepare and read out but have very long memory lifetimes.
 
@@ -256,19 +261,16 @@ Trapped ions are superior in **coherence and fidelity**; superconducting qubits 
 **Parameters**: `Ω/2π = 100 kHz` (single-qubit Rabi rate), `η = 0.1`, `δ/2π = 5 kHz`,
 motional heating rate `n̄_dot = 10` quanta/s.
 
-**Gate time**: `t = π·δ / (4 Ω²η²) = π × 5000 / (4 × (10^5)² × 0.01) = π/800 s ≈ 0.0039 s ≈ 3.9 ms`
+**Gate time**: the MS coupling rate is `J = Ω²η²/δ` and the gate time is `t = π/(4J)`.
+All quantities must be in consistent angular-frequency units:
+`Ω = 2π × 10⁵ rad/s`, `δ = 2π × 5×10³ rad/s`:
+```
+J = Ω²η²/δ = (2π×10⁵)² × 0.01 / (2π × 5×10³) = 4π × 10⁴ rad/s   (= 2π × 20 kHz)
 
-Wait — this seems long. Recalculate:
-`t = π/(4 × J)` where `J = Ω²η²/δ`.
-`J = (2π × 10^5)² × 0.01 / (2π × 5×10^3) = (4π² × 10^{10} × 0.01) / (π × 10^4)
-   = 4π × 10^6 / 1 = 4π × 10^6 Hz`
-
-Hmm, units: `J/ℏ = Ω²η²/(ℏδ)` in rad/s. Working in angular frequency units:
-`Ω = 2π × 10^5 rad/s`, `δ = 2π × 5×10^3 rad/s`.
-`J = Ω²η²/δ = (2π×10^5)² × 0.01 / (2π × 5×10^3) = 4π²×10^{10} × 0.01 / (10π×10^3)
-   = 4π×10^5 rad/s`
-
-`t = π/(4J) = π / (4 × 4π×10^5) = 1/(16×10^5) = 6.25 μs` ✓ (reasonable)
+t = π/(4J) = π/(16π × 10⁴) = 1/(1.6×10⁵) s = 6.25 μs
+```
+This is in the typical experimental range (tens of μs; slower, carefully detuned gates run
+100 μs or more).
 
 **Heating error**: `ε_heat ≈ η² (n̄_dot × t) = 0.01 × (10 × 6.25×10^{-6}) = 0.01 × 6.25×10^{-5} ≈ 6.25×10^{-7}`.
 
@@ -289,6 +291,65 @@ in state-of-the-art systems.
 - QCCD architecture uses ion shuttling between trap zones to scale beyond `~50` qubits.
 - Key advantage over superconducting: much better coherence and gate fidelity. Key disadvantage:
   much slower gates and harder to scale.
+
+---
+
+## Exercises
+
+**1.** Compute the Lamb-Dicke parameter for a `⁴⁰Ca⁺` ion (mass `40 u`) driven on the 729 nm
+transition, with axial trap frequency `ω/2π = 1 MHz`.
+
+<details><summary>Solution</summary>
+
+Zero-point amplitude: `x₀ = √(ℏ/(2mω))` with `m = 40 × 1.6605×10⁻²⁷ = 6.64×10⁻²⁶ kg` and
+`ω = 2π × 10⁶ rad/s`:
+`x₀ = √(1.055×10⁻³⁴/(2 × 6.64×10⁻²⁶ × 6.28×10⁶)) ≈ 11.2 nm`.
+Wavevector: `k = 2π/729 nm = 8.62×10⁶ m⁻¹`.
+`η = k x₀ ≈ 8.62×10⁶ × 1.12×10⁻⁸ ≈ 0.097` — right in the typical `0.05-0.15` range, and small
+enough for the Lamb-Dicke expansion (`η²(2n̄+1) ≪ 1`) after ground-state cooling.
+
+</details>
+
+**2.** An MS gate uses `Ω/2π = 50 kHz`, `η = 0.08`, `δ/2π = 2 kHz`. Compute the coupling
+rate `J = Ω²η²/δ` and the gate time `t = π/(4J)`.
+
+<details><summary>Solution</summary>
+
+In angular units: `J = (2π × 5×10⁴)² × 0.0064/(2π × 2×10³) = 2π × 8000 rad/s`
+(i.e., `J/2π = (5×10⁴)² × 0.0064/(2×10³) = 8 kHz`).
+`t = π/(4J) = π/(4 × 5.03×10⁴) = 15.6 μs`. Halving `η` (to 0.04) would quadruple the gate
+time — the quadratic dependence on `Ωη` is why tightly confined ions and good beam geometry
+matter.
+
+</details>
+
+**3.** A chain of `N = 10` ions sits in a linear Paul trap. How many motional normal modes are
+there in total, and how many are axial? Why do entangling gates usually address a single
+well-resolved mode?
+
+<details><summary>Solution</summary>
+
+`3N = 30` modes total: `N = 10` axial and `2N = 20` radial. Gates drive laser sidebands
+detuned near one mode (often the axial COM mode); the other modes must be spectrally resolved
+(separations `≫` gate Rabi rate) or they acquire residual spin-motion entanglement at the end
+of the gate, which appears directly as gate infidelity. Mode crowding as `N` grows is one of
+the core reasons single-chain processors top out around tens of ions, motivating QCCD.
+
+</details>
+
+**4.** A trap has motional heating rate `n̄̇ = 100` quanta/s and an entangling gate lasts
+`200 μs`. How many quanta are gained during one gate, and roughly what infidelity does this
+contribute for an MS gate with `η = 0.1` (use the estimate `ε ≈ η² Δn̄` from the chapter's
+error model)?
+
+<details><summary>Solution</summary>
+
+`Δn̄ = 100 × 2×10⁻⁴ = 0.02` quanta per gate. Contribution: `ε ≈ η² Δn̄ = 0.01 × 0.02 = 2×10⁻⁴`
+with the chapter's schematic model (the exact prefactor depends on the gate's phase-space
+trajectory; full-sensitivity estimates use `ε ~ Δn̄` and give up to `2×10⁻²`, which is why
+cryogenic traps and surface treatment to lower `n̄̇` are active engineering fronts).
+
+</details>
 
 ---
 

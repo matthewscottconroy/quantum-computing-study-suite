@@ -51,7 +51,7 @@ The photon number distribution is Poissonian: `P(n) = e^{-|α|²}|α|^{2n}/n!` w
 ### Displacement Operators
 
 The **displacement operator** `D(β) = exp(βâ† - β*â)` shifts coherent states:
-`D(β)|α⟩ = e^{i Im(β*α)} |α+β⟩`. In phase space (the Wigner function picture), `D(β)` displaces
+`D(β)|α⟩ = e^{i Im(βα*)} |α+β⟩`. In phase space (the Wigner function picture), `D(β)` displaces
 the state by `β` in the complex plane.
 
 Displacement operators satisfy:
@@ -74,40 +74,50 @@ The two-component cat state:
 
 where `N± = (2 ± 2e^{-2|α|²})^{-1/2}` are normalization constants. For large `|α|`, `N± ≈ 1/√2`.
 
-Define the logical qubit:
+The parity cat states define the logical X basis, and the coherent states themselves serve
+(to exponential accuracy) as the logical Z basis:
 ```
-|0_L⟩ = |cat+⟩ = N+ (|α⟩ + |-α⟩)   (even photon number superposition)
-|1_L⟩ = |cat-⟩ = N- (|α⟩ - |-α⟩)   (odd photon number superposition)
+|+_L⟩ = |cat+⟩ = N+ (|α⟩ + |-α⟩)   (even photon number superposition)
+|-_L⟩ = |cat-⟩ = N- (|α⟩ - |-α⟩)   (odd photon number superposition)
+
+|0_L⟩ = (|+_L⟩ + |-_L⟩)/√2 ≈ |α⟩,   |1_L⟩ = (|+_L⟩ - |-_L⟩)/√2 ≈ |-α⟩
 ```
+(The `≈` is exponentially good: `|0_L⟩` and `|1_L⟩` differ from `|±α⟩` by terms of order
+`e^{-2|α|²}`, since `⟨α|-α⟩ = e^{-2|α|²}`.)
 
 ### Noise Bias Property
 
 **Photon loss (amplitude damping)**: The dominant error channel in microwave cavities is photon
-loss, described by the Lindblad operator `L = √κ â`. Acting on a coherent state `|α⟩`, loss
-causes a drift `α → α e^{-κt/2}`. For a cat qubit with large `|α|`, photon loss maps
-`|α⟩ → |αe^{-κt/2}⟩` and `|-α⟩ → |-αe^{-κt/2}⟩`.
+loss, described by the Lindblad operator `L = √κ â`. Coherent states are eigenstates of `â`:
+a photon-loss jump maps `â|±α⟩ = ±α|±α⟩`. Loss therefore never sends `|α⟩` toward `|-α⟩` — the
+computational (coherent-state) basis is preserved — but the *relative sign* `±α` between the
+two branches is exactly a logical `Z`. Each jump also flips photon-number parity, mapping
+`|cat±⟩ → |cat∓⟩`, i.e. `|+_L⟩ ↔ |-_L⟩`: the same statement in the X basis.
 
-The key: the *relative* sign between `|+α⟩` and `|-α⟩` is preserved under small losses. Thus
-photon loss preserves the logical Z basis `{|0_L⟩, |1_L⟩}` but may cause Z errors (bit flips
-in the X basis).
+For dissipatively stabilized cat qubits (Mirrahimi et al., 2014), where an engineered
+two-photon drive/dissipation confines the mode to `span{|α⟩, |-α⟩}`:
+- **Bit flip (X) errors** (`|0_L⟩ ↔ |1_L⟩`, i.e. `|α⟩ ↔ |-α⟩`): these require tunneling
+  between the two well-separated coherent states and are **exponentially suppressed** in the
+  cat size, `p_X ∝ e^{-2|α|²}`.
+- **Phase flip (Z) errors**: each photon-loss jump applies a logical `Z`, and jumps occur at
+  rate `κ⟨n̂⟩ ≈ κ|α|²`. Phase flips therefore grow **linearly** with `|α|²`: `p_Z ≈ κ|α|² Δt`.
 
-More precisely:
-- **Phase flip (Z) errors** (bit flips in the X basis): photon loss at rate `κ` causes Z errors
-  exponentially suppressed as `e^{-2|α|²}`. This is the **noise bias**: Z errors are
-  exponentially rare.
-- **Bit flip (X) errors**: these flip `|0_L⟩ ↔ |1_L⟩` and arise with probability polynomial in
-  `κ` and `|α|²`.
+Enlarging the cat thus trades a linear increase in phase flips for an exponential decrease in
+bit flips.
 
 ### Biased Noise Architecture
 
-The exponential suppression of Z errors (`~e^{-2|α|²}`) while X errors remain polynomial creates
-a strongly **biased noise channel** with noise bias `η ~ e^{2|α|²}`. For `|α|² = 4`, the bias
-is `η ~ e^8 ≈ 3000`. This means a cat qubit has 3000 times more Z errors than X errors.
+The exponential suppression of X errors (`~e^{-2|α|²}`) while Z errors grow only linearly
+creates a strongly **biased noise channel** with noise bias `η = p_Z/p_X ~ e^{2|α|²}`. For
+`|α|² = 4`, the bias is `η ~ e^8 ≈ 3000`: the cat qubit has ~3000 times more phase flips than
+bit flips.
 
 Biased noise is valuable because **repetition codes against one type of error** are much more
-efficient than full QEC. A 1D repetition code of length `n` against X errors has threshold
-`p_X^{1/2}` — much more lenient than full two-dimensional codes. Combined with the biased cat
-qubit, this yields a hierarchical error correction architecture.
+efficient than full QEC. Since bit flips are already exponentially rare at the physical level,
+a simple 1D repetition code in the phase-flip basis (stabilizers `X̄ᵢX̄ᵢ₊₁`) suffices to
+correct the dominant Z errors, with the far more lenient threshold of a 1D code rather than a
+full 2D surface code. Combined with the biased cat qubit, this yields a hierarchical,
+hardware-efficient error correction architecture (the "repetition cat" design).
 
 ---
 
@@ -118,18 +128,20 @@ qubit, this yields a hierarchical error correction architecture.
 The GKP code (Gottesman, Kitaev, Preskill, 2001) encodes a logical qubit in the phase space
 of a harmonic oscillator using a lattice structure.
 
-Define displacement operators:
+With the convention `[q̂, p̂] = i`, the GKP stabilizers are the two phase-space displacements
 ```
-S_q = D(i√π) = e^{i√π p̂}  (shift in q by √π)
-S_p = D(√π)  = e^{-i√π q̂} (shift in p by √π)
-```
-
-The GKP code is stabilized by:
-```
-g₁ = S_q² = D(2i√π),   g₂ = S_p² = D(2√π)
+S_q = e^{i 2√π q̂}    (displaces states by +2√π in p: e^{ibq̂} |p⟩ = |p + b⟩)
+S_p = e^{-i 2√π p̂}   (displaces states by +2√π in q: e^{-iap̂} |q⟩ = |q + a⟩)
 ```
 
-(These are displacements by `2√π` in the `q` and `p` quadratures respectively.)
+They commute: using `e^A e^B = e^B e^A e^{[A,B]}` for operators whose commutator is a number,
+```
+[i2√π q̂, -i2√π p̂] = (i2√π)(-i2√π)[q̂, p̂] = (4π)(i) = i4π
+⟹ S_q S_p = S_p S_q · e^{i4π} = S_p S_q
+```
+The displacement lengths `2√π` are chosen exactly so that the phase `e^{i(2√π)²} = e^{i4π}`
+winds around twice and cancels — this is the continuous-variable analogue of two Pauli
+operators overlapping on an even number of sites.
 
 ### Code Space
 
@@ -142,13 +154,24 @@ in the q basis are:
 ```
 
 These are non-normalizable ideal GKP states (finite-energy approximations exist and are used
-in practice).
+in practice). Both combs sit at `q ∈ √π ℤ`, so `S_q` gives phase `e^{i2√π · n√π} = e^{i2πn} = 1`
+on every peak, and `S_p` shifts each comb by `2√π`, mapping it to itself. The logical Paulis
+are the *half*-lattice displacements:
+
+```
+Z̄ = e^{i√π q̂}   (phase e^{iπn} on |q = n√π⟩: +1 on |0_L⟩, -1 on |1_L⟩)
+X̄ = e^{-i√π p̂}  (shifts q by √π: swaps the two combs)
+```
+
+with `X̄² = S_p` and `Z̄² = S_q` — logical Paulis square to stabilizers.
 
 ### Error Correction Mechanism
 
-An arbitrary small displacement error `D(ε)` with `|ε|` small shifts the state in phase space.
-The syndrome measurement involves determining where in the lattice cell `[0, 2√π) × [0, 2√π)`
-the state has been displaced to, then applying the inverse displacement to return to the lattice.
+An arbitrary small displacement error `D(ε)` shifts the state in phase space. Measuring the
+stabilizer `S_q = e^{i2√π q̂}` reveals the eigenvalue `e^{i2√π q}`, i.e. it determines the
+displacement of `q` **modulo `√π`** (the phase is unchanged under `q → q + √π`); measuring
+`S_p` likewise determines the shift of `p` modulo `√π`. The correction returns the state to
+the lattice by undoing the *smallest* displacement consistent with the syndrome.
 
 **Correction capability**: GKP corrects any displacement error `D(ε)` with
 `|Re(ε)|, |Im(ε)| < √π/2`. Errors larger than this half-period cannot be corrected.
@@ -159,9 +182,10 @@ symplectic form playing the role of the binary inner product.
 
 ### Physical Implementations
 
-**Circuit QED (microwave cavities)**: GKP qubits in superconducting cavities are among the most
-experimentally advanced bosonic codes. Demonstrations include:
-- Ofek et al. (2016): first demonstration of cat qubit exceeding break-even on lifetime.
+**Circuit QED (microwave cavities)**: bosonic codes in superconducting cavities are among the
+most experimentally advanced QEC platforms. Demonstrations include:
+- Ofek et al. (2016): first bosonic-code demonstration (a cat code) exceeding break-even on
+  lifetime.
 - Campagne-Ibarcq et al. (2020): first real-time GKP error correction in superconducting cavity.
 - Current best GKP logical qubit T₁ ~ 1 ms (compared to transmon T₁ ~ 100 μs).
 
@@ -178,7 +202,8 @@ Binomial codes (Michael et al., 2016) protect against photon loss, photon gain, 
 by spacing the photon number distribution such that errors cannot confuse codewords.
 
 For a code correcting `L` photon losses, `G` photon gains, and `D` dephasing events, choose
-"spacing" `S = L + G + 1` and "order" `N ≥ max(2D, L+G)`. Define:
+"spacing" `S = L + G + 1` and "order" `N ≥ max(L, G, 2D) + 1`. (So correcting a single loss,
+`L = 1`, requires `N = 2` — the kitten code below — while `N = 1` gives detection only.) Define:
 
 ```
 |0_L⟩ = Σ_{m=0}^{N/2} √(C(N, 2m)/2^{N-1}) |S·(2m)⟩ = Σ_m c_m |S·(2m)⟩
@@ -197,13 +222,22 @@ A single photon loss maps `|0_L⟩ → 0` (no photon to lose) and `|1_L⟩ = |2�
 loss event is heralded by leaving the code space (the syndrome: is the photon number even or
 odd?). This is more a detection code than a correction code.
 
-For the more capable `[N=2, S=2]` binomial code:
+For the more capable `[N=2, S=2]` binomial code (the "kitten" code):
 ```
 |0_L⟩ = (|0⟩ + |4⟩)/√2,   |1_L⟩ = |2⟩
 ```
 
-This corrects loss of 1 photon: `â|0_L⟩ = 0` and `â|1_L⟩ = √2|1⟩` (both detectable).
-Correction: measure photon parity and apply appropriate unitary.
+This corrects the loss of 1 photon. Applying `â` (using `â|n⟩ = √n|n-1⟩`):
+```
+â|0_L⟩ = (1/√2) â|4⟩ = (2/√2)|3⟩ = √2 |3⟩
+â|1_L⟩ = â|2⟩ = √2 |1⟩
+```
+Both error states have *odd* photon number, while the code states have even photon number, so
+a single loss is heralded by a photon-number parity measurement (a QND measurement in circuit
+QED). The two error states `|3⟩` and `|1⟩` are orthogonal with equal norms (`√2` each — a
+consequence of both codewords having the same mean photon number `⟨n̂⟩ = 2`, as the
+Knill-Laflamme conditions require), so a recovery unitary mapping `|3⟩ → |0_L⟩, |1⟩ → |1_L⟩`
+restores the logical state.
 
 ---
 
@@ -222,9 +256,12 @@ Correction: measure photon parity and apply appropriate unitary.
 
 ## Key Formulas
 
-- **Cat qubit logical states**: `|0_L⟩ = N+(|α⟩+|-α⟩)`, `|1_L⟩ = N-(|α⟩-|-α⟩)`
-- **Cat qubit noise bias**: Z-error rate `~ e^{-2|α|²}` vs X-error rate `~ κ|α|²Δt`
-- **GKP stabilizers**: `D(2i√π)` and `D(2√π)` (displacements by `2√π` in q and p)
+- **Cat qubit logical states**: `|±_L⟩ = N±(|α⟩ ± |-α⟩)` (X basis); `|0_L⟩ ≈ |α⟩`,
+  `|1_L⟩ ≈ |-α⟩` (Z basis, up to `O(e^{-2|α|²})` corrections)
+- **Cat qubit noise bias**: X-error (bit-flip) rate `~ e^{-2|α|²}` vs Z-error (phase-flip)
+  rate `~ κ|α|²Δt`; bias `η = p_Z/p_X ~ e^{2|α|²}`
+- **GKP stabilizers**: `S_q = e^{i2√π q̂}`, `S_p = e^{-i2√π p̂}` (with `[q̂,p̂] = i`); logical
+  Paulis `Z̄ = e^{i√π q̂}`, `X̄ = e^{-i√π p̂}` satisfy `Z̄² = S_q`, `X̄² = S_p`
 - **GKP correction radius**: corrects displacements `|Re(ε)|, |Im(ε)| < √π/2`
 - **Displacement operator**: `D(β) = e^{β â† - β* â}`, shifts coherent state: `D(β)|α⟩ ∝ |α+β⟩`
 - **Photon number spacing for binomial codes**: spacing `S = L + G + 1` for `L` loss, `G` gain
@@ -232,39 +269,38 @@ Correction: measure photon parity and apply appropriate unitary.
 
 ---
 
-## Worked Example: Cat Qubit Noise Rate
+## Worked Example: Cat Qubit Noise Rates and Bias
 
 **Parameters**: `|α|² = 4`, photon loss rate `κ = 10^{-3} μs^{-1}`, gate time `τ = 1 μs`.
 
-**Z error probability per gate** (bit flip in X basis from photon loss):
+**Z error probability per gate** (phase flip; one photon-loss jump applies a logical Z, and
+jumps occur at rate `κ⟨n̂⟩ ≈ κ|α|²`):
 ```
-p_Z ≈ κ|α|²τ/4 = (10^{-3})(4)(1)/4 = 10^{-3}
-```
-
-**X error probability per gate** (logical bit flip, exponentially suppressed):
-```
-p_X ≈ e^{-2|α|²} = e^{-8} ≈ 3.35 × 10^{-4}
+p_Z ≈ κ|α|²τ = (10^{-3})(4)(1) = 4 × 10^{-3}
 ```
 
-Wait — actually for cat qubits, Z errors (phase flips relative to the cat basis) grow with `κ`,
-while X errors (logical bit flips that change `|+cat⟩ ↔ |-cat⟩`) are exponentially suppressed:
-
+**X error probability per gate** (bit flip `|α⟩ ↔ |-α⟩`, exponentially suppressed in the cat
+size; the prefactor depends on the ratio of single-photon loss to the engineered two-photon
+dissipation rate `κ₂`, but the scaling is dominated by the exponential):
 ```
-p_X ≈ κ/(4κ_2) · e^{-2|α|² (1 - 4κ/κ_2)} ≈ e^{-2|α|²}
-     ≈ e^{-8} ≈ 3.4 × 10^{-4}
+p_X ∝ e^{-2|α|²} = e^{-8} ≈ 3.4 × 10^{-4}
 ```
 
-**Noise bias**: `η = p_Z / p_X = 10^{-3} / 3.4×10^{-4} ≈ 3`
-
-Hmm — at `|α|² = 4` the bias is still modest. At `|α|² = 9`:
+**Noise bias**: `η = p_Z / p_X ≈ 4×10^{-3} / 3.4×10^{-4} ≈ 12`. At `|α|² = 4` the bias is
+still modest, because the exponential has not yet had room to work. Increasing to `|α|² = 9`:
 ```
-p_X ≈ e^{-18} ≈ 1.5 × 10^{-8}
+p_Z ≈ κ|α|²τ = 9 × 10^{-3}        (grows only linearly)
+p_X ∝ e^{-18} ≈ 1.5 × 10^{-8}     (falls exponentially)
+η = p_Z/p_X ≈ 6 × 10^5            (a massive noise bias)
 ```
-`η = p_Z/p_X = 10^{-3}/1.5×10^{-8} = 6.7 × 10^4` — a truly massive noise bias.
 
-**Consequence**: A repetition code of length `n = 5` against X errors (with X-error threshold
-`~50%`) can bring the logical X error rate to `~35 p_X^3 ≈ 1.6 × 10^{-22}` while the Z error
-rate is corrected separately. This is far below what a qubit-only architecture could achieve.
+**Consequence**: With bit flips already negligible at the physical level, only phase flips
+need active correction. A length-5 repetition code in the phase-flip basis corrects up to 2
+Z errors, leaving a logical phase-flip rate of roughly
+`C(5,3) p_Z³ = 10 × (9×10^{-3})³ ≈ 7 × 10^{-6}` per round, improvable by orders of magnitude
+with each increment of the repetition length — while the residual bit-flip rate stays at the
+`10^{-8}` level (a few unprotected qubits' worth). A thin 1D code thus does the work that
+would otherwise require a full 2D surface code.
 
 ---
 
@@ -282,6 +318,89 @@ rate is corrected separately. This is far below what a qubit-only architecture c
   the break-even point (logical lifetime > physical lifetime).
 - Biased-noise architectures (cat qubit + repetition code) may offer a more resource-efficient
   path to fault tolerance than surface codes for some hardware platforms.
+
+---
+
+## Exercises
+
+**Exercise 1.** Derive the cat-state normalization constants `N± = (2 ± 2e^{-2|α|²})^{-1/2}`,
+using the coherent-state overlap `⟨β|α⟩ = e^{-|α|²/2 - |β|²/2 + β*α}`.
+
+<details><summary>Solution</summary>
+
+`⟨cat±|cat±⟩ = N±² (⟨α| ± ⟨-α|)(|α⟩ ± |-α⟩) = N±² (⟨α|α⟩ + ⟨-α|-α⟩ ± ⟨α|-α⟩ ± ⟨-α|α⟩)`.
+The diagonal terms are each 1. For the cross terms, the overlap formula gives
+`⟨α|-α⟩ = e^{-|α|²/2 - |α|²/2 - |α|²} = e^{-2|α|²}`, and `⟨-α|α⟩` is the same (real). So
+`⟨cat±|cat±⟩ = N±² (2 ± 2e^{-2|α|²}) = 1`, giving `N± = (2 ± 2e^{-2|α|²})^{-1/2}`. For large
+`|α|` both approach `1/√2`, and the deviation is exactly the exponentially small overlap that
+also controls the bit-flip suppression.
+
+</details>
+
+**Exercise 2.** Show by direct computation that a single photon-loss event flips the parity of
+a cat qubit: compute `â|cat±⟩` and identify the resulting state. Then explain why the same
+event is a logical `Z` in the coherent-state computational basis `|0_L⟩ ≈ |α⟩, |1_L⟩ ≈ |-α⟩`.
+
+<details><summary>Solution</summary>
+
+Using `â|±α⟩ = ±α|±α⟩`:
+`â|cat+⟩ = N+ (â|α⟩ + â|-α⟩) = N+ α(|α⟩ - |-α⟩) ∝ |cat-⟩`, and similarly
+`â|cat-⟩ ∝ |cat+⟩`. So one loss maps the even cat to the odd cat and vice versa —
+`|+_L⟩ ↔ |-_L⟩`, a parity flip. In the computational basis, `â|0_L⟩ ≈ α|0_L⟩` and
+`â|1_L⟩ ≈ -α|1_L⟩`: each basis state is (approximately) preserved but they acquire *opposite*
+signs, which is precisely the action `|0_L⟩ → |0_L⟩, |1_L⟩ → -|1_L⟩` of a logical `Z` (up to
+the overall constant `α`). Swapping `|±_L⟩` and applying a relative sign in the `{|0_L⟩,
+|1_L⟩}` basis are the same operator viewed in two bases.
+
+</details>
+
+**Exercise 3.** For the kitten code `|0_L⟩ = (|0⟩ + |4⟩)/√2`, `|1_L⟩ = |2⟩`, verify the two
+Knill-Laflamme conditions for the error set `{I, â}`: (a) `⟨0_L|â†â|0_L⟩ = ⟨1_L|â†â|1_L⟩`,
+and (b) `⟨0_L|â†â|1_L⟩ = 0` and `⟨0_L|â|1_L⟩ = 0`.
+
+<details><summary>Solution</summary>
+
+(a) `â†â` is the number operator: `⟨0_L|n̂|0_L⟩ = (0 + 4)/2 = 2` and `⟨1_L|n̂|1_L⟩ = 2`. Equal ✓
+— both codewords have mean photon number 2, so a loss event reveals no logical information.
+(b) `â†â|1_L⟩ = 2|2⟩`, and `⟨0_L|2⟩ = 0` since `|0_L⟩` has support only on `{|0⟩, |4⟩}` ✓.
+Also `â|1_L⟩ = √2|1⟩` and `⟨0_L|1⟩ = 0` ✓. The error states `â|0_L⟩/√2 = |3⟩` and
+`â|1_L⟩/√2 = |1⟩` are orthonormal, so the recovery `|3⟩ → |0_L⟩, |1⟩ → |1_L⟩` (conditioned on
+odd parity) is a legitimate isometry.
+
+</details>
+
+**Exercise 4.** Using `[q̂, p̂] = i` and the identity `e^A e^B = e^B e^A e^{[A,B]}` (valid when
+`[A,B]` is a number), verify that (a) the GKP logical operators `Z̄ = e^{i√π q̂}` and
+`X̄ = e^{-i√π p̂}` anticommute, and (b) each *commutes* with both stabilizers `S_q = Z̄²` and
+`S_p = X̄²`.
+
+<details><summary>Solution</summary>
+
+(a) `[i√π q̂, -i√π p̂] = (i√π)(-i√π)(i) = iπ`, so `Z̄ X̄ = X̄ Z̄ e^{iπ} = -X̄ Z̄`:
+they anticommute, as logical Paulis must. (b) For `Z̄` and `S_p = e^{-i2√π p̂}`:
+`[i√π q̂, -i2√π p̂] = (i√π)(-i2√π)(i) = i2π`, giving `Z̄ S_p = S_p Z̄ e^{i2π} = S_p Z̄` ✓.
+`Z̄` trivially commutes with `S_q = Z̄²`. The mirror computation handles `X̄`. The pattern:
+displacement operators pick up `e^{i(area)}` phases, where "area" is the symplectic product of
+the two displacement vectors; logical-times-stabilizer areas are multiples of `2π`
+(commuting), while logical-times-logical areas are odd multiples of `π` (anticommuting).
+
+</details>
+
+**Exercise 5.** A dissipative cat qubit has `κτ = 10^{-3}` per gate. Compute `p_Z`, the
+bit-flip scale `e^{-2|α|²}`, and the bias `η = p_Z/p_X` for `|α|² = 6`, taking `p_X ≈
+e^{-2|α|²}`. Roughly what repetition-code length `n` (correcting `⌊(n-1)/2⌋` phase flips)
+brings the logical Z rate per round, `C(n, ⌈n/2⌉) p_Z^{⌈n/2⌉}`, below `10^{-10}`?
+
+<details><summary>Solution</summary>
+
+`p_Z ≈ κ|α|²τ = 6 × 10^{-3}`; `p_X ≈ e^{-12} ≈ 6.1 × 10^{-6}`; `η ≈ 6×10^{-3} / 6.1×10^{-6}
+≈ 10³`. For the repetition code: `n = 7` gives `C(7,4) p_Z⁴ = 35 × (6×10^{-3})⁴ ≈ 4.5 ×
+10^{-8}` (not enough); `n = 9` gives `C(9,5) p_Z⁵ = 126 × (6×10^{-3})⁵ ≈ 9.8 × 10^{-10}`
+(borderline); `n = 11` gives `C(11,6) p_Z⁶ = 462 × (6×10^{-3})⁶ ≈ 2.2 × 10^{-11} < 10^{-10}` ✓.
+So roughly `n = 9`–`11` cat qubits per logical qubit — compare the several hundred physical
+qubits a surface code needs for similar logical rates.
+
+</details>
 
 ---
 
