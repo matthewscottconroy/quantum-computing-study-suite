@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from ui import theme
 
-_DOCS_ROOT = Path("/home/matthewscott/Development/Quantum-Computing/docs")
+_DOCS_ROOT = Path(__file__).resolve().parents[3] / "docs"
 
 # Maps each problem category to its corresponding documentation file.
 # Only categories with an existing doc file are included.
