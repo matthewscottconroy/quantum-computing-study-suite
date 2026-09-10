@@ -1,4 +1,5 @@
-"""History screen — past sessions from problems_history.json."""
+"""History screen — past sessions from problems_history.json, plus the list of
+items flagged for review (problems_flagged.json) with unflag controls."""
 from __future__ import annotations
 import time
 from PyQt6.QtWidgets import (
@@ -6,6 +7,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from ui import theme
+import persistence
 
 
 class _StatCard(QFrame):
@@ -26,6 +28,13 @@ class _StatCard(QFrame):
 
     def set_value(self, v: str) -> None:
         self._value.setText(v)
+
+
+def _clear_layout(layout) -> None:
+    while layout.count():
+        item = layout.takeAt(0)
+        if item.widget():
+            item.widget().deleteLater()
 
 
 class HistoryScreen(QWidget):
@@ -62,10 +71,30 @@ class HistoryScreen(QWidget):
         self._sessions_card = _StatCard("Sessions", "0")
         self._items_card    = _StatCard("Problems + Derivations", "0")
         self._avg_card      = _StatCard("Lifetime Avg Score", "—")
-        for c in (self._sessions_card, self._items_card, self._avg_card):
+        self._flagged_card  = _StatCard("Flagged for Review", "0")
+        for c in (self._sessions_card, self._items_card, self._avg_card,
+                  self._flagged_card):
             cards.addWidget(c)
         root.addLayout(cards)
 
+        # ── Flagged for review ────────────────────────────────────────
+        self._flagged_lbl = QLabel("Flagged for review")
+        self._flagged_lbl.setStyleSheet(
+            f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
+        root.addWidget(self._flagged_lbl)
+
+        self._flagged_box = QVBoxLayout()
+        self._flagged_box.setSpacing(8)
+        root.addLayout(self._flagged_box)
+
+        self._flagged_empty_lbl = QLabel(
+            "Nothing flagged. Use “⚑ Flag for review” on a problem, derivation, "
+            "or session summary to collect items to revisit.")
+        self._flagged_empty_lbl.setWordWrap(True)
+        self._flagged_empty_lbl.setStyleSheet(f"font-size: 12px; color: {theme.TEXT_MUTED};")
+        root.addWidget(self._flagged_empty_lbl)
+
+        # ── Recent sessions ───────────────────────────────────────────
         list_lbl = QLabel("Recent sessions")
         list_lbl.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
         root.addWidget(list_lbl)
@@ -92,15 +121,68 @@ class HistoryScreen(QWidget):
         bl.addWidget(back_btn)
         outer.addWidget(bar)
 
+    # ------------------------------------------------------------------
+
     def refresh(self) -> None:
-        from persistence import load_history
-        self._render(load_history())
+        self._render(persistence.load_history())
+        self.refresh_flagged()
+
+    def refresh_flagged(self) -> None:
+        try:
+            entries = persistence.load_flagged()
+        except Exception:
+            entries = []
+        self._render_flagged(entries)
+
+    def flagged_count(self) -> int:
+        return self._flagged_box.count()
+
+    def _render_flagged(self, entries: list[dict]) -> None:
+        _clear_layout(self._flagged_box)
+        self._flagged_card.set_value(str(len(entries)))
+        self._flagged_empty_lbl.setVisible(not entries)
+
+        for e in reversed(entries):          # newest first
+            row = QFrame(); row.setObjectName("card")
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(16, 8, 16, 8)
+
+            category = e.get("category") or ""
+            badge_key = "Derivation" if category == "derivation" else category
+            color = theme.TOPIC_COLORS.get(badge_key, theme.WARNING)
+            badge = QLabel((category or "item").upper())
+            badge.setStyleSheet(
+                f"font-size: 10px; font-weight: bold; color: {color}; min-width: 76px;")
+            rl.addWidget(badge)
+
+            name = QLabel(e.get("label") or e.get("id", "?"))
+            name.setStyleSheet(f"font-size: 13px; color: {theme.TEXT};")
+            name.setToolTip(str(e.get("id", "")))
+            rl.addWidget(name, 1)
+
+            ts = e.get("timestamp")
+            when = (time.strftime("%Y-%m-%d", time.localtime(ts))
+                    if isinstance(ts, (int, float)) and ts > 0 else "—")
+            when_lbl = QLabel(when)
+            when_lbl.setStyleSheet(f"font-size: 12px; color: {theme.TEXT_MUTED};")
+            rl.addWidget(when_lbl)
+
+            unflag_btn = QPushButton("Unflag")
+            unflag_btn.setObjectName("flat")
+            unflag_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            unflag_btn.clicked.connect(lambda _c, iid=e.get("id", ""): self._on_unflag(iid))
+            rl.addWidget(unflag_btn)
+            self._flagged_box.addWidget(row)
+
+    def _on_unflag(self, item_id: str) -> None:
+        try:
+            persistence.unflag(item_id)
+        except Exception:
+            pass
+        self.refresh_flagged()
 
     def _render(self, sessions: list[dict]) -> None:
-        while self._sessions_box.count():
-            item = self._sessions_box.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        _clear_layout(self._sessions_box)
 
         if not sessions:
             self._empty_lbl.show()

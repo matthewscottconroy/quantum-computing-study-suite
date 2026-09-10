@@ -11,9 +11,10 @@ from ui import theme
 
 
 class PaperInputScreen(QWidget):
-    drill_requested   = pyqtSignal(object)   # DrillConfig
-    history_requested = pyqtSignal()
-    library_requested = pyqtSignal()
+    drill_requested     = pyqtSignal(object)   # DrillConfig
+    history_requested   = pyqtSignal()
+    library_requested   = pyqtSignal()
+    reference_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -24,12 +25,17 @@ class PaperInputScreen(QWidget):
         root.setContentsMargins(48, 40, 48, 36)
         root.setSpacing(16)
 
-        # Heading row with Library button in top-right
+        # Heading row with Reference / Library buttons in top-right
         heading_row = QHBoxLayout()
         heading_row.setSpacing(12)
         title = QLabel("Paper Drill")
         title.setObjectName("heading")
         heading_row.addWidget(title, 1)
+        reference_btn = QPushButton("Reference")
+        reference_btn.setObjectName("flat")
+        reference_btn.setToolTip("Browse the shared docs corpus")
+        reference_btn.clicked.connect(self.reference_requested)
+        heading_row.addWidget(reference_btn)
         library_btn = QPushButton("Library")
         library_btn.setObjectName("flat")
         library_btn.clicked.connect(self.library_requested)

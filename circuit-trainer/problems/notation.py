@@ -404,10 +404,10 @@ NOTATION_QUESTIONS: list[dict] = [
 
 
 def generate(difficulty: str) -> Problem:
-    pool = [q for q in NOTATION_QUESTIONS if q["difficulty"] == difficulty]
+    pool = [(i, q) for i, q in enumerate(NOTATION_QUESTIONS) if q["difficulty"] == difficulty]
     if not pool:
-        pool = NOTATION_QUESTIONS
-    q = random.choice(pool)
+        pool = list(enumerate(NOTATION_QUESTIONS))
+    idx, q = random.choice(pool)
 
     choices = q["choices"][:]
     correct_str = q["correct"]
@@ -427,4 +427,5 @@ def generate(difficulty: str) -> Problem:
         state_str=None,
         solution_steps=q["steps"],
         key_concepts=q["concepts"],
+        problem_id=f"notation:{idx:02d}",   # static pool -> stable id
     )

@@ -1,15 +1,26 @@
 """Persist session history for lifetime stats and SRS topic weighting."""
 
 from __future__ import annotations
+import hashlib
 import json
 import math
+import os
+import time
 import datetime
 import pathlib
 
-from core.models import SessionStats
+from core.models import SessionStats, Problem
 
-_DATA_DIR     = pathlib.Path.home() / ".local" / "share" / "quantum-study"
+# QUANTUM_STUDY_DATA_DIR overrides the shared suite data dir (the same override
+# coach.py, quantum-quiz and math-quiz honour); the default is unchanged.
+_DATA_DIR     = pathlib.Path(
+    os.environ.get("QUANTUM_STUDY_DATA_DIR")
+    or (pathlib.Path.home() / ".local" / "share" / "quantum-study")
+).expanduser()
 _HISTORY_FILE = _DATA_DIR / "trainer_history.json"
+# "Flag for review" entries (shared flagging contract; read by coach.py).
+_FLAGGED_FILE = _DATA_DIR / "trainer_flagged.json"
+_APP_DIR_NAME = "circuit-trainer"
 
 # Time-based SRS: 14-day half-life for exponential decay.
 _HALF_LIFE_DAYS = 14.0
@@ -85,6 +96,89 @@ def problem_score_weights() -> dict[str, float]:
         result[pid] = max(0.5, 2.0 - avg_score * 0.15)
 
     return result
+
+
+# ── Flag for review ───────────────────────────────────────────────────────────
+#
+# trainer_flagged.json is a JSON list of entries:
+#   {"id": str, "label": str, "category": str, "app": "circuit-trainer",
+#    "timestamp": epoch float}
+# Flagging is a toggle — flagging an already-flagged problem removes it.
+
+def flagged_file() -> pathlib.Path:
+    """Path of trainer_flagged.json (honours QUANTUM_STUDY_DATA_DIR)."""
+    return _FLAGGED_FILE
+
+
+def flag_id_for(problem: Problem) -> str:
+    """Stable identifier for a problem: its problem_id when set (the
+    deterministic generators -- gate_sequence, notation, gate_identity and
+    the Kraus-identification noise problem -- set one), else a hash of the
+    category + question text (randomly generated problems have no id)."""
+    pid = getattr(problem, "problem_id", None)
+    if pid:
+        return str(pid)
+    raw = f"{problem.category.value}\n{problem.question_text}".encode("utf-8")
+    return hashlib.sha1(raw).hexdigest()[:16]
+
+
+def flag_label_for(problem: Problem) -> str:
+    """Short human title: category plus the start of the question text."""
+    snippet = " ".join(problem.question_text.split())
+    if len(snippet) > 70:
+        snippet = snippet[:67].rstrip() + "…"
+    return f"{problem.category.value}: {snippet}" if snippet else problem.category.value
+
+
+def load_flagged() -> list[dict]:
+    """All flagged entries (oldest first). Never raises."""
+    path = _FLAGGED_FILE
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [e for e in data if isinstance(e, dict) and e.get("id")]
+
+
+def is_flagged(flag_id: str) -> bool:
+    return any(e.get("id") == flag_id for e in load_flagged())
+
+
+def toggle_flag(problem: Problem) -> bool:
+    """Flag the problem, or unflag it if already flagged. Returns new state."""
+    flag_id = flag_id_for(problem)
+    entries = load_flagged()
+    if any(e.get("id") == flag_id for e in entries):
+        _save_flagged([e for e in entries if e.get("id") != flag_id])
+        return False
+    entries.append({
+        "id":        flag_id,
+        "label":     flag_label_for(problem),
+        "category":  problem.category.value,
+        "app":       _APP_DIR_NAME,
+        "timestamp": time.time(),
+    })
+    _save_flagged(entries)
+    return True
+
+
+def unflag(flag_id: str) -> bool:
+    """Remove a flagged entry by id. Returns True if something was removed."""
+    entries = load_flagged()
+    kept = [e for e in entries if e.get("id") != flag_id]
+    if len(kept) == len(entries):
+        return False
+    _save_flagged(kept)
+    return True
+
+
+def _save_flagged(entries: list[dict]) -> None:
+    _FLAGGED_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _FLAGGED_FILE.write_text(json.dumps(entries, indent=2))
 
 
 # ── Internals ─────────────────────────────────────────────────────────────────

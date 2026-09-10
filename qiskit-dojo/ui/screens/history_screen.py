@@ -5,6 +5,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 
+import time
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QScrollArea,
 )
@@ -17,6 +19,7 @@ class HistoryScreen(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._flag_rows: list[str] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -79,10 +82,29 @@ class HistoryScreen(QWidget):
         self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._empty_lbl)
 
+        self._flag_lbl = QLabel("Flagged for review")
+        self._flag_lbl.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
+        root.addWidget(self._flag_lbl)
+
+        self._flag_frame = QFrame()
+        self._flag_frame.setObjectName("card")
+        fl = QVBoxLayout(self._flag_frame)
+        fl.setContentsMargins(16, 12, 16, 12)
+        fl.setSpacing(6)
+        self._flag_slot = fl
+        root.addWidget(self._flag_frame)
+
         root.addStretch()
 
         bar = QWidget()
-        bar.setStyleSheet(f"background: {theme.SURFACE}; border-top: 1px solid {theme.BORDER};")
+        bar.setObjectName("footer")
+        # Scoped to the bar itself: an unscoped rule cascades onto the accent
+        # Back button and paints it dark-on-dark with a stray top rule.
+        bar.setStyleSheet(
+            f"QWidget#footer {{ background: {theme.SURFACE}; "
+            f"border-top: 1px solid {theme.BORDER}; }}"
+        )
+        self._footer = bar
         bl = QHBoxLayout(bar)
         bl.setContentsMargins(48, 12, 48, 12)
         bl.addStretch()
@@ -93,8 +115,42 @@ class HistoryScreen(QWidget):
         outer.addWidget(bar)
 
     def refresh(self) -> None:
-        from persistence import _load_raw
+        from persistence import _load_raw, load_flagged
         self._render(_load_raw())
+        try:
+            flagged = load_flagged()
+        except Exception:
+            flagged = []
+        self._render_flagged(flagged)
+
+    def flagged_rows(self) -> list[str]:
+        """Kata ids currently listed in the flagged card (UI state)."""
+        return list(self._flag_rows)
+
+    def _render_flagged(self, entries: list[dict]) -> None:
+        _clear_slot(self._flag_slot)
+        self._flag_rows = []
+        self._flag_lbl.setText(f"Flagged for review ({len(entries)})")
+        if not entries:
+            empty = QLabel("No katas flagged. Use “⚑ Flag for review” on a kata to add it here.")
+            empty.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 13px;")
+            empty.setWordWrap(True)
+            self._flag_slot.addWidget(empty)
+            return
+        for e in sorted(entries, key=lambda x: _to_float(x.get("timestamp")),
+                        reverse=True):
+            kid = str(e.get("id", ""))
+            self._flag_rows.append(kid)
+            self._flag_slot.addWidget(_FlagRow(e, self._on_unflag))
+
+    def _on_unflag(self, kata_id: str) -> None:
+        from persistence import unflag, load_flagged
+        try:
+            unflag(kata_id)
+            entries = load_flagged()
+        except Exception:
+            entries = []
+        self._render_flagged(entries)
 
     def _render(self, sessions: list[dict]) -> None:
         if not sessions:
@@ -181,6 +237,47 @@ class HistoryScreen(QWidget):
             plt.close(fig2)
 
 
+class _FlagRow(QWidget):
+    """One flagged kata: section badge, title, when flagged, Unflag button."""
+
+    def __init__(self, entry: dict, on_unflag, parent=None) -> None:
+        super().__init__(parent)
+        kid      = str(entry.get("id", ""))
+        label    = str(entry.get("label") or kid)
+        section  = str(entry.get("category", ""))
+        ts       = entry.get("timestamp") or 0
+        color    = theme.SECTION_COLORS.get(section, theme.ACCENT)
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(12)
+
+        badge = QLabel(section or "—")
+        badge.setStyleSheet(
+            f"font-size: 11px; font-weight: bold; color: {color}; "
+            f"border: 1px solid {color}; border-radius: 9px; padding: 1px 10px;"
+        )
+        row.addWidget(badge)
+
+        title = QLabel(label)
+        title.setStyleSheet(f"font-size: 13px; color: {theme.TEXT};")
+        title.setToolTip(kid)
+        row.addWidget(title, 1)
+
+        try:
+            when = time.strftime("%Y-%m-%d", time.localtime(float(ts))) if ts else ""
+        except (TypeError, ValueError, OverflowError, OSError):
+            when = ""
+        meta = QLabel(f"{kid}  ·  {when}" if when else kid)
+        meta.setStyleSheet(f"font-size: 11px; color: {theme.TEXT_MUTED};")
+        row.addWidget(meta)
+
+        btn = QPushButton("Unflag")
+        btn.setObjectName("flat")
+        btn.clicked.connect(lambda _=False, k=kid: on_unflag(k))
+        row.addWidget(btn)
+
+
 class _StatCard(QFrame):
     def __init__(self, label: str, value: str, parent=None) -> None:
         super().__init__(parent)
@@ -199,6 +296,15 @@ class _StatCard(QFrame):
 
     def set_value(self, v: str) -> None:
         self._val.setText(v)
+
+
+def _to_float(value) -> float:
+    """Epoch timestamp as float; a hand-edited or foreign value sorts as 0.0
+    instead of raising TypeError halfway through refresh()."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _clear_slot(layout) -> None:

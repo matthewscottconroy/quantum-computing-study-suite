@@ -12,7 +12,9 @@ from ui.screens.problem_screen import ProblemScreen
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
 from ui.screens.sprint_screen import SprintScreen, SprintSummaryScreen
+from ui.screens.reference_screen import ReferenceScreen
 from ui.widgets.loading_overlay import LoadingOverlay
+from persistence import flag_id_for, is_flagged, toggle_flag
 from config import APP_NAME, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT, SPRINT_SECONDS
 
 PAGE_SETUP          = 0
@@ -21,6 +23,7 @@ PAGE_SUMMARY        = 2
 PAGE_HISTORY        = 3
 PAGE_SPRINT         = 4
 PAGE_SPRINT_SUMMARY = 5
+PAGE_REFERENCE      = 6
 
 
 class MainWindow(QMainWindow):
@@ -46,6 +49,7 @@ class MainWindow(QMainWindow):
         self._history = HistoryScreen()
         self._sprint  = SprintScreen()
         self._sprint_summary = SprintSummaryScreen()
+        self._reference = ReferenceScreen()
 
         self._stack.addWidget(self._setup)           # 0
         self._stack.addWidget(self._problem)         # 1
@@ -53,15 +57,19 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._history)         # 3
         self._stack.addWidget(self._sprint)          # 4
         self._stack.addWidget(self._sprint_summary)  # 5
+        self._stack.addWidget(self._reference)       # 6
 
         self._overlay = LoadingOverlay(self)
 
         self._setup.session_started.connect(self._on_session_started)
         self._setup.history_requested.connect(self._on_history)
+        self._setup.reference_requested.connect(self._on_reference)
+        self._reference.back_requested.connect(self._on_reference_back)
         self._problem.answer_submitted.connect(self._on_mc_answer)
         self._problem.free_form_submitted.connect(self._on_free_form_submitted)
         self._problem.next_requested.connect(self._on_next)
         self._problem.skip_requested.connect(self._on_skip)
+        self._problem.flag_requested.connect(self._on_flag)
         self._summary.restart_requested.connect(self._on_restart)
         self._summary.review_mistakes.connect(self._on_review_mistakes)
         self._history.back_requested.connect(self._on_history_back)
@@ -115,7 +123,7 @@ class MainWindow(QMainWindow):
         attempt = grade(self._current_problem, str(choice_idx))
         attempt.elapsed_secs = elapsed_secs
         self._session.record(attempt)
-        self._problem.show_result(attempt)
+        self._show_result(attempt)
 
     def _on_free_form_submitted(self, answer: str, elapsed_secs: int) -> None:
         if self._current_problem is None:
@@ -132,7 +140,28 @@ class MainWindow(QMainWindow):
         attempt.elapsed_secs = self._pending_elapsed_secs
         self._pending_elapsed_secs = 0
         self._session.record(attempt)
+        self._show_result(attempt)
+
+    def _show_result(self, attempt: Attempt) -> None:
+        """Show the result view and reflect whether this problem is flagged."""
         self._problem.show_result(attempt)
+        try:
+            flagged = is_flagged(flag_id_for(attempt.problem))
+        except Exception:
+            flagged = False
+        self._problem.set_flagged(flagged)
+
+    # ── Flag for review ───────────────────────────────────────────────────────
+
+    def _on_flag(self) -> None:
+        """Toggle the current problem in trainer_flagged.json."""
+        if self._current_problem is None:
+            return
+        try:
+            new_state = toggle_flag(self._current_problem)
+        except Exception:
+            new_state = self._problem.is_flagged()
+        self._problem.set_flagged(new_state)
 
     def _on_eval_error(self, msg: str) -> None:
         self._overlay.hide_overlay()
@@ -244,6 +273,13 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(PAGE_HISTORY)
 
     def _on_history_back(self) -> None:
+        self._stack.setCurrentIndex(PAGE_SETUP)
+
+    def _on_reference(self) -> None:
+        self._reference.load_all()
+        self._stack.setCurrentIndex(PAGE_REFERENCE)
+
+    def _on_reference_back(self) -> None:
         self._stack.setCurrentIndex(PAGE_SETUP)
 
     def _on_gen_error(self, msg: str) -> None:

@@ -20,6 +20,9 @@ exact numeric (for parameter shift calculations), and open-ended free-form.
 - **Hint system** — 1–2 hints per problem
 - **Grading failure recovery** — skip dialog on Claude API errors
 - **Session history** — per-category score tracking
+- **Reference browser** — the suite's shared `docs/**/*.md` corpus rendered inside
+  the app: chapter filter, full-text search, jump-to-topic for every VQA category,
+  in-app cross-reference links — no API key needed
 - **numpy required** — used for parameter shift gradient computations in the problem bank
 
 ---
@@ -58,7 +61,7 @@ python main.py
 
 ### Setup Screen
 
-1. **Select categories** — all 6 checked by default
+1. **Select categories** — all 7 checked by default
 2. **Difficulty** — Beginner / Intermediate / Advanced / Mixed
 3. **Problem count** — default 8
 4. Click **Start Session**
@@ -78,6 +81,52 @@ Hint button shows remaining hint count. Submit enables on valid input.
 - Feedback with explanation
 - Model answer (for numeric and free-form)
 - **Next Problem** or **Finish**
+
+### Reference Screen
+
+**Browse Reference** on the setup screen opens the in-app docs browser for the
+repository's shared `docs/` corpus — the same browser every app in the suite ships;
+no API key needed. The docs folder is resolved relative to the app
+(`vqa-trainer/ui/screens/reference_screen.py` → `<repo>/docs`), so run the app from
+inside a checkout.
+
+- **Chapter list** (left) — every `docs/**/*.md` file grouped by chapter and numbered in
+  ladder order (`6.4  QAOA: Quantum Approximate Optimization Algorithm`). The screen opens on
+  `06_variational_quantum_algorithms/01_vqe_fundamentals.md`, this trainer's rung; the
+  whole corpus stays listed. Files added, removed or edited while the app is running
+  are picked up the next time the screen is used.
+- **Jump to topic** — opens the chapter that backs a problem category:
+
+  | Category | Doc |
+  |---|---|
+  | VQE Fundamentals | `06_variational_quantum_algorithms/01_vqe_fundamentals.md` |
+  | Ansatz Design | `06_variational_quantum_algorithms/02_ansatz_design.md` |
+  | Parameter Shift | `06_variational_quantum_algorithms/03_parameter_shift_gradient.md` |
+  | QAOA | `06_variational_quantum_algorithms/04_qaoa.md` |
+  | Barren Plateaus | `06_variational_quantum_algorithms/05_barren_plateaus.md` |
+  | Noise & Mitigation | `06_variational_quantum_algorithms/06_noise_and_error_mitigation.md` |
+  | Optimal Control | `06_variational_quantum_algorithms/07_quantum_optimal_control.md` |
+
+- **Chapter filter** and **search** — the search box matches titles and full text, shows
+  a hit count per document, and highlights the first hit in the reader.
+- **Reader** (right) — Markdown rendered in-app with dark-theme styling for code, tables,
+  quotes and links. Relative links between docs — including the bare
+  `NN_chapter/NN_file.md` cross-references the chapters use in prose (a bare `NN_file.md`
+  means the sibling file, or the one file of that name anywhere in the corpus) —
+  navigate inside the browser (a `#heading` suffix on a cross-reference is honoured),
+  `#heading` links scroll to that heading — headings get GitHub-style anchors
+  (`## Key Formulas` → `#key-formulas`; a repeated heading gets `-1`, `-2`, …) —
+  `http(s)` links open in the system browser, and files outside `docs/` open with the
+  system default application. `$$ … $$` display math is shown as a monospace block that
+  soft-wraps long lines (kept inside its block quote when quoted); fenced code keeps its
+  layout. `<details><summary>Solution</summary>` blocks become "▸ Solution" sections.
+- **Show solutions** — untick to hide exercise solutions for self-testing.
+- **Open externally** — opens the current `.md` file with the system default application.
+- **← Back** returns to the setup screen; the reader keeps its place when you return.
+
+Programmatic entry points (for tests and other screens):
+`open_doc("06_variational_quantum_algorithms/04_qaoa.md")`, `show_chapter("06_variational_quantum_algorithms")`,
+`show_category("QAOA")`.
 
 ---
 
@@ -210,7 +259,8 @@ vqa-trainer/
 │   │   ├── problem_screen.py    MC radio / numeric input / free-form box
 │   │   ├── result_screen.py     Verdict, feedback, model answer
 │   │   ├── summary_screen.py    Session stats
-│   │   └── history_screen.py    Past sessions table
+│   │   ├── history_screen.py    Past sessions table
+│   │   └── reference_screen.py  In-app docs browser (../docs/**/*.md, jump to topic)
 │   └── widgets/
 │       └── loading_overlay.py
 └── persistence.py

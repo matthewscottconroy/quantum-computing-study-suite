@@ -1,0 +1,16 @@
+# Quantum Computing Study Suite -- developer and notebook extras.
+#
+# Install with ./setup.sh --dev (also registers a Jupyter kernel: "quantum-study"
+# for the default .venv, "quantum-study-<venv dir name>" for any other VENV_DIR)
+# or:  pip install -r requirements-dev.txt
+-r requirements.txt
+
+# --- Tests (each app has a tests/ directory and its own pytest.ini) -----------
+pytest>=8.0
+pytest-timeout>=2.3
+
+# --- Notebooks (notebooks/ch01-ch08.ipynb, noise_labs.ipynb) -----------------
+nbformat>=5.10
+nbclient>=0.10
+ipykernel>=6.29
+jupyterlab>=4.2

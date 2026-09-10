@@ -45,6 +45,8 @@ def generate_questions(paper_text: str, count: int) -> list[Question]:
         raw = raw.strip()
 
     data = json.loads(raw)
+    if not isinstance(data, list) or not data:
+        raise ValueError("Claude returned no questions (expected a non-empty JSON array).")
     return [
         Question(index=d["index"], text=d["text"], q_type=d.get("type", "conceptual"))
         for d in data

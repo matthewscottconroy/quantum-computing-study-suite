@@ -11,6 +11,7 @@ from PyQt6.QtGui import QKeyEvent
 from core.models import Question
 from ui import theme
 from ui.widgets.pill_badge import make_subject_pill, make_difficulty_pill
+from config import MAX_HINT_COUNT
 
 
 class QuestionScreen(QWidget):
@@ -129,7 +130,7 @@ class QuestionScreen(QWidget):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
-        self._hint_btn = QPushButton("Hint (3 remaining)")
+        self._hint_btn = QPushButton(f"Hint ({MAX_HINT_COUNT} remaining)")
         self._hint_btn.clicked.connect(self._on_hint)
         btn_row.addWidget(self._hint_btn)
 
@@ -152,7 +153,9 @@ class QuestionScreen(QWidget):
 
     def load_question(self, question: Question, number: int, total: int) -> None:
         self._question = question
-        self._hints = question.hints
+        # Claude is asked for MAX_HINT_COUNT hints; cap here too so an
+        # over-long list from the model never shows more than promised.
+        self._hints = list(question.hints[:MAX_HINT_COUNT])
         self._hints_shown = 0
         self._answer_edit.clear()
         self._hints_label.hide()

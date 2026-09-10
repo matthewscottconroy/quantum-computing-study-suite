@@ -1,8 +1,13 @@
 """App-wide constants for exam-sim."""
+import os
 from pathlib import Path
 
 APP_NAME        = "Exam Sim"
-DATA_DIR        = Path.home() / ".local" / "share" / "quantum-study"
+# Shared suite data directory. QUANTUM_STUDY_DATA_DIR overrides it (the same
+# override coach.py and the other apps honour) so tests and experiments never
+# touch the real history. Read once at import time, like the other apps.
+DATA_DIR        = Path(os.environ.get("QUANTUM_STUDY_DATA_DIR")
+                       or (Path.home() / ".local" / "share" / "quantum-study"))
 HISTORY_FILE    = DATA_DIR / "exam_history.json"
 MISSED_FILE     = DATA_DIR / "exam_missed.json"
 

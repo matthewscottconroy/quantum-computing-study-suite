@@ -1,0 +1,31 @@
+# Quantum Computing Study Suite -- runtime dependencies.
+#
+# This is the union of every app's requirements.txt (circuit-trainer, exam-sim,
+# flashcard-drill, math-quiz, paper-drill, problem-trainer, qec-trainer,
+# qiskit-dojo, quantum-quiz, vqa-trainer) plus the shared extras that the docs,
+# notebooks, labs, lesson plans, and console tools (coach.py, dashboard.py) use.
+#
+# Install with ./setup.sh (recommended) or:  pip install -r requirements.txt
+# Python >= 3.11 is required; 3.12+ is recommended.
+
+# --- Desktop UI (all ten apps) -------------------------------------------------
+PyQt6>=6.6
+
+# --- Claude API (dynamic questions, free-form grading; apps launch without a key)
+anthropic>=1.0,<2           # validated on the 1.x SDK (httpx2 transport); app code only uses messages.create. A future 2.x is untested
+
+# --- Qiskit stack (quantum-quiz, circuit-trainer, qiskit-dojo, notebooks, labs)
+qiskit>=2.0,<3              # the suite is written against Qiskit 2.x (CONTRIBUTING.md: retired 1.x APIs are bugs); 3.x is untested
+qiskit-aer>=0.17            # AerSimulator, noise models (noise_labs.ipynb, katas)
+qiskit-ibm-runtime>=0.40    # labs/: IBM hardware track (SamplerV2/EstimatorV2, Session, Batch)
+qiskit-qasm3-import>=0.6    # qiskit.qasm3.loads()/load(): qiskit-dojo openqasm kata, exam-sim bank, lesson-plans/07-qasm.md, verify_docs --snippets
+pylatexenc>=2.10            # QuantumCircuit.draw("mpl") / "latex_source"
+
+# --- Numerics and plotting -----------------------------------------------------
+numpy>=1.26
+scipy>=1.11                 # notebooks: curve_fit, expm, sqrtm, minimize (also a hard dependency of qiskit)
+matplotlib>=3.8
+seaborn>=0.13               # lesson-plans/06-qiskit.md visualisation extras: qiskit's plot_state_qsphere needs it (no repo code calls it)
+
+# --- Console tools (coach.py, dashboard.py) -------------------------------------
+rich>=13                    # coloured plan / dashboard tables; both scripts fall back to plain text without it

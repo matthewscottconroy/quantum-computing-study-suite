@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from core.models import Problem, Part, PartState, GradeResult, problem_score
 from ui import theme
+from ui.theme import FLAG_ON_TEXT, FLAG_OFF_TEXT
 from ui.widgets.loading_overlay import LoadingOverlay
 from ui.widgets.collapsible import CollapsibleSection
 
@@ -155,9 +156,11 @@ class _PartWidget(QFrame):
 
 
 class ProblemScreen(QWidget):
-    part_submitted   = pyqtSignal(object, object, str, int)  # problem, part, answer, tries
-    problem_finished = pyqtSignal(object, list)              # problem, [PartState]
-    session_ended    = pyqtSignal()
+    part_submitted      = pyqtSignal(object, object, str, int)  # problem, part, answer, tries
+    problem_finished    = pyqtSignal(object, list)              # problem, [PartState]
+    session_ended       = pyqtSignal()
+    flag_requested      = pyqtSignal()                          # toggle review flag on this problem
+    reference_requested = pyqtSignal(str)                       # open docs for this topic
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -188,6 +191,11 @@ class ProblemScreen(QWidget):
         self._progress_lbl.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 13px;")
         top_row.addWidget(self._progress_lbl)
         top_row.addStretch()
+        ref_btn = QPushButton("📖 Reference")
+        ref_btn.setObjectName("flat")
+        ref_btn.setToolTip("Browse the docs chapter for this topic (your work is kept)")
+        ref_btn.clicked.connect(self._on_reference)
+        top_row.addWidget(ref_btn)
         self._topic_lbl = QLabel("")
         top_row.addWidget(self._topic_lbl)
         self._root.addLayout(top_row)
@@ -224,6 +232,12 @@ class ProblemScreen(QWidget):
         self._score_lbl.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 13px;")
         bl.addWidget(self._score_lbl)
         bl.addStretch()
+        self._flag_btn = QPushButton(FLAG_OFF_TEXT)
+        self._flag_btn.setObjectName("flag")
+        self._flag_btn.setCheckable(True)
+        self._flag_btn.setToolTip("Toggle: mark this problem for later review")
+        self._flag_btn.clicked.connect(self.flag_requested)
+        bl.addWidget(self._flag_btn)
         self._finish_btn = QPushButton("Finish Problem →")
         self._finish_btn.setObjectName("accent")
         self._finish_btn.clicked.connect(self._on_finish)
@@ -235,6 +249,7 @@ class ProblemScreen(QWidget):
     def show_problem(self, problem: Problem, idx: int, total: int) -> None:
         self._problem = problem
         self._states = [PartState(part=p) for p in problem.parts]
+        self.set_flagged(False)
         self._progress_lbl.setText(f"Problem {idx} of {total}")
         self._title_lbl.setText(problem.title)
         self._statement_lbl.setText(problem.statement)
@@ -290,6 +305,19 @@ class ProblemScreen(QWidget):
     def _on_finish(self) -> None:
         if self._problem is not None:
             self.problem_finished.emit(self._problem, self._states)
+
+    def _on_reference(self) -> None:
+        self.reference_requested.emit(self._problem.topic if self._problem else "")
+
+    # -- flag for review -------------------------------------------------
+
+    def set_flagged(self, flagged: bool) -> None:
+        """Reflect the persisted flag state on the toggle button."""
+        self._flag_btn.setChecked(flagged)
+        self._flag_btn.setText(FLAG_ON_TEXT if flagged else FLAG_OFF_TEXT)
+
+    def is_flagged_shown(self) -> bool:
+        return self._flag_btn.isChecked()
 
     def resizeEvent(self, event) -> None:
         self._overlay.resize(self.size())

@@ -1,4 +1,5 @@
-"""Per-question feedback screen — shows score, feedback, and model answer."""
+"""Per-question feedback screen — shows score, feedback, model answer, and a
+flag-for-review toggle."""
 from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextBrowser,
@@ -12,6 +13,7 @@ from ui import theme
 class FeedbackScreen(QWidget):
     next_requested = pyqtSignal()
     done_requested = pyqtSignal()    # emitted on last question
+    flag_requested = pyqtSignal()    # toggle "flag for review" on the shown question
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -71,7 +73,13 @@ class FeedbackScreen(QWidget):
 
         root.addStretch()
 
-        btn_row = QHBoxLayout(); btn_row.addStretch()
+        btn_row = QHBoxLayout()
+        self._flag_btn = QPushButton("⚑ Flag for Review")
+        self._flag_btn.setObjectName("flat")
+        self._flag_btn.setToolTip("Toggle this question in your review list")
+        self._flag_btn.clicked.connect(self.flag_requested)
+        btn_row.addWidget(self._flag_btn)
+        btn_row.addStretch()
         self._next_btn = QPushButton("Next Question")
         self._next_btn.setObjectName("accent")
         self._next_btn.clicked.connect(self._on_next)
@@ -96,6 +104,19 @@ class FeedbackScreen(QWidget):
         self._feedback_browser.setPlainText(ev.feedback if ev else "")
         self._model_browser.setPlainText(ev.model_answer if ev else "")
         self._next_btn.setText("View Summary" if is_last else "Next Question")
+        self.set_flagged(False)   # caller refreshes from persistence after this
+
+    def set_flagged(self, flagged: bool) -> None:
+        """Reflect the question's flagged state on the toggle button."""
+        self._flag_btn.setText(
+            "⚑ Flagged — click to unflag" if flagged else "⚑ Flag for Review"
+        )
+        self._flag_btn.setStyleSheet(
+            f"color: {theme.WARNING};" if flagged else ""
+        )
+
+    def is_flagged_shown(self) -> bool:
+        return self._flag_btn.text().startswith("⚑ Flagged")
 
     def _on_next(self) -> None:
         if self._is_last:

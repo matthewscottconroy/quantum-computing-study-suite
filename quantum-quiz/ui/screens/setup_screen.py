@@ -14,8 +14,9 @@ from ui import theme
 
 
 class SetupScreen(QWidget):
-    quiz_started      = pyqtSignal(object)   # QuizConfig
-    history_requested = pyqtSignal()
+    quiz_started        = pyqtSignal(object)   # QuizConfig
+    history_requested   = pyqtSignal()
+    reference_requested = pyqtSignal()         # open the in-app docs browser
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -151,6 +152,11 @@ class SetupScreen(QWidget):
         history_btn.setObjectName("flat")
         history_btn.clicked.connect(self.history_requested)
         btn_row.addWidget(history_btn)
+        reference_btn = QPushButton("Reference")
+        reference_btn.setObjectName("flat")
+        reference_btn.setToolTip("Browse the study-suite docs (docs/**/*.md) inside the app")
+        reference_btn.clicked.connect(self.reference_requested)
+        btn_row.addWidget(reference_btn)
         btn_row.addStretch()
         self._begin_btn = QPushButton("Begin Session")
         self._begin_btn.setObjectName("accent")

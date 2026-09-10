@@ -20,6 +20,7 @@ keys, no network access. Part of the quantum-study suite (see `vqa-trainer`,
 
 ```
 PyQt6>=6.6
+matplotlib>=3.8
 ```
 
 ```bash
@@ -27,9 +28,11 @@ pip install -r requirements.txt
 python main.py
 ```
 
-The app itself only needs PyQt6. (Qiskit is not required to *run* the app —
-the bank is static — but the code snippets in the questions target
-qiskit 2.x + qiskit-aer and were verified by execution against qiskit 2.5.2.)
+The app itself only needs PyQt6 plus matplotlib (for the score-trend chart on
+the History screen; every other screen works without it). Qiskit is not
+required to *run* the app — the bank is static — but the code snippets in the
+questions target qiskit 2.x + qiskit-aer and were verified by execution against
+qiskit 2.5.2.
 
 ---
 
@@ -41,7 +44,11 @@ qiskit 2.x + qiskit-aer and were verified by execution against qiskit 2.5.2.)
 - 90-minute countdown, always visible (turns red under 5 minutes; auto-submits
   at zero)
 - Question navigator: jump to any question, **flag** for review, skip and
-  return; answered/flagged/unanswered states are color-coded
+  return; answered/flagged/unanswered states are color-coded. The in-exam
+  flag only marks a question to return to before submitting and is **never
+  persisted** — exam-sim is the one suite app without a `*_flagged.json`
+  review-flag file; missed questions feed the suite review queue
+  (`coach.py --review`) through `exam_missed.json` instead
 - **No per-question feedback** during the exam
 - On submit: results screen with score vs the 47/68 pass bar, a per-section
   table (your % vs exam weight), and a review pane walking every missed
@@ -56,6 +63,34 @@ qiskit 2.x + qiskit-aer and were verified by execution against qiskit 2.5.2.)
   them with immediate feedback
 - Answer one correctly and it is removed from the missed list; miss it again
   and it stays (timestamp refreshed)
+
+### History
+- Reads `exam_history.json` (read-only — the schema below is untouched)
+- Stat cards: sessions, full exams, best full score, full-exam pass rate
+- **Score trend** chart (matplotlib): every attempt in chronological order,
+  full exams and sprints as separate series, with the 47/68 pass mark drawn
+  as a reference line
+- **Past attempts** table: date, mode (sprints show their section), score,
+  PASS/FAIL against the 47/68 ratio scaled to the session length, duration
+- **Per-section accuracy** table aggregated over full exams only (sprints
+  sample a single section, so they are excluded), with the exam weight of
+  each section alongside
+- Opened from the **View History** button on the home screen; **Back to Home**
+  returns
+
+### Reference
+- In-app browser for the shared study-suite docs corpus (`<repo>/docs/**/*.md`,
+  resolved relative to the app so any checkout location works)
+- Chapter filter, title search, and a **Suggested for C1000-179** view that
+  maps each exam section (Create circuits, Quantum operations, …) to the
+  chapters that back its objectives
+- Markdown is rendered in-app (headings, tables, code blocks, display math,
+  exercise solutions); the bare `NN_chapter/NN_file.md` cross-references the
+  corpus writes in prose are turned into links that navigate inside the
+  browser (`#heading` suffixes jump to the heading), external links and
+  **Open externally** hand off to the system handler
+- Opened from the **Browse Reference** button on the home screen; **← Back**
+  returns
 
 ---
 
@@ -111,9 +146,12 @@ A fenced ``` block inside `question` is rendered monospace in the UI.
 ## Data persistence
 
 Shared directory `~/.local/share/quantum-study/` (a coach app integrates with
-these files — schemas are stable):
+these files — schemas are stable). Set `QUANTUM_STUDY_DATA_DIR` to point the
+whole suite (this app included) at a different directory, e.g. for tests or a
+throwaway experiment.
 
-`exam_history.json` — appended after every full/sprint session:
+`exam_history.json` — appended after every full/sprint session (the History
+screen reads this file; nothing else writes it):
 
 ```json
 [{"timestamp": 1724000000.0, "mode": "full", "total": 68, "correct": 51,
@@ -156,8 +194,10 @@ exam-sim/
     ├── format.py              fenced-code → HTML rendering
     ├── main_window.py         screen controller
     └── screens/
-        ├── home_screen.py     mode picker + history summary
-        ├── exam_screen.py     timer, navigator, flag/skip/return
-        ├── results_screen.py  pass bar, section table, review pane
-        └── review_screen.py   re-answer missed questions
+        ├── home_screen.py       mode picker + history summary + History/Reference buttons
+        ├── exam_screen.py       timer, navigator, flag/skip/return
+        ├── results_screen.py    pass bar, section table, review pane
+        ├── review_screen.py     re-answer missed questions
+        ├── history_screen.py    attempts table, per-section accuracy, score-trend chart
+        └── reference_screen.py  in-app docs browser (renders <repo>/docs/**/*.md)
 ```

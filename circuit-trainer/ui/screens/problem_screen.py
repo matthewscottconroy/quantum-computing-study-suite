@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QElapsedTimer, QTimer
 
 from core.models import Problem, Attempt, AnswerFormat
+from persistence import flagged_file
 from ui import theme
 from ui.widgets.circuit_panel import CircuitPanel
 from ui.widgets.collapsible_panel import CollapsiblePanel
@@ -21,6 +22,7 @@ class ProblemScreen(QWidget):
     free_form_submitted = pyqtSignal(str, int)   # FREE_FORM: (text answer, elapsed_secs)
     next_requested      = pyqtSignal()
     skip_requested      = pyqtSignal()
+    flag_requested      = pyqtSignal()           # toggle "flag for review" on the shown result
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -212,11 +214,25 @@ class ProblemScreen(QWidget):
         right.addWidget(self._solution_widget)
         right.addStretch()
 
+        nav_row = QHBoxLayout()
+        nav_row.setSpacing(10)
+        # Flag-for-review toggle: only shown once a result is on screen.
+        self._flag_btn = QPushButton("⚑ Flag for review")
+        self._flag_btn.setObjectName("flat")
+        self._flag_btn.setToolTip(
+            f"Save this problem to your review list ({flagged_file()}). "
+            "Click again to unflag."
+        )
+        self._flag_btn.clicked.connect(self.flag_requested)
+        self._flag_btn.hide()
+        nav_row.addWidget(self._flag_btn)
+        nav_row.addStretch()
         self._next_btn = QPushButton("Next Problem →")
         self._next_btn.setObjectName("accent")
         self._next_btn.setEnabled(False)
         self._next_btn.clicked.connect(self.next_requested)
-        right.addWidget(self._next_btn)
+        nav_row.addWidget(self._next_btn)
+        right.addLayout(nav_row)
 
         right_scroll.setWidget(right_widget)
         splitter.addWidget(right_scroll)
@@ -236,6 +252,8 @@ class ProblemScreen(QWidget):
         self._skip_btn.setEnabled(True)
         self._hints_label.hide()
         self._hints_label.setText("")
+        self._flag_btn.hide()
+        self.set_flagged(False)
 
         # Start elapsed timer for this problem
         self._elapsed_lbl.setText("0:00")
@@ -362,7 +380,21 @@ class ProblemScreen(QWidget):
 
         self._concepts_lbl.setText("Key concepts: " + " · ".join(problem.key_concepts))
         self._solution_widget.show()
+        self._flag_btn.show()
         self._next_btn.setEnabled(True)
+
+    def set_flagged(self, flagged: bool) -> None:
+        """Reflect the persisted flag state on the toggle button."""
+        self._flagged = flagged
+        if flagged:
+            self._flag_btn.setText("⚑ Flagged — click to unflag")
+            self._flag_btn.setStyleSheet(f"color: {theme.WARNING}; font-weight: bold;")
+        else:
+            self._flag_btn.setText("⚑ Flag for review")
+            self._flag_btn.setStyleSheet("")
+
+    def is_flagged(self) -> bool:
+        return bool(getattr(self, "_flagged", False))
 
     # ── Internals ─────────────────────────────────────────────────────────────
 

@@ -16,13 +16,20 @@ ERROR      = "#f85149"
 PARTIAL    = "#e3b341"
 
 CATEGORY_COLORS = {
-    "Pauli Matrices": "#6e40c9",
-    "Gate Unitaries": "#1f6feb",
-    "Commutators":    "#2da44e",
-    "Complexity":     "#b08800",
-    "Theorems":       "#cf222e",
-    "Quantum Info":   "#0969da",
-    "Algorithms":     "#8250df",
+    "Pauli Matrices":       "#6e40c9",
+    "Gate Unitaries":       "#1f6feb",
+    "Commutators":          "#2da44e",
+    "Complexity":           "#b08800",
+    "Theorems":             "#cf222e",
+    "Quantum Info":         "#0969da",
+    "Algorithms":           "#8250df",
+    "Quantum Circuits":     "#3fb950",
+    "Error Correction":     "#f778ba",
+    "States & Measurement": "#d29922",
+    "Quantum Hardware":     "#f0883e",
+    "Quantum Optics":       "#39c5cf",
+    "Many-Body Physics":    "#a371f7",
+    "Qiskit API":           "#58a6ff",
 }
 
 RATING_COLORS = {
@@ -102,6 +109,25 @@ QComboBox QAbstractItemView {{
     background-color: {SURFACE2}; color: {TEXT};
     border: 1px solid {BORDER}; selection-background-color: {ACCENT2};
 }}
+QLineEdit {{
+    background-color: {SURFACE2}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
+}}
+QLineEdit:focus {{ border-color: {ACCENT}; }}
+QTextBrowser {{
+    background-color: {SURFACE}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 6px;
+    font-size: 14px; selection-background-color: {ACCENT2};
+}}
+QListWidget {{
+    background-color: {SURFACE}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 6px; outline: none; padding: 4px;
+}}
+QListWidget::item {{ padding: 6px 8px; border-radius: 4px; }}
+QListWidget::item:hover {{ background: {SURFACE2}; }}
+QListWidget::item:selected {{ background: {ACCENT2}; color: white; }}
+QSplitter::handle {{ background: {BORDER}; }}
+QSplitter::handle:horizontal {{ width: 1px; margin: 0 6px; }}
 """
 
 

@@ -93,6 +93,20 @@ QHeaderView::section {{
     padding: 6px 8px; font-size: 12px; font-weight: bold;
 }}
 QTableCornerButton::section {{ background-color: {SURFACE2}; border: none; }}
+QListWidget {{
+    background-color: {SURFACE}; border: 1px solid {BORDER}; border-radius: 6px;
+    font-size: 13px; outline: none;
+}}
+QListWidget::item {{ padding: 6px 8px; border-bottom: 1px solid {SURFACE2}; }}
+QListWidget::item:selected {{ background-color: {ACCENT2}; color: white; }}
+QListWidget::item:hover:!selected {{ background-color: {SURFACE2}; }}
+QLineEdit {{
+    background-color: {SURFACE2}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
+}}
+QLineEdit:focus {{ border-color: {ACCENT}; }}
+QSplitter::handle {{ background-color: {BORDER}; }}
+QSplitter::handle:horizontal {{ width: 1px; }}
 """
 
 

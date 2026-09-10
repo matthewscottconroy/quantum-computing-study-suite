@@ -27,10 +27,16 @@ Optional but helpful:
 ---
 
 ### Rung 1: Mathematical Foundations (Chapter 1)
-**Files**: `01_mathematical_foundations/` | **Time**: 1–2 weeks
+**Files**: `01_mathematical_foundations/` | **Time**: 3–5 weeks (files 01–03 in the first week; the rest can be read on demand as later chapters cite them)
 
-The mathematical language of quantum mechanics: linear algebra in Dirac notation, complex Hilbert
-spaces, linear operators, spectral theorem, tensor products.
+The mathematical language of quantum mechanics, and the mathematics the rest of the corpus
+silently assumes. The core track (files 01–03) is linear algebra in Dirac notation, complex
+Hilbert spaces, the spectral theorem and tensor products. The extended track (files 04–09)
+supplies the algebra, analysis, probability and geometry that the quantum-algorithms,
+error-correction and hardware chapters draw on: groups and the Pauli/Clifford groups, finite
+fields, Lie algebras and the `SU(2) → SO(3)` double cover, representation theory and characters
+(the QFT and the hidden subgroup problem), probability and statistics, number theory and Fourier
+analysis, functional analysis for unbounded operators, and topology and geometry.
 
 **Key concepts you will master**:
 - Dirac bra-ket notation `|ψ⟩`, `⟨φ|`, `⟨φ|ψ⟩`
@@ -38,10 +44,36 @@ spaces, linear operators, spectral theorem, tensor products.
 - Unitary operators (quantum gates) and their properties
 - Tensor product `|a⟩ ⊗ |b⟩` for multi-qubit systems
 - Change of basis and spectral decomposition
+- Groups, cosets and quotients; the Pauli group `P_n`, its center, and `P_n/Z(P_n) ≅ F_2^{2n}`
+  with the symplectic form; the Clifford group as a normalizer; `GF(2)` and `GF(4)`
+- Lie algebras and the exponential map: `𝔰𝔲(2)` generators `σ/2`, `e^{-iθn̂·σ/2}`, why
+  `R(2π) = -I`
+- Representations, characters and orthogonality; character tables of `ℤ_N`, `S_3`, `D_4`;
+  Clebsch-Gordan for `SU(2)`; characters of `ℤ_N` as the QFT; the hidden subgroup problem
+- Probability, estimators and concentration bounds behind shot noise and benchmarking
+- Modular arithmetic, continued fractions and the DFT behind Shor's algorithm
+- Function spaces, unbounded operators and the Fourier transform behind wave mechanics
+- Manifolds, fibre bundles, Berry phase and homology behind Bloch geometry and topological codes
 
 **Why it matters**: Every quantum computing concept, from the simplest qubit to topological
 quantum computation, is phrased in this mathematical language. Skipping this chapter leads to
-confusion when Hamiltonians, stabilizers, and density matrices appear in later chapters.
+confusion when Hamiltonians, stabilizers, and density matrices appear in later chapters. The
+extended files exist because the later chapters *use* this mathematics without re-deriving it:
+the stabilizer formalism is group theory over `GF(2)`, Shor's algorithm is Fourier analysis on
+`ℤ_N`, and the threshold theorem is a concentration bound.
+
+**File map**:
+| File | Topic |
+|------|-------|
+| `01_linear_algebra.md` | Vector spaces, Dirac notation, adjoints, spectral theorem, unitaries, Pauli matrices |
+| `02_complex_numbers_and_hilbert_spaces.md` | Complex arithmetic, Euler's formula, Hilbert spaces, global phase |
+| `03_tensor_products_and_multipartite_systems.md` | Tensor/Kronecker products, multi-qubit registers, partial trace |
+| `04_groups_and_abstract_algebra.md` | Groups, cosets, quotients, `S_n` parity, Pauli and Clifford groups, `GF(2ᵐ)`, Lie algebras, `SU(2) → SO(3)` |
+| `05_representation_theory.md` | Irreps, Schur, characters, `ℤ_N`/`S_3`/`D_4` tables, Clebsch-Gordan, `SU(2)` spin-`j`, QFT as characters, HSP |
+| `06_probability_and_statistics.md` | Random variables, estimators, concentration bounds, shot noise, hypothesis testing |
+| `07_number_theory_and_fourier_analysis.md` | Modular arithmetic, orders and periods, continued fractions, DFT/FFT |
+| `08_analysis_for_quantum_mechanics.md` | `L²` spaces, unbounded operators, Fourier transform, distributions, Stone's theorem |
+| `09_topology_and_geometry.md` | Manifolds, Bloch sphere geometry, fibre bundles, Berry phase, homology for topological codes |
 
 ---
 
@@ -283,6 +315,16 @@ intrinsically fault-tolerant hardware.
 
 | Topic | Chapter/File |
 |-------|-------------|
+| Linear algebra, Dirac notation, spectral theorem | 01/01 |
+| Tensor products and partial trace | 01/03 |
+| Groups, cosets, Pauli group and symplectic form, Clifford group | 01/04 |
+| Lie algebras, `SU(2) → SO(3)` double cover | 01/04 |
+| Representation theory, characters, Clebsch-Gordan | 01/05 |
+| QFT as characters of `ℤ_N`; hidden subgroup problem | 01/05 |
+| Probability, estimators, concentration bounds | 01/06 |
+| Number theory, continued fractions, DFT | 01/07 |
+| Functional analysis, unbounded operators, Fourier transform | 01/08 |
+| Topology, Berry phase, homology | 01/09 |
 | Qubit notation and Bloch sphere | 02 |
 | Quantum gates (H, CNOT, T) | 03 |
 | Entanglement and Bell states | 02 |
@@ -324,7 +366,8 @@ intrinsically fault-tolerant hardware.
 
 | Chapter | Casual reading (surveys) | Active learning (all examples) | Research level |
 |---------|--------------------------|-------------------------------|----------------|
-| 1: Math | 1 week | 2 weeks | — |
+| 1: Math (core, files 01–03) | 1 week | 2 weeks | — |
+| 1: Math (extended, files 04–09) | 1 week | 3 weeks | — |
 | 2: QM | 2 weeks | 5 weeks | — |
 | 3: Circuits | 3 days | 1 week | — |
 | 4: Algorithms | 1 week | 4 weeks | — |
@@ -332,7 +375,7 @@ intrinsically fault-tolerant hardware.
 | 6: VQA | 1 week | 3 weeks | 2+ months |
 | 7: Hardware | 3 days | 2 weeks | 1+ month |
 | 8: Advanced | 1 week | 4 weeks | ongoing |
-| **Total** | **~8 weeks** | **~5 months** | **ongoing** |
+| **Total** | **~9 weeks** | **~6 months** | **ongoing** |
 
 ---
 
@@ -406,9 +449,11 @@ These notes are part of the Quantum Computing Learning Suite:
 
 ## A Note on Mathematical Notation in These Files
 
-Mathematical expressions are written in backtick notation for inline expressions:
-`|ψ⟩ = α|0⟩ + β|1⟩`. Display equations are written out clearly in text blocks when complex.
-This format renders well in any markdown viewer without requiring LaTeX.
+Inline mathematical expressions are written in backtick notation:
+`|ψ⟩ = α|0⟩ + β|1⟩`. Display equations appear either as fenced text blocks or as
+`$$ … $$` blocks (rendered natively by VS Code, Obsidian, and GitHub; shown as monospace
+blocks in the apps' in-app Reference browser). Inline `$…$` is never used, so files read
+cleanly in any Markdown viewer.
 
 For a LaTeX-rendered version, the expressions can be converted straightforwardly:
 - Backtick inline math → `$...$`

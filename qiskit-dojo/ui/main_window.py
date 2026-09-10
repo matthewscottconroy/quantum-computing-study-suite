@@ -8,12 +8,14 @@ from ui.screens.setup_screen import SetupScreen
 from ui.screens.kata_screen import KataScreen
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
+from ui.screens.reference_screen import ReferenceScreen
 from persistence import save_session
 
-PAGE_SETUP   = 0
-PAGE_KATA    = 1
-PAGE_SUMMARY = 2
-PAGE_HISTORY = 3
+PAGE_SETUP     = 0
+PAGE_KATA      = 1
+PAGE_SUMMARY   = 2
+PAGE_HISTORY   = 3
+PAGE_REFERENCE = 4
 
 
 class MainWindow(QMainWindow):
@@ -26,21 +28,25 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget()
         self.setCentralWidget(self._stack)
 
-        self._setup   = SetupScreen()
-        self._kata    = KataScreen()
-        self._summary = SummaryScreen()
-        self._history = HistoryScreen()
+        self._setup     = SetupScreen()
+        self._kata      = KataScreen()
+        self._summary   = SummaryScreen()
+        self._history   = HistoryScreen()
+        self._reference = ReferenceScreen()
 
-        for w in (self._setup, self._kata, self._summary, self._history):
+        for w in (self._setup, self._kata, self._summary, self._history,
+                  self._reference):
             self._stack.addWidget(w)
 
         self._setup.session_started.connect(self._on_session_started)
         self._setup.history_requested.connect(self._on_history)
+        self._setup.reference_requested.connect(self._on_reference)
         self._kata.kata_completed.connect(self._on_kata_completed)
         self._kata.session_ended.connect(self._finish_session)
         self._summary.session_again.connect(self._go_setup)
         self._summary.back_requested.connect(self._go_setup)
         self._history.back_requested.connect(self._go_setup)
+        self._reference.back_requested.connect(self._go_setup)
 
         self._katas: list = []
         self._idx: int = 0
@@ -81,5 +87,10 @@ class MainWindow(QMainWindow):
         self._history.refresh()
         self._stack.setCurrentIndex(PAGE_HISTORY)
 
+    def _on_reference(self) -> None:
+        self._reference.load_all()
+        self._stack.setCurrentIndex(PAGE_REFERENCE)
+
     def _go_setup(self) -> None:
+        self._setup.refresh()            # pass rates may have changed this session
         self._stack.setCurrentIndex(PAGE_SETUP)

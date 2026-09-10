@@ -25,19 +25,24 @@ DIFFICULTY_COLORS = {
     "expert":       "#f85149",
 }
 
-# Subject pill colours (cycle through a set)
+# Subject pill colours — one distinct slot per curriculum subject.  The list
+# is derived from core.topics.TOPICS so a subject added to the curriculum gets
+# its own colour instead of silently sharing slot 0.  Keep the palette at
+# least as long as TOPICS (asserted in tests/test_topics_and_contexts.py).
 _SUBJECT_PALETTE = [
     "#6e40c9", "#1f6feb", "#2da44e", "#b08800",
     "#cf222e", "#0969da", "#8250df", "#bf8700",
-    "#116329", "#953800",
+    "#116329", "#953800", "#1b7c83", "#a40e4c",
 ]
 
+
+def _subject_order() -> list[str]:
+    from core.topics import TOPICS   # local import: theme must stay Qt-only at import time
+    return sorted(TOPICS)
+
+
 def subject_color(subject: str) -> str:
-    subjects = sorted([
-        "Linear Algebra", "Abstract Algebra", "Representation Theory",
-        "Quantum Mechanics", "Quantum Computing", "Qiskit", "QASM",
-        "Foundations of Quantum Mechanics", "Quantum Algorithm Design", "Transpiling",
-    ])
+    subjects = _subject_order()
     idx = subjects.index(subject) if subject in subjects else 0
     return _SUBJECT_PALETTE[idx % len(_SUBJECT_PALETTE)]
 

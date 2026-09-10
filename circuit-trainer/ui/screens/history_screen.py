@@ -1,6 +1,8 @@
-"""Lifetime history screen — accuracy trend + per-category averages + stats cards."""
+"""Lifetime history screen — accuracy trend, per-category averages, stats cards,
+and the list of problems flagged for review (with unflag)."""
 
 from __future__ import annotations
+import datetime
 
 import matplotlib
 matplotlib.use("Agg")
@@ -21,6 +23,9 @@ class HistoryScreen(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        # (flag id, row widget) for each listed flagged entry; filled by
+        # _render_flagged(), initialised here so flagged_rows() is always safe.
+        self._flag_rows: list[tuple[str, QWidget]] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -91,6 +96,19 @@ class HistoryScreen(QWidget):
         self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._empty_lbl)
 
+        # ── Flagged for review ────────────────────────────────────────────────
+        flag_lbl = QLabel("Flagged for review")
+        flag_lbl.setStyleSheet(
+            f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};"
+        )
+        root.addWidget(flag_lbl)
+        self._flag_frame = QFrame()
+        self._flag_frame.setObjectName("card")
+        self._flag_layout = QVBoxLayout(self._flag_frame)
+        self._flag_layout.setContentsMargins(16, 12, 16, 12)
+        self._flag_layout.setSpacing(6)
+        root.addWidget(self._flag_frame)
+
         root.addStretch()
 
         # ── Bottom bar ────────────────────────────────────────────────────────
@@ -112,6 +130,77 @@ class HistoryScreen(QWidget):
         except Exception:
             sessions = []
         self._render(sessions)
+        self._render_flagged()
+
+    # ── Flagged list ──────────────────────────────────────────────────────────
+
+    def flagged_rows(self) -> int:
+        """Number of flagged entries currently listed (for tests)."""
+        return len(self._flag_rows)
+
+    def _render_flagged(self) -> None:
+        _clear_slot(self._flag_layout)
+        self._flag_rows = []
+        try:
+            from persistence import load_flagged
+            entries = load_flagged()
+        except Exception:
+            entries = []
+
+        if not entries:
+            empty = QLabel(
+                "No problems flagged. Use “⚑ Flag for review” on a problem’s result "
+                "view to save it here."
+            )
+            empty.setObjectName("muted")
+            empty.setWordWrap(True)
+            self._flag_layout.addWidget(empty)
+            return
+
+        for entry in reversed(entries):          # newest first
+            row = self._build_flag_row(entry)
+            self._flag_layout.addWidget(row)
+            self._flag_rows.append((str(entry.get("id", "")), row))
+
+    def _build_flag_row(self, entry: dict) -> QWidget:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 2, 0, 2)
+        layout.setSpacing(12)
+
+        category = str(entry.get("category", ""))
+        color = theme.CATEGORY_COLORS.get(category, theme.ACCENT)
+        badge = QLabel(category or "—")
+        badge.setStyleSheet(
+            f"background:{color}22; color:{color}; border:1px solid {color}55;"
+            "border-radius:10px; padding:2px 10px; font-size:11px; font-weight:bold;"
+        )
+        badge.setFixedHeight(22)
+        layout.addWidget(badge)
+
+        label = QLabel(str(entry.get("label", entry.get("id", ""))))
+        label.setWordWrap(True)
+        label.setToolTip(f"id: {entry.get('id', '')}")
+        layout.addWidget(label, 1)
+
+        when = QLabel(_fmt_timestamp(entry.get("timestamp")))
+        when.setObjectName("muted")
+        layout.addWidget(when)
+
+        unflag_btn = QPushButton("Unflag")
+        unflag_btn.setObjectName("flat")
+        flag_id = str(entry.get("id", ""))
+        unflag_btn.clicked.connect(lambda _=False, fid=flag_id: self._on_unflag(fid))
+        layout.addWidget(unflag_btn)
+        return row
+
+    def _on_unflag(self, flag_id: str) -> None:
+        try:
+            from persistence import unflag
+            unflag(flag_id)
+        except Exception:
+            pass
+        self._render_flagged()
 
     def _render(self, sessions: list[dict]) -> None:
         if not sessions:
@@ -233,6 +322,13 @@ class _StatCard(QFrame):
 
     def set_value(self, v: str) -> None:
         self._val.setText(v)
+
+
+def _fmt_timestamp(ts) -> str:
+    try:
+        return datetime.datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d")
+    except Exception:
+        return ""
 
 
 def _clear_slot(layout) -> None:

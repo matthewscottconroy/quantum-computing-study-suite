@@ -79,8 +79,28 @@ class QuestionScreen(QWidget):
     def show_current(self) -> None:
         self._show_question()
 
+    def advance(self) -> None:
+        """Move on to the next question.
+
+        Called by the controller only after the current question has been
+        graded (or explicitly skipped).  Submitting does *not* advance, so a
+        failed grade leaves the same question — and the typed answer — in
+        place for a retry.
+        """
+        if self._idx < len(self._questions):
+            self._idx += 1
+
+    def current_index(self) -> int:
+        """Zero-based index of the question currently shown."""
+        return self._idx
+
+    def has_current(self) -> bool:
+        """False once every question has been graded (nothing left to show)."""
+        return self._idx < len(self._questions)
+
     def _show_question(self) -> None:
-        if self._idx >= len(self._questions):
+        if not self.has_current():
+            self._submit_btn.setEnabled(False)
             return
         q = self._questions[self._idx]
         self._progress_lbl.setText(f"Question {self._idx + 1} of {len(self._questions)}")
@@ -95,12 +115,16 @@ class QuestionScreen(QWidget):
         self._submit_btn.setEnabled(bool(self._answer_edit.toPlainText().strip()))
 
     def _on_submit(self) -> None:
+        if not self.has_current():
+            self._submit_btn.setEnabled(False)
+            return
         q = self._questions[self._idx]
         attempt = QuestionAttempt(
             question=q,
             answer_text=self._answer_edit.toPlainText().strip(),
         )
-        self._idx += 1
+        # The index is advanced by the controller (advance()) only once this
+        # attempt has been graded or skipped — see MainWindow._on_grade_failed.
         self.answer_submitted.emit(attempt)
 
     def show_grading(self) -> None:

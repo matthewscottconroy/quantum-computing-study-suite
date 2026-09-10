@@ -18,6 +18,7 @@ from ui.screens.question_screen import QuestionScreen
 from ui.screens.feedback_screen import FeedbackScreen
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
+from ui.screens.reference_screen import ReferenceScreen
 from ui.widgets.loading_overlay import LoadingOverlay
 from config import APP_NAME, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT
 
@@ -27,6 +28,7 @@ PAGE_QUESTION = 1
 PAGE_FEEDBACK = 2
 PAGE_SUMMARY  = 3
 PAGE_HISTORY  = 4
+PAGE_REFERENCE = 5
 
 
 class MainWindow(QMainWindow):
@@ -57,23 +59,28 @@ class MainWindow(QMainWindow):
         self._feedback_screen = FeedbackScreen()
         self._summary_screen  = SummaryScreen()
         self._history_screen  = HistoryScreen()
+        self._reference_screen = ReferenceScreen()
 
         self._stack.addWidget(self._setup_screen)    # 0
         self._stack.addWidget(self._question_screen) # 1
         self._stack.addWidget(self._feedback_screen) # 2
         self._stack.addWidget(self._summary_screen)  # 3
         self._stack.addWidget(self._history_screen)  # 4
+        self._stack.addWidget(self._reference_screen) # 5
 
         self._overlay = LoadingOverlay(self)
 
         self._setup_screen.quiz_started.connect(self._on_quiz_started)
         self._setup_screen.history_requested.connect(self._on_history)
+        self._setup_screen.reference_requested.connect(self._on_reference)
         self._question_screen.answer_submitted.connect(self._on_answer_submitted)
         self._question_screen.skip_requested.connect(self._on_skip)
         self._feedback_screen.next_question_requested.connect(self._on_next_question)
+        self._feedback_screen.flag_requested.connect(self._on_flag_toggled)
         self._summary_screen.restart_requested.connect(self._on_restart)
         self._summary_screen.review_mistakes.connect(self._on_review_mistakes)
         self._history_screen.back_requested.connect(self._on_history_back)
+        self._reference_screen.back_requested.connect(self._on_reference_back)
 
         self._check_for_draft()
 
@@ -149,7 +156,48 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self._feedback_screen.load_evaluation(evaluation)
+        self._feedback_screen.set_flagged(self._current_question_flagged())
         self._show_page(PAGE_FEEDBACK)
+
+    # ── Flag for review ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _flag_id(question: Question) -> str:
+        # Question-specific (subject::topic::<hash of text>): two generated
+        # questions on the same topic must not share one flag entry.
+        from persistence import question_flag_id
+        return question_flag_id(question.subject, question.topic, question.text)
+
+    def _current_question_flagged(self) -> bool:
+        if self._current_question is None:
+            return False
+        try:
+            from persistence import is_flagged
+            return is_flagged(self._flag_id(self._current_question))
+        except Exception:
+            # load_flagged() never raises on a bad file; anything else here is
+            # a programming error we would rather not hide behind a False.
+            return False
+
+    def _on_flag_toggled(self) -> None:
+        q = self._current_question
+        if q is None:
+            return
+        try:
+            from persistence import toggle_flag
+            new_state = toggle_flag(self._flag_id(q), label=q.text, category=q.subject)
+        except Exception as exc:
+            # Do not fail silently: a read-only / missing data dir would
+            # otherwise make the button appear dead.
+            from persistence import _FLAGGED_FILE
+            self._feedback_screen.set_flagged(self._current_question_flagged())
+            QMessageBox.warning(
+                self,
+                "Could not update review flag",
+                f"Could not write {_FLAGGED_FILE}:\n{exc}",
+            )
+            return
+        self._feedback_screen.set_flagged(new_state)
 
     def _on_skip(self) -> None:
         if self._current_is_followup:
@@ -251,6 +299,15 @@ class MainWindow(QMainWindow):
         self._show_page(PAGE_HISTORY)
 
     def _on_history_back(self) -> None:
+        self._show_page(PAGE_SETUP)
+
+    # ── Reference (docs browser) ──────────────────────────────────────────────
+
+    def _on_reference(self) -> None:
+        self._reference_screen.load_all()
+        self._show_page(PAGE_REFERENCE)
+
+    def _on_reference_back(self) -> None:
         self._show_page(PAGE_SETUP)
 
     # ── Draft recovery ────────────────────────────────────────────────────────

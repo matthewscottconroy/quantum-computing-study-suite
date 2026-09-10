@@ -1,0 +1,170 @@
+# Continuous integration for the Quantum Computing Study Suite.
+#
+# One job, run once per supported Python version.  The job creates a
+# project-local `.venv` -- tools/verify_docs.py (--snippets) and other repo
+# scripts shell out to `.venv/bin/python` -- puts it on PATH, and then runs:
+#   required-files check -> APPS list check -> byte-compile
+#   -> import smoke test (offscreen Qt) -> docs corpus checks
+#   -> every pytest suite via tools/run_tests.sh
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Pull-request runs share one group per PR, so a newer push to the PR cancels
+# the run it supersedes.  Every other run (push to main, manual dispatch) gets
+# a group of its own -- github.run_id is unique -- so runs on main are never
+# cancelled or queued behind each other, and every main commit ends with a
+# completed CI status instead of "cancelled".
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+    defaults:
+      run:
+        shell: bash
+    env:
+      MPLBACKEND: Agg
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      # The ten PyQt6 apps; every per-app step iterates this list.  The
+      # "Check APPS" step below fails the job if it drifts from */main.py.
+      APPS: circuit-trainer exam-sim flashcard-drill math-quiz paper-drill problem-trainer qec-trainer qiskit-dojo quantum-quiz vqa-trainer
+      # Root-level code outside the apps: byte-compiled below and covered by
+      # the root pytest suite (tests/).  One variable so the required-files
+      # check and the byte-compile step can never disagree about the list.
+      ROOT_PATHS: tools tests coach.py dashboard.py launch.py
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      # Everything the later steps invoke must be in the checkout, not merely
+      # in a contributor's working tree.  Runs before setup-python (whose pip
+      # cache needs the requirements files) so a commit that lands the
+      # workflows without their support files fails with one annotation naming
+      # every missing path instead of an opaque cache error -- and so a partial
+      # commit cannot pass with a shorter suite list: tools/run_tests.sh only
+      # discovers <app>/pytest.ini + <app>/tests/, so an app committed without
+      # them would silently drop out of the run.
+      - name: Check required files are in the checkout
+        run: |
+          missing=()
+          for p in requirements.txt requirements-dev.txt pytest.ini \
+                   tools/run_tests.sh tools/verify_docs.py $ROOT_PATHS; do
+            [ -e "$p" ] || missing+=("$p")
+          done
+          for app in $APPS; do
+            for p in "$app/main.py" "$app/pytest.ini" "$app/tests"; do
+              [ -e "$p" ] || missing+=("$p")
+            done
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Required files missing::not in the checkout: ${missing[*]}"
+            exit 1
+          fi
+          echo "all required files present"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      # Shared libraries that the PyQt6 wheel's bundled Qt6 links against, per
+      # `readelf -d` on the wheel (PyQt6 6.11 / Qt 6.11):
+      #   libQt6Core       libglib-2.0.so.0 libgthread-2.0.so.0 libz.so.1 libzstd.so.1
+      #   libQt6Gui        libEGL.so.1 libGL.so.1 libX11.so.6 libfontconfig.so.1
+      #                    libfreetype.so.6 libxkbcommon.so.0 libglib-2.0.so.0
+      #                    libgthread-2.0.so.0 libz.so.1 (libQt6Widgets: the same)
+      #   libQt6DBus       libdbus-1.so.3
+      #   libqoffscreen.so libX11.so.6 libGL.so.1 libxkbcommon.so.0
+      # libgthread ships in the libglib2.0-0 package; zlib1g and libzstd1 are
+      # dpkg dependencies present in every Ubuntu image; ICU is bundled in the
+      # wheel.  No libxcb-* / libxkbcommon-x11: only the `xcb` plugin needs
+      # those and QT_QPA_PLATFORM=offscreen never loads it.
+      # Most of these are already present on ubuntu-latest; the step makes the
+      # requirement explicit (it is verified from a bare ubuntu:24.04 image, where
+      # exactly these packages are enough for all ten apps to import), and the
+      # retries keep a transient mirror hiccup from failing it.
+      - name: Install Qt offscreen runtime libraries
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update -qq \
+            || { sleep 15; sudo apt-get -o Acquire::Retries=3 update -qq; }
+          sudo apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 \
+            libglib2.0-0 libx11-6 libfreetype6
+
+      - name: Create .venv and install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
+          # Keep app persistence out of the runner's real home directory.
+          echo "QUANTUM_STUDY_DATA_DIR=$RUNNER_TEMP/quantum-study" >> "$GITHUB_ENV"
+
+      - name: Show environment
+        run: |
+          which python
+          python --version
+          python -m pip list
+
+      # APPS is hand-maintained.  Every app has a top-level main.py, so compare
+      # the list against */main.py and fail loudly on drift; otherwise a new or
+      # renamed app would silently skip the byte-compile and import steps
+      # (tools/run_tests.sh discovers suites on its own and would still run it).
+      - name: Check APPS against the app directories
+        run: |
+          expected=$(printf '%s\n' */main.py | sed 's#/main.py$##' | sort | paste -sd' ')
+          listed=$(printf '%s\n' $APPS | sort | paste -sd' ')
+          if [ "$expected" != "$listed" ]; then
+            echo "::error title=APPS is out of date::directories with main.py: [$expected] but APPS: [$listed]"
+            exit 1
+          fi
+          echo "APPS matches */main.py: $listed"
+
+      # `compileall` exits 0 for a path that does not exist (it only prints
+      # "Can't list ..."), so check the list first or a renamed directory or a
+      # mistyped script name would turn this step vacuous.
+      - name: Byte-compile apps, tools, tests and root scripts
+        run: |
+          for p in $APPS $ROOT_PATHS; do
+            [ -e "$p" ] || { echo "::error title=Byte-compile::missing path $p"; exit 1; }
+          done
+          python -m compileall -q $APPS $ROOT_PATHS
+
+      - name: Import smoke test (offscreen Qt, no API key)
+        run: |
+          for app in $APPS; do
+            ( cd "$app" && python -c "import main" ) \
+              || { echo "::error title=Import smoke test::'import main' failed in $app/"; exit 1; }
+            echo "$app: import main OK"
+          done
+
+      - name: Verify docs corpus
+        run: python tools/verify_docs.py --all
+
+      - name: Run all test suites
+        run: bash tools/run_tests.sh

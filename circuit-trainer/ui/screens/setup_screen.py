@@ -41,8 +41,9 @@ CATEGORY_DESCRIPTIONS = {
 
 
 class SetupScreen(QWidget):
-    session_started   = pyqtSignal(object)   # TrainerConfig
-    history_requested = pyqtSignal()
+    session_started     = pyqtSignal(object)   # TrainerConfig
+    history_requested   = pyqtSignal()
+    reference_requested = pyqtSignal()         # open the in-app docs browser
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -173,6 +174,11 @@ class SetupScreen(QWidget):
         history_btn.setObjectName("flat")
         history_btn.clicked.connect(self.history_requested)
         btn_row.addWidget(history_btn)
+        reference_btn = QPushButton("Reference")
+        reference_btn.setObjectName("flat")
+        reference_btn.setToolTip("Browse the study docs (gates, measurement, noise, notation) in-app")
+        reference_btn.clicked.connect(self.reference_requested)
+        btn_row.addWidget(reference_btn)
         btn_row.addStretch()
         self._start_btn = QPushButton("Start Training")
         self._start_btn.setObjectName("accent")

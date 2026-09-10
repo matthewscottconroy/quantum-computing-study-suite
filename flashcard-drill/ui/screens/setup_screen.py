@@ -20,25 +20,36 @@ _TIMER_OPTIONS = [
 
 
 def _avg_secs_per_card() -> float | None:
-    """Return mean elapsed_secs per card result across all saved sessions, or None."""
+    """Typical seconds per card across saved sessions (median), or None.
+
+    ``elapsed_secs`` is recorded per rated card by the card screen (show →
+    rate).  The median is used so one card left open while the user walked
+    away does not inflate the estimate.
+    """
     try:
         from persistence.storage import _load_raw
         sessions = _load_raw()
     except Exception:
         return None
-    elapsed = [
-        r["elapsed_secs"]
+    elapsed = sorted(
+        float(r["elapsed_secs"])
         for s in sessions
         for r in s.get("results", [])
-        if r.get("elapsed_secs", 0) > 0
-    ]
-    return sum(elapsed) / len(elapsed) if elapsed else None
+        if isinstance(r, dict) and isinstance(r.get("elapsed_secs"), (int, float))
+        and r["elapsed_secs"] >= 0
+    )
+    if not elapsed:
+        return None
+    n = len(elapsed)
+    mid = n // 2
+    return elapsed[mid] if n % 2 else (elapsed[mid - 1] + elapsed[mid]) / 2
 
 
 class SetupScreen(QWidget):
-    drill_started     = pyqtSignal(object)   # DrillConfig
-    history_requested = pyqtSignal()
-    browse_requested  = pyqtSignal()
+    drill_started       = pyqtSignal(object)   # DrillConfig
+    history_requested   = pyqtSignal()
+    browse_requested    = pyqtSignal()
+    reference_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -180,6 +191,11 @@ class SetupScreen(QWidget):
         browse_btn.setObjectName("flat")
         browse_btn.clicked.connect(self.browse_requested)
         btn_row.addWidget(browse_btn)
+        reference_btn = QPushButton("Reference")
+        reference_btn.setObjectName("flat")
+        reference_btn.setToolTip("Browse the study docs (docs/**/*.md) without leaving the app")
+        reference_btn.clicked.connect(self.reference_requested)
+        btn_row.addWidget(reference_btn)
         btn_row.addStretch()
         self._start_btn = QPushButton("Start Drill")
         self._start_btn.setObjectName("accent")
@@ -187,9 +203,43 @@ class SetupScreen(QWidget):
         btn_row.addWidget(self._start_btn)
         root.addLayout(btn_row)
 
+        # One-line notice (e.g. "no flagged cards yet"); hidden until needed.
+        self._notice_lbl = QLabel("")
+        self._notice_lbl.setObjectName("notice")
+        self._notice_lbl.setWordWrap(True)
+        self._notice_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._notice_lbl.setStyleSheet(f"font-size: 12px; color: {theme.WARNING};")
+        self._notice_lbl.hide()
+        root.addWidget(self._notice_lbl)
+
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
         self._load_mastery()
+        self._avg_secs = _avg_secs_per_card()
+        self._update_estimate(self._count_spin.value())
+        self._validate()            # flags may have changed on the History screen
+
+    # ------------------------------------------------------------------
+    # Notice line
+    # ------------------------------------------------------------------
+
+    def show_notice(self, text: str) -> None:
+        self._notice_lbl.setText(text)
+        self._notice_lbl.setVisible(bool(text))
+
+    def clear_notice(self) -> None:
+        self.show_notice("")
+
+    def notice_text(self) -> str:
+        return self._notice_lbl.text() if not self._notice_lbl.isHidden() else ""
+
+    @staticmethod
+    def _flag_count() -> int:
+        try:
+            from persistence.storage import load_flagged
+            return len(load_flagged())
+        except Exception:
+            return 0
 
     def _load_mastery(self) -> None:
         """Compute per-category mastery from card_weights() and update UI."""
@@ -270,8 +320,14 @@ class SetupScreen(QWidget):
 
     def _validate(self) -> None:
         if self._flagged_cb and self._flagged_cb.isChecked():
-            self._start_btn.setEnabled(True)
+            n = self._flag_count()
+            self._start_btn.setEnabled(n > 0)
+            self._start_btn.setToolTip(
+                "" if n else "No flagged cards yet — reveal a card during a drill "
+                             "and click “⚑ Flag for Review”."
+            )
         else:
+            self._start_btn.setToolTip("")
             self._start_btn.setEnabled(any(cb.isChecked() for cb in self._cbs.values()))
 
     def _update_estimate(self, count: int) -> None:
@@ -283,8 +339,13 @@ class SetupScreen(QWidget):
         self._estimate_lbl.setText(f"≈ {minutes} min" if minutes >= 1 else "< 1 min")
 
     def _on_start(self) -> None:
+        self.clear_notice()
         flagged_only = self._flagged_cb.isChecked() if self._flagged_cb else False
         if flagged_only:
+            if self._flag_count() == 0:
+                self.show_notice("No flagged cards yet — nothing to drill.")
+                self._validate()
+                return
             cats = list(self._cbs.keys())
         else:
             cats = [c for c, cb in self._cbs.items() if cb.isChecked()]

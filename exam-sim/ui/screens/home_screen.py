@@ -17,6 +17,8 @@ class HomeScreen(QWidget):
     full_exam_requested = pyqtSignal()
     sprint_requested    = pyqtSignal(str)   # section name
     review_requested    = pyqtSignal()
+    history_requested   = pyqtSignal()
+    reference_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -95,10 +97,22 @@ class HomeScreen(QWidget):
 
         root.addStretch()
 
+        bottom = QHBoxLayout(); bottom.setSpacing(12)
         self._history_lbl = QLabel("")
         self._history_lbl.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 12px;")
         self._history_lbl.setWordWrap(True)
-        root.addWidget(self._history_lbl)
+        bottom.addWidget(self._history_lbl, 1)
+        self._history_btn = QPushButton("View History")
+        self._history_btn.setObjectName("flat")
+        self._history_btn.setToolTip("Past attempts, per-section accuracy and score trend")
+        self._history_btn.clicked.connect(self.history_requested)
+        bottom.addWidget(self._history_btn)
+        self._reference_btn = QPushButton("Browse Reference")
+        self._reference_btn.setObjectName("flat")
+        self._reference_btn.setToolTip("Read the study-suite docs corpus in-app")
+        self._reference_btn.clicked.connect(self.reference_requested)
+        bottom.addWidget(self._reference_btn)
+        root.addLayout(bottom)
         self.refresh()
 
     def _card(self, title: str) -> QFrame:

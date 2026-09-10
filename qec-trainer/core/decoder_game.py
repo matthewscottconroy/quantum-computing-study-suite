@@ -18,10 +18,17 @@ Codes provided:
     Logical X = X0 X3 X6 (left column), logical Z = Z0 Z1 Z2 (top row).
     These supports were verified by an exhaustive GF(2)/symplectic script:
     all 8 stabilizers commute pairwise, they are independent (rank 8 over
-    GF(2), so k = 9 - 8 = 1), every weight-1 and weight-2 Pauli anticommutes
-    with at least one stabilizer, and the weight-3 logicals above commute
-    with all stabilizers while anticommuting with each other — i.e. the code
-    is [[9,1,3]].
+    GF(2), so k = 9 - 8 = 1), and no Pauli of weight 1 or 2 is a nontrivial
+    logical operator: every weight-1 Pauli anticommutes with at least one
+    stabilizer, and every weight-2 Pauli either anticommutes with at least
+    one stabilizer or is itself one of the four weight-2 boundary generators
+    (X1X2, X6X7, Z0Z3, Z5Z8 — trivial syndrome, but members of S, so they
+    act trivially on the code space; note that qubits are 0-indexed throughout
+    this docstring while ``stabilizer_labels`` / ``pauli_label`` are 1-indexed,
+    so the UI and Round data show those same generators as X23, X78, Z14,
+    Z69).  The weight-3 logicals above commute
+    with all stabilizers while anticommuting with each other, so the distance
+    is exactly 3 — i.e. the code is [[9,1,3]].
 
 Success criterion for a proposed correction ``c`` against actual error ``e``:
 the residual r = c XOR e (GF(2) sum) must lie in the stabilizer group — it

@@ -1,11 +1,17 @@
-"""Summary screen — session results."""
+"""Summary screen — session results, with per-item "flag for review" toggles."""
 from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from core.models import SessionStats
+from core.models import SessionStats, AttemptRecord
 from ui import theme
+from ui.theme import FLAG_ON_TEXT, FLAG_OFF_TEXT
+import persistence
+
+
+def _flag_category(a: AttemptRecord) -> str:
+    return a.category or ("derivation" if a.kind == "derivation" else "")
 
 
 class SummaryScreen(QWidget):
@@ -14,6 +20,7 @@ class SummaryScreen(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._flag_buttons: dict[str, QPushButton] = {}
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -40,6 +47,12 @@ class SummaryScreen(QWidget):
         self._rows = QVBoxLayout()
         self._rows.setSpacing(8)
         root.addLayout(self._rows)
+
+        hint = QLabel("Flag anything you want to revisit — flagged items are listed "
+                      "in History and can be drilled from Setup.")
+        hint.setStyleSheet(f"font-size: 11px; color: {theme.TEXT_MUTED};")
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(hint)
 
         root.addStretch()
 
@@ -70,6 +83,12 @@ class SummaryScreen(QWidget):
             item = self._rows.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        self._flag_buttons.clear()
+
+        try:
+            flagged = persistence.flagged_ids()
+        except Exception:
+            flagged = set()
 
         for a in stats.attempts:
             row = QFrame(); row.setObjectName("card")
@@ -89,4 +108,34 @@ class SummaryScreen(QWidget):
             sc = QLabel(f"{a.score:.1f}/10")
             sc.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {sc_color};")
             rl.addWidget(sc)
+
+            flag_btn = QPushButton()
+            flag_btn.setObjectName("flag")
+            flag_btn.setCheckable(True)
+            flag_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._apply_flag_state(flag_btn, a.problem_id in flagged)
+            flag_btn.clicked.connect(lambda _c, rec=a, b=flag_btn: self._on_flag(rec, b))
+            rl.addWidget(flag_btn)
+            self._flag_buttons[a.problem_id] = flag_btn
             self._rows.addWidget(row)
+
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _apply_flag_state(btn: QPushButton, flagged: bool) -> None:
+        btn.setChecked(flagged)
+        btn.setText(FLAG_ON_TEXT if flagged else FLAG_OFF_TEXT)
+        btn.setToolTip("Click to unflag" if flagged else "Flag this item for review")
+
+    def _on_flag(self, rec: AttemptRecord, btn: QPushButton) -> None:
+        try:
+            new_state = persistence.toggle_flag(
+                rec.problem_id, rec.title or rec.problem_id, _flag_category(rec))
+        except Exception:
+            new_state = btn.isChecked()
+        self._apply_flag_state(btn, new_state)
+
+    def is_flagged_shown(self, item_id: str) -> bool:
+        """Current flag-button state for an item on this summary (for tests)."""
+        btn = self._flag_buttons.get(item_id)
+        return bool(btn and btn.isChecked())

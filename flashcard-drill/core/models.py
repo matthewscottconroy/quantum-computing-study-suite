@@ -32,6 +32,7 @@ class CardResult:
     card_id: str
     category: str
     rating: Rating
+    elapsed_secs: float | None = None   # show -> rate wall time; None when unknown
 
 
 @dataclass

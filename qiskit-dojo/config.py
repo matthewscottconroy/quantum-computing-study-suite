@@ -1,9 +1,16 @@
 """App-wide constants."""
+import os
 from pathlib import Path
 
 APP_NAME           = "Qiskit Dojo"
-DATA_DIR           = Path.home() / ".local" / "share" / "quantum-study"
+APP_DIR_NAME       = "qiskit-dojo"          # "app" field in flagged entries (coach.py)
+_DATA_OVERRIDE     = os.environ.get("QUANTUM_STUDY_DATA_DIR", "").strip()
+DATA_DIR           = (
+    Path(_DATA_OVERRIDE).expanduser() if _DATA_OVERRIDE
+    else Path.home() / ".local" / "share" / "quantum-study"
+)
 HISTORY_FILE       = DATA_DIR / "dojo_history.json"
+FLAGGED_FILE       = DATA_DIR / "dojo_flagged.json"
 API_KEY_FILE       = Path.home() / ".config" / "quantum-study" / "api_key.txt"
 MODEL              = "claude-sonnet-4-6"
 DEFAULT_KATA_COUNT = 8

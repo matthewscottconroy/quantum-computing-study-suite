@@ -101,6 +101,7 @@ class AttemptRecord:
     kind: str                  # "problem" | "derivation"
     score: float
     title: str = ""
+    category: str = ""         # problem topic, or "derivation" (used for flagging)
 
 
 @dataclass

@@ -7,6 +7,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 
+import datetime
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QScrollArea,
@@ -91,6 +93,26 @@ class HistoryScreen(QWidget):
         self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._empty_lbl)
 
+        # ── Flagged for review ────────────────────────────────────────────────
+        flag_hdr = QHBoxLayout()
+        flag_lbl = QLabel("Flagged for review")
+        flag_lbl.setStyleSheet(
+            f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};"
+        )
+        flag_hdr.addWidget(flag_lbl)
+        flag_hdr.addStretch()
+        self._flag_count_lbl = QLabel("")
+        self._flag_count_lbl.setObjectName("muted")
+        flag_hdr.addWidget(self._flag_count_lbl)
+        root.addLayout(flag_hdr)
+
+        self._flag_frame = QFrame()
+        self._flag_frame.setObjectName("card")
+        self._flag_slot = QVBoxLayout(self._flag_frame)
+        self._flag_slot.setContentsMargins(16, 12, 16, 12)
+        self._flag_slot.setSpacing(6)
+        root.addWidget(self._flag_frame)
+
         root.addStretch()
 
         # ── Bottom bar ────────────────────────────────────────────────────────
@@ -113,6 +135,48 @@ class HistoryScreen(QWidget):
             sessions = []
 
         self._render(sessions)
+        self._render_flagged()
+
+    # ── Flagged list ──────────────────────────────────────────────────────────
+
+    def _render_flagged(self) -> None:
+        _clear_slot(self._flag_slot)
+        try:
+            from persistence import load_flagged
+            entries = load_flagged()
+        except Exception:
+            entries = []
+        self._flagged_rows: list[_FlagRow] = []
+
+        if not entries:
+            self._flag_count_lbl.setText("")
+            empty = QLabel(
+                "No flagged questions. Use \u2691 Flag for review on the feedback "
+                "screen to collect questions you want to revisit."
+            )
+            empty.setObjectName("muted")
+            empty.setWordWrap(True)
+            self._flag_slot.addWidget(empty)
+            return
+
+        self._flag_count_lbl.setText(f"{len(entries)} flagged")
+        for entry in reversed(entries):            # newest first
+            row = _FlagRow(entry)
+            row.unflag_requested.connect(self._on_unflag)
+            self._flag_slot.addWidget(row)
+            self._flagged_rows.append(row)
+
+    def _on_unflag(self, flag_id: str) -> None:
+        try:
+            from persistence import unflag
+            unflag(flag_id)
+        except Exception:
+            pass
+        self._render_flagged()
+
+    def flagged_labels(self) -> list[str]:
+        """Labels currently shown in the flagged list (newest first)."""
+        return [r.label for r in getattr(self, "_flagged_rows", [])]
 
     def _render(self, sessions: list[dict]) -> None:
         if not sessions:
@@ -234,6 +298,53 @@ class _StatCard(QFrame):
 
     def set_value(self, v: str) -> None:
         self._val.setText(v)
+
+
+class _FlagRow(QWidget):
+    """One flagged question: label, subject/date line, and an Unflag button."""
+    unflag_requested = pyqtSignal(str)
+
+    def __init__(self, entry: dict, parent=None) -> None:
+        super().__init__(parent)
+        self.flag_id = str(entry.get("id", ""))
+        self.label = str(entry.get("label") or self.flag_id)
+        category = str(entry.get("category") or "")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(12)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(2)
+        title = QLabel(self.label)
+        title.setWordWrap(True)
+        title.setStyleSheet("font-size: 13px;")
+        text_col.addWidget(title)
+
+        meta_bits = []
+        if category:
+            meta_bits.append(category)
+        when = _fmt_timestamp(entry.get("timestamp"))
+        if when:
+            meta_bits.append(when)
+        meta = QLabel("  ·  ".join(meta_bits))
+        meta.setObjectName("muted")
+        text_col.addWidget(meta)
+        layout.addLayout(text_col, 1)
+
+        unflag_btn = QPushButton("Unflag")
+        unflag_btn.setObjectName("flat")
+        unflag_btn.setToolTip("Remove this question from the review list")
+        unflag_btn.clicked.connect(lambda: self.unflag_requested.emit(self.flag_id))
+        self._unflag_btn = unflag_btn
+        layout.addWidget(unflag_btn, 0, Qt.AlignmentFlag.AlignTop)
+
+
+def _fmt_timestamp(ts) -> str:
+    try:
+        return datetime.datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return ""
 
 
 def _clear_slot(layout) -> None:

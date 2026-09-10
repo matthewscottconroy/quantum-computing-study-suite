@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from config import MAX_STEP_TRIES
 from core.models import Derivation, Step, StepState, StepCheck
 from ui import theme
+from ui.theme import FLAG_ON_TEXT, FLAG_OFF_TEXT
 from ui.widgets.collapsible import CollapsibleSection
 
 
@@ -15,6 +16,8 @@ class DerivationScreen(QWidget):
     step_submitted      = pyqtSignal(object, object, str, list, int)  # derivation, step, answer, accepted_steps, tries
     derivation_finished = pyqtSignal(object, list)                    # derivation, [StepState]
     session_ended       = pyqtSignal()
+    flag_requested      = pyqtSignal()                                # toggle review flag on this derivation
+    reference_requested = pyqtSignal(str)                             # open docs for this derivation id
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -45,6 +48,11 @@ class DerivationScreen(QWidget):
         self._progress_lbl.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 13px;")
         top_row.addWidget(self._progress_lbl)
         top_row.addStretch()
+        ref_btn = QPushButton("📖 Reference")
+        ref_btn.setObjectName("flat")
+        ref_btn.setToolTip("Browse the docs chapter behind this derivation (your progress is kept)")
+        ref_btn.clicked.connect(self._on_reference)
+        top_row.addWidget(ref_btn)
         badge = QLabel("GUIDED DERIVATION")
         badge.setStyleSheet(
             f"font-size: 11px; font-weight: bold; "
@@ -132,6 +140,12 @@ class DerivationScreen(QWidget):
         quit_btn.clicked.connect(self.session_ended)
         bl.addWidget(quit_btn)
         bl.addStretch()
+        self._flag_btn = QPushButton(FLAG_OFF_TEXT)
+        self._flag_btn.setObjectName("flag")
+        self._flag_btn.setCheckable(True)
+        self._flag_btn.setToolTip("Toggle: mark this derivation for later review")
+        self._flag_btn.clicked.connect(self.flag_requested)
+        bl.addWidget(self._flag_btn)
         self._finish_btn = QPushButton("Finish Derivation →")
         self._finish_btn.setObjectName("accent")
         self._finish_btn.clicked.connect(self._on_finish)
@@ -146,6 +160,7 @@ class DerivationScreen(QWidget):
         self._states = [StepState(step=s) for s in derivation.steps]
         self._idx = 0
         self._checking = False
+        self.set_flagged(False)
         self._progress_lbl.setText(f"Derivation {idx} of {total}")
         self._title_lbl.setText(derivation.title)
         self._goal_lbl.setText(f"Goal: {derivation.goal}")
@@ -284,3 +299,16 @@ class DerivationScreen(QWidget):
     def _on_finish(self) -> None:
         if self._derivation is not None:
             self.derivation_finished.emit(self._derivation, self._states)
+
+    def _on_reference(self) -> None:
+        self.reference_requested.emit(self._derivation.id if self._derivation else "")
+
+    # -- flag for review -------------------------------------------------
+
+    def set_flagged(self, flagged: bool) -> None:
+        """Reflect the persisted flag state on the toggle button."""
+        self._flag_btn.setChecked(flagged)
+        self._flag_btn.setText(FLAG_ON_TEXT if flagged else FLAG_OFF_TEXT)
+
+    def is_flagged_shown(self) -> bool:
+        return self._flag_btn.isChecked()

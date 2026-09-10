@@ -11,6 +11,16 @@ Usage:
 
 Data dir defaults to dashboard.DATA_DIR (~/.local/share/quantum-study/)
 and can be overridden with the QUANTUM_STUDY_DATA_DIR environment variable.
+
+Flagged-for-review items: every "<prefix>_flagged.json" in the data dir
+(plus flashcard-drill's legacy flagged_cards.json) is discovered at run
+time.  Entries may be bare string ids or dicts per the suite's flagging
+contract — {"id", "label", "category", "app", "timestamp"}, only "id"
+required.  The app comes from the entry's "app" field, else from the file
+prefix (quiz_ -> quantum-quiz, math_ -> math-quiz, ...); undated entries
+take the file's mtime.  Items dedupe by (app, id); --review shows the
+REVIEW_CAP oldest and says how many more were dropped.
+
 Coach state is stored in <data dir>/coach_state.json:
 
     {
@@ -31,7 +41,7 @@ import argparse
 import json
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -43,13 +53,17 @@ import dashboard
 # Constants
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path(os.environ.get("QUANTUM_STUDY_DATA_DIR") or dashboard.DATA_DIR)
+DATA_DIR = Path(os.environ.get("QUANTUM_STUDY_DATA_DIR")
+                or dashboard.DATA_DIR).expanduser()
 STATE_PATH = DATA_DIR / "coach_state.json"
 
 _NOW = time.time()
 _TODAY = datetime.now().strftime("%Y-%m-%d")
 
-STALE_DAYS = 7            # category untouched longer than this is "stale"
+STALE_DAYS = 7            # untouched for more than this many whole days = "stale"
+FOCUS_MAX_AVG = 8.0       # a category / exam section / kata section already
+                          # averaging this (of 10, i.e. 80%) or better is solid
+                          # and is not prescribed as focus work in the plan
 REVIEW_WINDOW_DAYS = 30   # low-score attempts newer than this are reviewable
 REVIEW_LOW_SCORE = 5.0    # attempts scoring below this go to the review queue
 REVIEW_CAP = 20
@@ -71,11 +85,14 @@ _HISTORY_FILES = {
     "problem-trainer": "problems_history.json",
 }
 
-_FLAGGED_FILES = {
-    "flashcard-drill": "flagged_cards.json",
-    "qec-trainer":     "qec_flagged.json",
-    "vqa-trainer":     "vqa_flagged.json",
-}
+# Flagged-for-review files are discovered at run time: every
+# "<prefix>_flagged.json" in DATA_DIR, where <prefix> is the app's history
+# filename prefix (qec_ -> qec-trainer, quiz_ -> quantum-quiz, ...).
+# flashcard-drill predates the convention and writes flagged_cards.json.
+_FLAGGED_GLOB = "*_flagged.json"
+_LEGACY_FLAGGED_FILES = {"flagged_cards.json": "flashcard-drill"}
+_PREFIX_TO_APP = {fname[:-len("_history.json")]: app
+                  for app, fname in _HISTORY_FILES.items()}
 
 # Curriculum rungs, in docs-ladder order, with their docs dir + practice app.
 RUNGS = [
@@ -194,16 +211,31 @@ def _path(filename: str) -> Path:
     return DATA_DIR / filename
 
 
+def _read_json(path: Path):
+    """Parsed JSON from *path*, or None if missing, unreadable or corrupt."""
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def _load_list(filename: str) -> list:
     """Like dashboard._load but rooted at the coach's (overridable) DATA_DIR."""
-    path = _path(filename)
-    if not path.exists():
-        return []
-    try:
-        data = json.loads(path.read_text())
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
+    data = _read_json(_path(filename))
+    return data if isinstance(data, list) else []
+
+
+# Expected JSON types of the known coach_state.json keys; a stored value of
+# the wrong type (a hand-edited file) is replaced by the default instead of
+# crashing the plan.  Unknown keys are carried through untouched.
+_STATE_TYPES = {
+    "activity_dates": list,
+    "current_streak": (int, float),
+    "best_streak": (int, float),
+    "badges": dict,
+    "diagnostic": (dict, type(None)),
+    "last_plan_date": (str, type(None)),
+}
 
 
 def load_state() -> dict:
@@ -217,10 +249,21 @@ def load_state() -> dict:
     }
     try:
         raw = json.loads(STATE_PATH.read_text())
-        if isinstance(raw, dict):
-            default.update(raw)
     except Exception:
-        pass
+        return default
+    if not isinstance(raw, dict):
+        return default
+    for key, value in raw.items():
+        expected = _STATE_TYPES.get(key)
+        if expected is None:
+            default[key] = value
+        elif isinstance(value, expected) and not isinstance(value, bool):
+            if expected == (int, float):
+                try:
+                    value = int(value)          # rejects NaN / Infinity
+                except (OverflowError, ValueError):
+                    continue
+            default[key] = value
     return default
 
 
@@ -240,53 +283,138 @@ def _clean_sessions(sessions: list) -> list[dict]:
     return [s for s in sessions if isinstance(s, dict)]
 
 
+def _parse_iso(value: str) -> Optional[datetime]:
+    """Aware datetime from an ISO-8601 string (naive input is taken as UTC,
+    which is what the apps write), or None when it does not parse."""
+    text = value.strip()
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _session_timestamp(session: dict) -> Optional[float]:
+    """Epoch seconds from a session's own "timestamp" field, or None.
+
+    Accepts an epoch float, a numeric string, or the ISO-8601 *string* that
+    circuit-trainer / math-quiz / quantum-quiz write (dashboard's float()
+    rejects the latter).  Ignores the "date" field -- see _session_epoch.
+    """
+    ts = session.get("timestamp")
+    if ts is not None and not isinstance(ts, bool):
+        try:
+            return float(ts)            # epoch float, or a numeric string
+        except (TypeError, ValueError):
+            pass
+    if isinstance(ts, str):
+        dt = _parse_iso(ts)
+        if dt is not None:
+            try:
+                return dt.timestamp()
+            except (OverflowError, OSError, ValueError):
+                pass
+    return None
+
+
+def _session_epoch(session: dict) -> Optional[float]:
+    """Best-effort Unix timestamp for a session (None if unknown).
+
+    Like dashboard._session_timestamp, but also understands ISO-8601 string
+    timestamps (via _session_timestamp) and anchors a date-only session at
+    *local* midnight rather than UTC midnight so its calendar day survives
+    the round trip through datetime.fromtimestamp() in every timezone.
+    """
+    ts = _session_timestamp(session)
+    if ts is not None:
+        return ts
+    day = session.get("date")
+    if isinstance(day, str) and _valid_date(day):
+        try:
+            return datetime.strptime(day, "%Y-%m-%d").timestamp()
+        except (OverflowError, OSError, ValueError):
+            pass
+    return None
+
+
+def _session_day(session: dict) -> Optional[str]:
+    """Local YYYY-MM-DD a session was recorded on (None if unknown).
+
+    A session's own "date" string is authoritative -- it is the local
+    calendar day the app stamped when the user studied.  Otherwise the
+    timestamp is converted to the local date.
+    """
+    day = session.get("date")
+    if isinstance(day, str) and _valid_date(day.strip()):
+        parsed = datetime.strptime(day.strip(), "%Y-%m-%d")
+        return parsed.strftime("%Y-%m-%d")
+    ts = _session_epoch(session)
+    if not ts:
+        return None
+    try:
+        return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def build_category_stats(histories: dict[str, list]) -> dict[tuple[str, str], dict]:
-    """Return {(app, category): {"w_sum", "ws", "last_ts", "n"}}.
+    """Return {(app, category): {"w_sum", "ws", "last_ts", "last_day", "n"}}.
 
     Scores are on a 0-10 scale, weighted by dashboard's 14-day half-life.
+    "last_day" is the YYYY-MM-DD of the latest session when that session
+    carried only a "date" (no usable timestamp, so last_ts is its local
+    midnight); None when the latest session had a real timestamp.
     """
     stats: dict[tuple[str, str], dict] = {}
 
     def add(app: str, cat: str, weight: float, score: float,
-            ts: Optional[float]) -> None:
+            ts: Optional[float], day: Optional[str]) -> None:
         cat = str(cat).strip()
         if not cat:
             return
         entry = stats.setdefault((app, cat),
                                  {"w_sum": 0.0, "ws": 0.0, "last_ts": 0.0,
-                                  "n": 0})
+                                  "last_day": None, "n": 0})
         entry["w_sum"] += weight * score
         entry["ws"] += weight
         entry["n"] += 1
         if ts and ts > entry["last_ts"]:
             entry["last_ts"] = ts
+            entry["last_day"] = day
 
     _ease = {"got_it": 10.0, "unsure": 5.0, "missed": 0.0}
 
     for app, sessions in histories.items():
         for s in _clean_sessions(sessions):
             w = dashboard._session_weight(s)
-            ts = dashboard._session_timestamp(s)
+            ts = _session_epoch(s)
+            # Date-only session: ts is local midnight of its "date"; keep the
+            # day so stale_categories() can count whole calendar days.
+            day = (_session_day(s)
+                   if ts is not None and _session_timestamp(s) is None
+                   else None)
             if app in ("qec-trainer", "vqa-trainer", "circuit-trainer"):
                 for a in s.get("attempts", []):
                     if isinstance(a, dict):
                         add(app, a.get("category", ""), w,
-                            _num(a.get("score", 0)), ts)
+                            _num(a.get("score", 0)), ts, day)
             elif app == "flashcard-drill":
                 for r in s.get("results", []):
                     if isinstance(r, dict):
                         add(app, r.get("category", ""), w,
-                            _ease.get(r.get("rating", ""), 5.0), ts)
+                            _ease.get(r.get("rating", ""), 5.0), ts, day)
             elif app in ("math-quiz", "quantum-quiz"):
                 for r in s.get("records", []):
                     if isinstance(r, dict):
                         cat = r.get("topic") or r.get("subject") or ""
-                        add(app, cat, w, _num(r.get("score", 0)), ts)
+                        add(app, cat, w, _num(r.get("score", 0)), ts, day)
             elif app == "qiskit-dojo":
                 for a in s.get("attempts", []):
                     if isinstance(a, dict):
                         add(app, a.get("section", ""), w,
-                            10.0 if a.get("passed") else 0.0, ts)
+                            10.0 if a.get("passed") else 0.0, ts, day)
             elif app == "exam-sim":
                 sections = s.get("sections", {})
                 if isinstance(sections, dict):
@@ -295,12 +423,12 @@ def build_category_stats(histories: dict[str, list]) -> dict[tuple[str, str], di
                             tot = _num(sec.get("total", 0))
                             cor = _num(sec.get("correct", 0))
                             if tot > 0:
-                                add(app, name, w * tot, cor / tot * 10.0, ts)
+                                add(app, name, w * tot, cor / tot * 10.0, ts, day)
             elif app == "problem-trainer":
                 for a in s.get("attempts", []):
                     if isinstance(a, dict):
                         cat = a.get("kind") or a.get("problem_id") or ""
-                        add(app, cat, w, _num(a.get("score", 0)), ts)
+                        add(app, cat, w, _num(a.get("score", 0)), ts, day)
             # paper-drill has no categories
 
     return stats
@@ -324,12 +452,27 @@ def weakest_categories(stats: dict[tuple[str, str], dict],
 
 def stale_categories(stats: dict[tuple[str, str], dict]
                      ) -> list[tuple[str, str, int]]:
-    """Categories touched before, but not in the last STALE_DAYS days."""
-    cutoff = _NOW - STALE_DAYS * 86400.0
+    """Categories touched before, but untouched for MORE than STALE_DAYS
+    whole days -- so every "(Nd)" listed has N > STALE_DAYS, matching the
+    "Stale (> 7 days untouched)" heading.
+
+    Days are whole days since the last session's timestamp; a session that
+    carried only a "date" (anchored at local midnight, time of day unknown)
+    is measured in local calendar days instead, so one dated exactly
+    STALE_DAYS days ago is not yet stale.
+    """
+    today = datetime.fromtimestamp(_NOW).date()
     out = []
     for (app, cat), e in stats.items():
-        if 0 < e["last_ts"] < cutoff:
-            days = int((_NOW - e["last_ts"]) / 86400.0)
+        last_ts = e.get("last_ts", 0.0)
+        if not last_ts or last_ts <= 0:
+            continue
+        last_day = e.get("last_day")
+        if isinstance(last_day, str) and _valid_date(last_day):
+            days = (today - datetime.strptime(last_day, "%Y-%m-%d").date()).days
+        else:
+            days = int((_NOW - last_ts) / 86400.0)
+        if days > STALE_DAYS:
             out.append((app, cat, days))
     out.sort(key=lambda r: (-r[2], r[0], r[1]))   # most stale first
     return out
@@ -389,30 +532,164 @@ def dojo_weakest_section(dojo_sessions: list) -> Optional[tuple[str, float]]:
 
 
 # ---------------------------------------------------------------------------
+# Flagged-for-review items — every app's *_flagged.json (see module docstring)
+# ---------------------------------------------------------------------------
+
+_FLAG_ID_KEYS = ("id", "card_id", "problem_id", "question_id", "kata_id")
+_LABEL_MAX = 72   # longest label / category rendered before truncation
+
+
+def _file_mtime(path: Path) -> float:
+    try:
+        return float(path.stat().st_mtime)
+    except OSError:
+        return 0.0
+
+
+def _epoch(value) -> float:
+    """Coerce a contract timestamp to epoch seconds (0.0 when unusable).
+
+    Accepts an epoch number (seconds or milliseconds, numeric strings too)
+    or an ISO-8601 string.
+    """
+    ts = _num(value)
+    if ts <= 0 and isinstance(value, str):
+        dt = _parse_iso(value)
+        if dt is not None:
+            try:
+                ts = dt.timestamp()
+            except (OverflowError, OSError, ValueError):
+                ts = 0.0
+    if ts <= 0:
+        return 0.0
+    if ts > 1e11:            # millisecond epoch — normalise to seconds
+        ts /= 1000.0
+    return ts
+
+
+def _short(text) -> str:
+    """One-line, whitespace-collapsed, length-capped rendering of *text*."""
+    text = " ".join(str(text).split())
+    return text if len(text) <= _LABEL_MAX else text[:_LABEL_MAX - 1] + "…"
+
+
+def _app_for_flag_file(path: Path) -> str:
+    """Owning app for a flagged file, inferred from its name."""
+    if path.name in _LEGACY_FLAGGED_FILES:
+        return _LEGACY_FLAGGED_FILES[path.name]
+    suffix = "_flagged.json"
+    prefix = (path.name[:-len(suffix)] if path.name.endswith(suffix)
+              else path.stem)
+    return _PREFIX_TO_APP.get(prefix, prefix or "unknown")
+
+
+def discover_flagged_files() -> list[tuple[str, Path]]:
+    """(app, path) for each flagged file present in DATA_DIR, by filename."""
+    found: dict[Path, str] = {}
+    try:
+        for p in DATA_DIR.glob(_FLAGGED_GLOB):
+            if p.is_file():
+                found[p] = _app_for_flag_file(p)
+        for name, app in _LEGACY_FLAGGED_FILES.items():
+            p = DATA_DIR / name
+            if p.is_file():
+                found[p] = app
+    except OSError:
+        pass
+    return [(app, p) for p, app in sorted(found.items(),
+                                          key=lambda kv: kv[0].name)]
+
+
+def _flag_entry(item, app: str, fallback_ts: float = 0.0) -> Optional[dict]:
+    """Normalize one flagged-file entry into a review item (None = skip).
+
+    Accepts a bare string id, or a dict per the flagging contract —
+    {"id", "label", "category", "app", "timestamp"}, only "id" required
+    (legacy id keys card_id/problem_id/question_id/kata_id also work).
+    A missing or invalid timestamp falls back to *fallback_ts* (file mtime).
+    """
+    if isinstance(item, str):
+        ident = item.strip()
+        if not ident:
+            return None
+        return {"app": app, "id": ident, "label": _short(ident),
+                "category": "", "ts": fallback_ts, "score": 0.0,
+                "why": "flagged"}
+    if not isinstance(item, dict):
+        return None
+    ident = ""
+    for key in _FLAG_ID_KEYS:
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            ident = str(value).strip()
+            break
+    if not ident:
+        return None
+    label = item.get("label")
+    label = (_short(label) if isinstance(label, str) and label.strip()
+             else _short(ident))
+    category = item.get("category")
+    category = _short(category) if isinstance(category, str) else ""
+    entry_app = item.get("app")
+    if isinstance(entry_app, str) and entry_app.strip():
+        app = entry_app.strip()
+    return {"app": app, "id": ident, "label": label, "category": category,
+            "ts": _epoch(item.get("timestamp")) or fallback_ts,
+            "score": 0.0, "why": "flagged"}
+
+
+def load_flagged_items(notes: Optional[list[str]] = None) -> list[dict]:
+    """Every flagged item across all apps, deduped by (app, id).
+
+    Unreadable files and malformed entries are skipped; when *notes* is a
+    list, a one-line note per problem is appended to it.
+    """
+    items: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for app, path in discover_flagged_files():
+        raw = _read_json(path)
+        if not isinstance(raw, list):
+            if notes is not None:
+                notes.append(f"skipped {path.name}: not a readable JSON list")
+            continue
+        mtime = _file_mtime(path)
+        malformed = 0
+        for entry in raw:
+            item = _flag_entry(entry, app, mtime)
+            if item is None:
+                malformed += 1
+                continue
+            key = (item["app"], item["id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(item)
+        if malformed and notes is not None:
+            notes.append(f"{path.name}: ignored {malformed} malformed "
+                         f"entr{'y' if malformed == 1 else 'ies'}")
+    return items
+
+
+def flagged_counts(items: list[dict]) -> dict[str, int]:
+    """{app: number of flagged items in *items*}, sorted by app name."""
+    counts: dict[str, int] = {}
+    for item in items:
+        if item.get("why") == "flagged":
+            counts[item["app"]] = counts.get(item["app"], 0) + 1
+    return dict(sorted(counts.items()))
+
+
+# ---------------------------------------------------------------------------
 # Unified review queue (--review, also counted in the default plan)
 # ---------------------------------------------------------------------------
 
-def _flag_entry(item, app: str) -> Optional[dict]:
-    """Normalize a flagged-file entry (string id or dict) into a queue item."""
-    if isinstance(item, str) and item.strip():
-        return {"app": app, "label": item.strip(), "ts": 0.0, "score": 0.0,
-                "why": "flagged"}
-    if isinstance(item, dict):
-        ident = (item.get("card_id") or item.get("problem_id")
-                 or item.get("id") or item.get("question_id"))
-        if ident is None:
-            return None
-        return {"app": app, "label": str(ident),
-                "ts": _num(item.get("timestamp", 0)), "score": 0.0,
-                "why": "flagged"}
-    return None
+def collect_review_items(histories: dict[str, list],
+                         notes: Optional[list[str]] = None) -> list[dict]:
+    """Merge flagged items (all apps), exam misses, and recent low scores.
 
-
-def build_review_queue(histories: dict[str, list]) -> list[dict]:
-    """Merge flagged cards, exam misses, and recent low scores.
-
-    Sorted oldest+worst first (timestamp asc, score asc); capped at REVIEW_CAP.
-    Each item: {app, label, ts, score, why}.
+    Sorted oldest+worst first (timestamp asc, score asc) and deduped by
+    (app, id, why).  NOT capped — build_review_queue()/render_review()
+    apply REVIEW_CAP.  Each item: {app, id, label, category, ts, score, why}.
     """
     items: list[dict] = []
     seen: set[tuple[str, str, str]] = set()
@@ -420,16 +697,17 @@ def build_review_queue(histories: dict[str, list]) -> list[dict]:
     def push(item: Optional[dict]) -> None:
         if not item:
             return
-        key = (item["app"], item["label"], item["why"])
+        item.setdefault("id", item["label"])
+        item.setdefault("category", "")
+        key = (item["app"], item["id"], item["why"])
         if key in seen:
             return
         seen.add(key)
         items.append(item)
 
-    # 1. Flagged cards / problems
-    for app, fname in _FLAGGED_FILES.items():
-        for entry in _load_list(fname):
-            push(_flag_entry(entry, app))
+    # 1. Flagged items from every app's flagged file
+    for item in load_flagged_items(notes):
+        push(item)
 
     # 2. Missed exam questions
     for m in _load_list("exam_missed.json"):
@@ -437,42 +715,53 @@ def build_review_queue(histories: dict[str, list]) -> list[dict]:
             ident = m.get("question_id")
             if ident is None:
                 continue
-            sec = str(m.get("section", "")).strip()
-            label = f"{ident} ({sec})" if sec else str(ident)
-            push({"app": "exam-sim", "label": label,
-                  "ts": _num(m.get("timestamp", 0)), "score": 0.0,
+            push({"app": "exam-sim", "id": str(ident), "label": str(ident),
+                  "category": str(m.get("section", "")).strip(),
+                  "ts": _epoch(m.get("timestamp")), "score": 0.0,
                   "why": "missed exam question"})
 
     # 3. Low-scoring quiz / problem attempts in the last 30 days
     cutoff = _NOW - REVIEW_WINDOW_DAYS * 86400.0
     for app in ("math-quiz", "quantum-quiz"):
         for s in _clean_sessions(histories.get(app, [])):
-            ts = dashboard._session_timestamp(s)
+            ts = _session_epoch(s)
             if not ts or ts < cutoff:
                 continue
             for r in s.get("records", []):
                 if isinstance(r, dict):
                     score = _num(r.get("score", 10))
                     if score < REVIEW_LOW_SCORE:
-                        topic = r.get("topic") or r.get("subject") or "?"
-                        push({"app": app, "label": str(topic), "ts": ts,
-                              "score": score,
+                        topic = str(r.get("topic") or r.get("subject") or "?")
+                        subject = str(r.get("subject") or "").strip()
+                        push({"app": app, "id": topic, "label": topic,
+                              "category": subject if subject != topic else "",
+                              "ts": ts, "score": score,
                               "why": f"scored {score:g}/10"})
     for s in _clean_sessions(histories.get("problem-trainer", [])):
-        ts = dashboard._session_timestamp(s)
+        ts = _session_epoch(s)
         if not ts or ts < cutoff:
             continue
         for a in s.get("attempts", []):
             if isinstance(a, dict):
                 score = _num(a.get("score", 10))
                 if score < REVIEW_LOW_SCORE:
-                    ident = a.get("problem_id") or a.get("kind") or "?"
-                    push({"app": "problem-trainer", "label": str(ident),
+                    ident = str(a.get("problem_id") or a.get("kind") or "?")
+                    kind = str(a.get("kind") or "").strip()
+                    push({"app": "problem-trainer", "id": ident,
+                          "label": ident,
+                          "category": kind if kind != ident else "",
                           "ts": ts, "score": score,
                           "why": f"scored {score:g}/10"})
 
-    items.sort(key=lambda i: (i["ts"], i["score"], i["app"], i["label"]))
-    return items[:REVIEW_CAP]
+    items.sort(key=lambda i: (i["ts"], i["score"], i["app"], i["label"],
+                              i["id"]))
+    return items
+
+
+def build_review_queue(histories: dict[str, list],
+                       notes: Optional[list[str]] = None) -> list[dict]:
+    """The REVIEW_CAP oldest/worst items from collect_review_items()."""
+    return collect_review_items(histories, notes)[:REVIEW_CAP]
 
 
 # ---------------------------------------------------------------------------
@@ -480,13 +769,18 @@ def build_review_queue(histories: dict[str, list]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def latest_activity_dates(histories: dict[str, list]) -> set[str]:
-    """Every YYYY-MM-DD (local) on which any history session was recorded."""
+    """Every YYYY-MM-DD (local) on which any history session was recorded.
+
+    Date-only sessions (circuit-trainer / math-quiz / quantum-quiz) are
+    credited to their own "date" string; epoch and ISO-string timestamps are
+    converted to the local calendar day.
+    """
     days: set[str] = set()
     for sessions in histories.values():
         for s in _clean_sessions(sessions):
-            ts = dashboard._session_timestamp(s)
-            if ts:
-                days.add(datetime.fromtimestamp(ts).strftime("%Y-%m-%d"))
+            day = _session_day(s)
+            if day:
+                days.add(day)
     return days
 
 
@@ -529,7 +823,7 @@ def update_streak_state(state: dict, histories: dict[str, list]) -> None:
     state["activity_dates"] = dates[-365:]        # keep a year of history
     cur, best = _compute_streaks(state["activity_dates"])
     state["current_streak"] = cur
-    state["best_streak"] = max(best, int(state.get("best_streak", 0) or 0))
+    state["best_streak"] = max(best, int(_num(state.get("best_streak", 0))))
 
 
 # ---------------------------------------------------------------------------
@@ -548,16 +842,27 @@ def score_diagnostic(answers: list[Optional[int]]) -> dict[str, dict]:
     return rungs
 
 
+def _rung_counts(rung) -> tuple[float, float]:
+    """(total, correct) for one stored rung record; (0, 0) if malformed."""
+    if not isinstance(rung, dict):
+        return 0.0, 0.0
+    return _num(rung.get("total", 0)), _num(rung.get("correct", 0))
+
+
 def recommended_rung(rungs: dict[str, dict]) -> str:
     """First rung (in ladder order) below 2/3 accuracy; else the weakest."""
+    if not isinstance(rungs, dict):
+        return RUNG_ORDER[0]
     for name in RUNG_ORDER:
-        r = rungs.get(name, {})
-        total = r.get("total", 0)
-        if total and r.get("correct", 0) / total < 2 / 3:
+        total, correct = _rung_counts(rungs.get(name))
+        if total > 0 and correct / total < 2 / 3:
             return name
     # All rungs solid — recommend the (relatively) weakest one.
-    scored = [(r.get("correct", 0) / r["total"], RUNG_ORDER.index(n), n)
-              for n, r in rungs.items() if r.get("total", 0)]
+    scored = []
+    for n, r in rungs.items():
+        total, correct = _rung_counts(r)
+        if total > 0 and n in RUNG_ORDER:
+            scored.append((correct / total, RUNG_ORDER.index(n), n))
     return min(scored)[2] if scored else RUNG_ORDER[0]
 
 
@@ -578,10 +883,11 @@ def rung_app(rung: str) -> str:
 def weak_rungs(rungs: dict[str, dict]) -> list[str]:
     """Rungs below 2/3 accuracy, in ladder order."""
     out = []
+    if not isinstance(rungs, dict):
+        return out
     for name in RUNG_ORDER:
-        r = rungs.get(name, {})
-        total = r.get("total", 0)
-        if total and r.get("correct", 0) / total < 2 / 3:
+        total, correct = _rung_counts(rungs.get(name))
+        if total > 0 and correct / total < 2 / 3:
             out.append(name)
     return out
 
@@ -597,12 +903,20 @@ def build_plan(histories: dict[str, list], state: dict) -> dict:
     stale = stale_categories(stats)
     exam = exam_readiness(histories.get("exam-sim", []))
     dojo = dojo_weakest_section(histories.get("qiskit-dojo", []))
-    review = build_review_queue(histories)
-    missed_count = sum(1 for m in _load_list("exam_missed.json")
-                       if isinstance(m, dict) and m.get("question_id"))
+    review_all = collect_review_items(histories)
+    review = review_all[:REVIEW_CAP]
+    review_dropped = len(review_all) - len(review)
+    flagged_by_app = flagged_counts(review_all)
+    flagged_total = sum(flagged_by_app.values())
+    missed_count = len({str(m["question_id"])
+                        for m in _load_list("exam_missed.json")
+                        if isinstance(m, dict)
+                        and m.get("question_id") is not None})
 
     diag = state.get("diagnostic") or None
-    diag_rungs = diag.get("rungs", {}) if isinstance(diag, dict) else {}
+    diag_rungs = diag.get("rungs") if isinstance(diag, dict) else None
+    if not isinstance(diag_rungs, dict):
+        diag_rungs = {}
     weak_rung_list = weak_rungs(diag_rungs) if diag_rungs else []
 
     items: list[str] = []
@@ -610,14 +924,26 @@ def build_plan(histories: dict[str, list], state: dict) -> dict:
     # 1. Review queue first — overdue material beats new material.
     if review:
         apps = sorted({i["app"] for i in review})
+        detail = [", ".join(apps)]
+        if flagged_total:
+            detail.append(f"{flagged_total} flagged across "
+                          f"{len(flagged_by_app)} app(s)")
+        if review_dropped:
+            detail.append(f"+{review_dropped} more past the cap of "
+                          f"{REVIEW_CAP}")
         items.append(
             f"review queue — {len(review)} item(s) due "
-            f"({', '.join(apps)}): run `python coach.py --review`")
+            f"({'; '.join(detail)}): run `python coach.py --review`")
 
-    # 2. Weakest categories, grouped per app.
+    # 2. Weakest categories, grouped per app -- but only ones that are
+    #    actually weak: with a single perfect exam on file the "weakest"
+    #    rows average 10.0/10, and prescribing those would be noise.  Solid
+    #    categories (>= FOCUS_MAX_AVG) are skipped; the starter defaults
+    #    below pad the plan instead.
     by_app: dict[str, list[tuple[str, float]]] = {}
     for app, cat, avg in weakest:
-        by_app.setdefault(app, []).append((cat, avg))
+        if avg < FOCUS_MAX_AVG:
+            by_app.setdefault(app, []).append((cat, avg))
     for app in sorted(by_app):
         cats = ", ".join(c for c, _ in by_app[app])
         worst = min(a for _, a in by_app[app])
@@ -627,10 +953,13 @@ def build_plan(histories: dict[str, list], state: dict) -> dict:
     def _planned_apps() -> set[str]:
         return {i.split(" — ")[0] for i in items}
 
-    # 3. Exam readiness.
+    # 3. Exam readiness: sprint on a genuinely weak section (same floor,
+    #    in percent); otherwise a retake if the last full exam failed.
     if exam and "exam-sim" not in _planned_apps():
-        if exam["weakest_sections"]:
-            sec, pct = exam["weakest_sections"][0]
+        sprint = exam["weakest_sections"][0] if exam["weakest_sections"] \
+            else None
+        if sprint and sprint[1] < FOCUS_MAX_AVG * 10.0:
+            sec, pct = sprint
             items.append(f"exam-sim — Sprint: {sec} "
                          f"({pct:.0f}% on last full exam)")
         elif not exam["passing"]:
@@ -638,18 +967,20 @@ def build_plan(histories: dict[str, list], state: dict) -> dict:
                          f"(last: {exam['correct']}/{exam['total']}, "
                          f"need {EXAM_PASS_CORRECT}/{EXAM_PASS_TOTAL})")
 
-    # 4. Dojo lowest pass-rate section (unless already covered above).
+    # 4. Dojo lowest pass-rate section (unless already covered above, and
+    #    only if it is actually below the floor).
     if dojo and "qiskit-dojo" not in _planned_apps():
         sec, rate = dojo
-        items.append(f"qiskit-dojo — 2 katas in '{sec}' "
-                     f"({rate:.0f}% pass rate, lowest)")
+        if rate < FOCUS_MAX_AVG * 10.0:
+            items.append(f"qiskit-dojo — 2 katas in '{sec}' "
+                         f"({rate:.0f}% pass rate, lowest)")
 
     # 5. Diagnostic bias: hit the weakest rung with its practice app.
     if weak_rung_list:
         rung = weak_rung_list[0]
-        r = diag_rungs.get(rung, {})
+        total, correct = _rung_counts(diag_rungs.get(rung))
         items.append(f"{rung_app(rung)} — 1 session on rung '{rung}' "
-                     f"(diagnostic: {r.get('correct', 0)}/{r.get('total', 0)}"
+                     f"(diagnostic: {correct:g}/{total:g}"
                      f"; read {rung_docs_dir(rung)})")
 
     # 6. Stale categories (skip apps already planned above).
@@ -678,6 +1009,10 @@ def build_plan(histories: dict[str, list], state: dict) -> dict:
         "exam": exam,
         "dojo": dojo,
         "review_count": len(review),
+        "review_total": len(review_all),
+        "review_dropped": review_dropped,
+        "flagged_total": flagged_total,
+        "flagged_by_app": flagged_by_app,
         "missed_count": missed_count,
         "diagnostic": diag,
         "weak_rungs": weak_rung_list,
@@ -689,10 +1024,16 @@ def build_plan(histories: dict[str, list], state: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def _console():
-    """Return a rich Console or None (plain-text fallback)."""
+    """Return a rich Console or None (plain-text fallback).
+
+    soft_wrap=True keeps rich from inserting hard line breaks at the
+    detected width (80 columns when stdout is a pipe without COLUMNS), so
+    a long plan line stays one line when piped to a file or grep; an
+    interactive terminal still wraps it visually.
+    """
     try:
         from rich.console import Console
-        return Console()
+        return Console(soft_wrap=True)
     except ImportError:
         return None
 
@@ -707,13 +1048,37 @@ def _heading(console, text: str) -> None:
         print("=" * 62)
 
 
+def _escape_markup(text: str) -> str:
+    """Escape rich markup so dynamic text like "[qec]" prints literally."""
+    try:
+        from rich.markup import escape
+    except ImportError:
+        return text
+    return escape(text)
+
+
 def _line(console, text: str, style: str = "") -> None:
-    if console and style:
-        console.print(f"[{style}]{text}[/{style}]")
-    elif console:
-        console.print(text)
+    if console:
+        text = _escape_markup(text)
+        console.print(f"[{style}]{text}[/{style}]" if style else text)
     else:
         print(text)
+
+
+def _fmt_date(ts: float) -> str:
+    if not ts:
+        return "undated"
+    try:
+        return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+    except (OverflowError, OSError, ValueError):
+        return "undated"
+
+
+def _flagged_summary(flagged_by_app: dict[str, int]) -> str:
+    total = sum(flagged_by_app.values())
+    per_app = ", ".join(f"{a} {n}" for a, n in flagged_by_app.items())
+    return (f"Flagged for review: {total} item(s) across "
+            f"{len(flagged_by_app)} app(s) — {per_app}")
 
 
 def render_plan(plan: dict, state: dict) -> None:
@@ -748,9 +1113,12 @@ def render_plan(plan: dict, state: dict) -> None:
     if plan["missed_count"]:
         _line(console,
               f"Missed exam questions due for review: {plan['missed_count']}")
+    if plan["flagged_total"]:
+        _line(console, _flagged_summary(plan["flagged_by_app"]))
 
     diag = plan["diagnostic"]
-    if isinstance(diag, dict) and diag.get("recommended_rung"):
+    if isinstance(diag, dict) and isinstance(diag.get("recommended_rung"), str) \
+            and diag["recommended_rung"]:
         rung = diag["recommended_rung"]
         _line(console,
               f"Docs ladder: start at rung '{rung}' -> {rung_docs_dir(rung)}"
@@ -784,23 +1152,46 @@ def render_plan(plan: dict, state: dict) -> None:
     print()
 
 
-def render_review(queue: list[dict]) -> None:
+def render_review(items: list[dict],
+                  notes: Optional[list[str]] = None) -> None:
+    """Print the review queue.
+
+    *items* is the full, sorted list from collect_review_items(); the first
+    REVIEW_CAP are shown as "<app> — <label or id> [<category>] — <why>"
+    and the number dropped by the cap is reported.
+    """
     console = _console()
     _heading(console, "Review Today — unified SRS queue")
     print()
+    for note in notes or []:
+        _line(console, f"note: {note}", "dim")
+    if notes:
+        print()
+
+    queue = items[:REVIEW_CAP]
+    dropped = len(items) - len(queue)
     if not queue:
         _line(console, "Nothing due for review. Nice.", "green")
         print()
         return
-    _line(console, f"{len(queue)} item(s), oldest & worst first "
-                   f"(capped at {REVIEW_CAP}):", "bold")
+
+    shown = (f"{len(queue)} of {len(items)} item(s)" if dropped
+             else f"{len(queue)} item(s)")
+    _line(console, f"{shown}, oldest & worst first (capped at {REVIEW_CAP}):",
+          "bold")
     for i, item in enumerate(queue, 1):
-        when = (datetime.fromtimestamp(item["ts"]).strftime("%Y-%m-%d")
-                if item["ts"] else "undated")
+        cat = f" [{item['category']}]" if item.get("category") else ""
         _line(console,
-              f"  {i:2}. [{item['app']}] {item['label']} — "
-              f"{item['why']} ({when})")
+              f"  {i:2}. {item['app']} — {item['label']}{cat} — "
+              f"{item['why']} ({_fmt_date(item['ts'])})")
+    if dropped:
+        _line(console,
+              f"  ... {dropped} more item(s) dropped by the cap of "
+              f"{REVIEW_CAP} — clear the ones above first.", "dim")
     print()
+    flagged_by_app = flagged_counts(items)
+    if flagged_by_app:
+        _line(console, _flagged_summary(flagged_by_app))
     apps = sorted({i["app"] for i in queue})
     _line(console, f"Open these apps to clear the queue: {', '.join(apps)}")
     print()
@@ -894,8 +1285,9 @@ def run_badges(state: dict) -> None:
         badges = state.get("badges", {})
         for i, name in enumerate(BADGES, 1):
             status = badges.get(name, "not_started")
-            label = _BADGE_LABEL.get(status, status)
-            _line(console, f"  {i}. [{label:<11}] {name}")
+            if status not in BADGE_STATUSES:
+                status = "not_started"
+            _line(console, f"  {i}. [{_BADGE_LABEL[status]:<11}] {name}")
         print()
         try:
             raw = input("badge # (q to quit) > ").strip().lower()
@@ -946,7 +1338,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     histories = load_histories()
 
     if args.review:
-        render_review(build_review_queue(histories))
+        notes: list[str] = []
+        render_review(collect_review_items(histories, notes), notes)
         return
 
     # Default: today's plan.

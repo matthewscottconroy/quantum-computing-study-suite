@@ -237,6 +237,15 @@ QToolTip {{
     border-radius: 4px;
     padding: 4px 8px;
 }}
+QStatusBar {{
+    background-color: {SURFACE};
+    color: {TEXT};
+    border-top: 1px solid {BORDER};
+    font-size: 12px;
+}}
+QStatusBar::item {{
+    border: none;
+}}
 """
 
 

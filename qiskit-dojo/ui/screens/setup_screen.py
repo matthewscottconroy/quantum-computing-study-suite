@@ -14,13 +14,17 @@ _ORDERS = [("Shuffled", True), ("Curriculum order (by section)", False)]
 
 
 class SetupScreen(QWidget):
-    session_started   = pyqtSignal(object)
-    history_requested = pyqtSignal()
+    session_started     = pyqtSignal(object)
+    history_requested   = pyqtSignal()
+    reference_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._cbs: dict[str, QCheckBox] = {}
+        self._rate_lbls: dict[str, QLabel] = {}
+        self._rate_bars: dict[str, QProgressBar] = {}
         self._build_ui()
+        self.refresh()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -50,11 +54,6 @@ class SetupScreen(QWidget):
         sec_lbl.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
         left.addWidget(sec_lbl)
 
-        try:
-            from persistence import pass_rates_by_section
-            rates = pass_rates_by_section()
-        except Exception:
-            rates = {}
         kata_counts: dict[str, int] = {}
         for k in all_katas():
             kata_counts[k.section] = kata_counts.get(k.section, 0) + 1
@@ -73,33 +72,19 @@ class SetupScreen(QWidget):
             self._cbs[sec] = cb
             row.addWidget(cb, 1)
 
-            rate = rates.get(sec)
-            pct = int(rate * 100) if rate is not None else None
-            pct_lbl = QLabel(f"{pct}%" if pct is not None else "—")
+            pct_lbl = QLabel("—")
             pct_lbl.setStyleSheet(f"font-size: 11px; color: {theme.TEXT_MUTED}; min-width: 32px;")
             pct_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             row.addWidget(pct_lbl)
             left.addLayout(row)
+            self._rate_lbls[sec] = pct_lbl
 
             bar = QProgressBar()
             bar.setFixedHeight(4)
             bar.setTextVisible(False)
             bar.setRange(0, 100)
-            if pct is not None:
-                bar.setValue(pct)
-                bar_color = (
-                    theme.SUCCESS if pct >= 70 else
-                    theme.WARNING if pct >= 40 else
-                    theme.ERROR
-                )
-            else:
-                bar.setValue(0)
-                bar_color = theme.BORDER
-            bar.setStyleSheet(
-                f"QProgressBar {{ background: {theme.SURFACE2}; border: none; border-radius: 2px; }}"
-                f"QProgressBar::chunk {{ background: {bar_color}; border-radius: 2px; }}"
-            )
             left.addWidget(bar)
+            self._rate_bars[sec] = bar
 
         shortcuts = QHBoxLayout()
         for label, val in [("All", True), ("None", False)]:
@@ -134,6 +119,8 @@ class SetupScreen(QWidget):
             "offline.\n\n"
             "Debugging katas hand you code with a planted bug; Modernization "
             "katas hand you retired-API code to rewrite for Qiskit 2.x.\n\n"
+            "Flag any kata for review from the kata screen; flagged katas are "
+            "listed under History and picked up by the study coach.\n\n"
             "The optional Claude review button needs an Anthropic API key."
         )
         tip.setWordWrap(True)
@@ -151,12 +138,50 @@ class SetupScreen(QWidget):
         history_btn.setObjectName("flat")
         history_btn.clicked.connect(self.history_requested)
         btn_row.addWidget(history_btn)
+        reference_btn = QPushButton("Browse Reference")
+        reference_btn.setObjectName("flat")
+        reference_btn.setToolTip("Read the shared docs corpus without leaving the app")
+        reference_btn.clicked.connect(self.reference_requested)
+        btn_row.addWidget(reference_btn)
         btn_row.addStretch()
         self._start_btn = QPushButton("Start Session")
         self._start_btn.setObjectName("accent")
         self._start_btn.clicked.connect(self._on_start)
         btn_row.addWidget(self._start_btn)
         root.addLayout(btn_row)
+
+    def refresh(self) -> None:
+        """Re-read lifetime pass rates so the per-section labels and bars
+        reflect the session that just finished (MainWindow calls this on
+        every return to setup; construction calls it once)."""
+        try:
+            from persistence import pass_rates_by_section
+            rates = pass_rates_by_section()
+        except Exception:
+            rates = {}
+        for sec, lbl in self._rate_lbls.items():
+            rate = rates.get(sec)
+            pct = int(rate * 100) if rate is not None else None
+            lbl.setText(f"{pct}%" if pct is not None else "—")
+            bar = self._rate_bars[sec]
+            if pct is not None:
+                bar.setValue(pct)
+                bar_color = (
+                    theme.SUCCESS if pct >= 70 else
+                    theme.WARNING if pct >= 40 else
+                    theme.ERROR
+                )
+            else:
+                bar.setValue(0)
+                bar_color = theme.BORDER
+            bar.setStyleSheet(
+                f"QProgressBar {{ background: {theme.SURFACE2}; border: none; border-radius: 2px; }}"
+                f"QProgressBar::chunk {{ background: {bar_color}; border-radius: 2px; }}"
+            )
+
+    def section_rate_text(self, section: str) -> str:
+        """The pass-rate label currently shown for `section` (UI state)."""
+        return self._rate_lbls[section].text()
 
     def _card(self, title: str) -> QFrame:
         card = QFrame(); card.setObjectName("card")

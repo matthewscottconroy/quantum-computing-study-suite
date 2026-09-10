@@ -1,5 +1,7 @@
-"""History screen for paper-drill."""
+"""History screen for paper-drill — session stats, score trend, and the
+flagged-for-review list (with unflag)."""
 from __future__ import annotations
+from datetime import datetime
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -67,6 +69,20 @@ class HistoryScreen(QWidget):
         self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._empty_lbl)
 
+        # Flagged-for-review section — populated by refresh(); hidden when empty
+        self._flag_section = QWidget()
+        flag_layout = QVBoxLayout(self._flag_section)
+        flag_layout.setContentsMargins(0, 0, 0, 0)
+        flag_layout.setSpacing(10)
+        flag_hdr = QLabel("Flagged for review")
+        flag_hdr.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
+        flag_layout.addWidget(flag_hdr)
+        self._flag_list = QVBoxLayout()
+        self._flag_list.setSpacing(8)
+        flag_layout.addLayout(self._flag_list)
+        root.addWidget(self._flag_section)
+        self._flag_section.hide()
+
         root.addStretch()
 
         bar = QWidget()
@@ -81,8 +97,34 @@ class HistoryScreen(QWidget):
         outer.addWidget(bar)
 
     def refresh(self) -> None:
-        from persistence import _load_raw
+        from persistence import _load_raw, load_flagged
         self._render(_load_raw())
+        self._render_flagged(load_flagged())
+
+    # ------------------------------------------------------------------
+    # Flagged-for-review list
+    # ------------------------------------------------------------------
+
+    def flagged_count(self) -> int:
+        """Number of flagged rows currently shown."""
+        return self._flag_list.count()
+
+    def _render_flagged(self, entries: list[dict]) -> None:
+        _clear_slot(self._flag_list)
+        if not entries:
+            self._flag_section.hide()
+            return
+        self._flag_section.show()
+        newest_first = sorted(entries, key=_flag_timestamp, reverse=True)
+        for entry in newest_first:
+            row = _FlaggedRow(entry)
+            row.unflag_requested.connect(self._on_unflag)
+            self._flag_list.addWidget(row)
+
+    def _on_unflag(self, flag_id: str) -> None:
+        from persistence import unflag, load_flagged
+        unflag(flag_id)
+        self._render_flagged(load_flagged())
 
     def _render(self, sessions: list[dict]) -> None:
         if not sessions:
@@ -147,6 +189,61 @@ class _StatCard(QFrame):
 
     def set_value(self, v: str) -> None:
         self._val.setText(v)
+
+
+class _FlaggedRow(QFrame):
+    """One flagged question: label, paper title, and an Unflag button."""
+    unflag_requested = pyqtSignal(str)   # flag id
+
+    def __init__(self, entry: dict, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("card")
+        self._id = str(entry.get("id", ""))
+        row = QHBoxLayout(self)
+        row.setContentsMargins(18, 12, 18, 12)
+        row.setSpacing(16)
+
+        info = QVBoxLayout()
+        info.setSpacing(3)
+        label = QLabel(str(entry.get("label", "")) or self._id)
+        label.setWordWrap(True)
+        label.setStyleSheet("font-size: 13px; font-weight: bold;")
+        info.addWidget(label)
+        category = str(entry.get("category", "")).strip()
+        meta = QLabel(f"Paper: {category}" if category else "Paper: —")
+        meta.setStyleSheet(f"font-size: 12px; color: {theme.TEXT_MUTED};")
+        info.addWidget(meta)
+        row.addLayout(info, 1)
+
+        self._unflag_btn = QPushButton("Unflag")
+        self._unflag_btn.clicked.connect(lambda: self.unflag_requested.emit(self._id))
+        row.addWidget(self._unflag_btn)
+
+    @property
+    def flag_id(self) -> str:
+        return self._id
+
+
+def _flag_timestamp(entry: dict) -> float:
+    """Sort key for flagged entries: coerce the contract ``timestamp`` to epoch
+    seconds, tolerating numeric strings and ISO-8601 (other tools may write
+    those); anything unusable sorts as 0.0 rather than raising mid-render."""
+    value = entry.get("timestamp", 0)
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip()
+        try:
+            return float(text)
+        except ValueError:
+            pass
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            pass
+    return 0.0
 
 
 def _clear_slot(layout) -> None:

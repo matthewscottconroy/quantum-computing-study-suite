@@ -1,0 +1,151 @@
+# Executes every companion notebook (notebooks/*.ipynb) top to bottom with
+# nbclient.  The notebooks assert the numbers printed in docs/, so a green run
+# is also a regression check on the docs' arithmetic -- which is why it runs
+# on pull requests too, not only after a change has landed on main.
+name: Notebooks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Mondays 06:00 UTC.  GitHub disables a scheduled workflow after 60 days
+    # without repository activity; if the repo has been quiet, re-enable it
+    # from the Actions tab (Notebooks -> "Enable workflow").
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+# Same policy as ci.yml: pull-request runs share one group per PR, so a newer
+# push to the PR cancels the run it supersedes.  Every other run (push to main,
+# weekly cron, manual dispatch) gets a group of its own -- github.run_id is
+# unique -- so runs on main are never cancelled or queued behind each other,
+# and every main commit ends with a completed status instead of "cancelled".
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+    defaults:
+      run:
+        shell: bash
+    env:
+      MPLBACKEND: Agg
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      # Runs before setup-python (whose pip cache needs the requirements files)
+      # so a commit that lands this workflow without them fails with a clear
+      # annotation, and so an empty notebooks/ is caught here instead of after
+      # the multi-minute dependency install.
+      - name: Check required files are in the checkout
+        run: |
+          missing=()
+          for p in requirements.txt requirements-dev.txt; do
+            [ -e "$p" ] || missing+=("$p")
+          done
+          if ! ls notebooks/*.ipynb >/dev/null 2>&1; then
+            missing+=("notebooks/*.ipynb")
+          fi
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Required files missing::not in the checkout: ${missing[*]}"
+            exit 1
+          fi
+          echo "all required files present ($(ls notebooks/*.ipynb | wc -l) notebooks)"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      # Same runtime libraries, retries, PATH/VIRTUAL_ENV and data-dir setup as
+      # ci.yml, so the two jobs' environments match (see the comment there for
+      # the readelf derivation of this package list).
+      - name: Install Qt offscreen runtime libraries
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update -qq \
+            || { sleep 15; sudo apt-get -o Acquire::Retries=3 update -qq; }
+          sudo apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 \
+            libglib2.0-0 libx11-6 libfreetype6
+
+      - name: Create .venv and install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
+          # Same as ci.yml: no notebook touches the study data today, but if one
+          # ever imports an app module its persistence must stay out of the
+          # runner's real home directory.
+          echo "QUANTUM_STUDY_DATA_DIR=$RUNNER_TEMP/quantum-study" >> "$GITHUB_ENV"
+
+      - name: Show environment
+        run: |
+          which python
+          python --version
+          python -m pip list
+
+      # Each notebook is executed in memory (nothing is written back) with the
+      # kernel's working directory set to notebooks/, as Jupyter would.
+      - name: Execute notebooks
+        run: |
+          python - <<'PY'
+          import glob
+          import sys
+          import time
+
+          import nbformat
+          from nbclient import NotebookClient
+
+          paths = sorted(glob.glob("notebooks/*.ipynb"))
+          if not paths:
+              print("::error::no notebooks found under notebooks/")
+              sys.exit(1)
+
+          failed = []
+          for path in paths:
+              nb = nbformat.read(path, as_version=4)
+              t0 = time.time()
+              print(f"::group::{path}", flush=True)
+              try:
+                  NotebookClient(
+                      nb,
+                      timeout=900,
+                      kernel_name="python3",
+                      resources={"metadata": {"path": "notebooks"}},
+                  ).execute()
+                  status = "PASS"
+              except Exception as exc:  # CellExecutionError, TimeoutError, ...
+                  failed.append(path)
+                  status = "FAIL"
+                  print(f"{type(exc).__name__}: {exc}", flush=True)
+              print("::endgroup::", flush=True)
+              print(f"{status} {path} ({time.time() - t0:.0f}s)", flush=True)
+
+          if failed:
+              print("::error title=Notebooks::failed: " + ", ".join(failed))
+              sys.exit(1)
+          print(f"all {len(paths)} notebooks executed")
+          PY

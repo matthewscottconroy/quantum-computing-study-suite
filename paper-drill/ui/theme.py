@@ -64,6 +64,28 @@ QSpinBox {{
     border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
 }}
 QSpinBox::up-button, QSpinBox::down-button {{ background: {SURFACE2}; border: none; width: 18px; }}
+QComboBox {{
+    background-color: {SURFACE2}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
+}}
+QComboBox::drop-down {{ border: none; }}
+QComboBox QAbstractItemView {{
+    background-color: {SURFACE2}; color: {TEXT};
+    border: 1px solid {BORDER}; selection-background-color: {ACCENT2};
+}}
+QLineEdit {{
+    background-color: {SURFACE}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
+}}
+QLineEdit:focus {{ border-color: {ACCENT}; }}
+QTreeWidget {{
+    background-color: {SURFACE}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 8px; padding: 4px; outline: none;
+}}
+QTreeWidget::item {{ padding: 4px 2px; border-radius: 4px; }}
+QTreeWidget::item:hover {{ background-color: {SURFACE2}; }}
+QTreeWidget::item:selected {{ background-color: {ACCENT2}; color: white; }}
+QTreeWidget::branch {{ background: transparent; }}
 QSplitter::handle {{ background-color: {BORDER}; }}
 QSplitter::handle:horizontal {{ width: 1px; }}
 QSplitter::handle:vertical {{ height: 1px; }}

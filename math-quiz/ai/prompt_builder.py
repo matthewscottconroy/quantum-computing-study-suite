@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from core.models import Question
+from config import MAX_HINT_COUNT
 
 
 # Map subject → one-sentence note on quantum computing relevance
@@ -147,6 +148,7 @@ def build_generation_prompt(
     type_guide = _TYPE_GUIDE.get(question_type, "")
     supplement = _SUBJECT_TYPE_SUPPLEMENT.get((subject, question_type), "")
     type_block = type_guide + (f"\n  {supplement}" if supplement else "")
+    hints_schema = ", ".join(f'"<hint {i}>"' for i in range(1, MAX_HINT_COUNT + 1))
 
     return f"""You are an expert mathematics educator creating exam-quality questions for \
 a student preparing for research in quantum computing.
@@ -178,7 +180,7 @@ Do NOT repeat any of these recently asked questions:
 Respond with ONLY valid JSON matching this schema exactly:
 {{
   "question": "<full question text>",
-  "hints": ["<hint 1>", "<hint 2>", "<hint 3>"]
+  "hints": [{hints_schema}]
 }}"""
 
 

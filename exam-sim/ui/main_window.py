@@ -12,11 +12,15 @@ from ui.screens.home_screen import HomeScreen
 from ui.screens.exam_screen import ExamScreen
 from ui.screens.results_screen import ResultsScreen
 from ui.screens.review_screen import ReviewScreen
+from ui.screens.history_screen import HistoryScreen
+from ui.screens.reference_screen import ReferenceScreen
 
-PAGE_HOME    = 0
-PAGE_EXAM    = 1
-PAGE_RESULTS = 2
-PAGE_REVIEW  = 3
+PAGE_HOME      = 0
+PAGE_EXAM      = 1
+PAGE_RESULTS   = 2
+PAGE_REVIEW    = 3
+PAGE_HISTORY   = 4
+PAGE_REFERENCE = 5
 
 
 class MainWindow(QMainWindow):
@@ -33,15 +37,22 @@ class MainWindow(QMainWindow):
         self._exam    = ExamScreen()
         self._results = ResultsScreen()
         self._review  = ReviewScreen()
-        for w in (self._home, self._exam, self._results, self._review):
+        self._history   = HistoryScreen()
+        self._reference = ReferenceScreen()
+        for w in (self._home, self._exam, self._results, self._review,
+                  self._history, self._reference):
             self._stack.addWidget(w)
 
         self._home.full_exam_requested.connect(self._on_full_exam)
         self._home.sprint_requested.connect(self._on_sprint)
         self._home.review_requested.connect(self._on_review)
+        self._home.history_requested.connect(self._on_history)
+        self._home.reference_requested.connect(self._on_reference)
         self._exam.session_finished.connect(self._on_exam_finished)
         self._results.home_requested.connect(self._go_home)
         self._review.home_requested.connect(self._go_home)
+        self._history.back_requested.connect(self._go_home)
+        self._reference.back_requested.connect(self._go_home)
 
     def _on_full_exam(self) -> None:
         questions = build_exam_set(EXAM_QUESTION_COUNT)
@@ -80,6 +91,14 @@ class MainWindow(QMainWindow):
                 "No previously missed questions on file.")
             return
         self._stack.setCurrentIndex(PAGE_REVIEW)
+
+    def _on_history(self) -> None:
+        self._history.refresh()
+        self._stack.setCurrentIndex(PAGE_HISTORY)
+
+    def _on_reference(self) -> None:
+        self._reference.load_all()
+        self._stack.setCurrentIndex(PAGE_REFERENCE)
 
     def _go_home(self) -> None:
         self._home.refresh()

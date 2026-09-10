@@ -17,6 +17,7 @@ from config import SCORE_CORRECT_THRESHOLD, SCORE_PARTIAL_THRESHOLD
 
 class FeedbackScreen(QWidget):
     next_question_requested = pyqtSignal()
+    flag_requested = pyqtSignal()          # toggle "flag for review" on this question
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -127,6 +128,14 @@ class FeedbackScreen(QWidget):
         bar.setStyleSheet(f"background: {theme.SURFACE}; border-top: 1px solid {theme.BORDER};")
         bar_layout = QHBoxLayout(bar)
         bar_layout.setContentsMargins(48, 12, 48, 12)
+        self._flag_btn = QPushButton("⚑ Flag for review")
+        self._flag_btn.setObjectName("flat")
+        self._flag_btn.setToolTip(
+            "Save this question to your review list (quiz_flagged.json).\n"
+            "Click again to remove it. Flagged items are listed on the History screen."
+        )
+        self._flag_btn.clicked.connect(self.flag_requested)
+        bar_layout.addWidget(self._flag_btn)
         bar_layout.addStretch()
         next_btn = QPushButton("Next Question →")
         next_btn.setObjectName("accent")
@@ -164,6 +173,23 @@ class FeedbackScreen(QWidget):
             self._followup_container.show()
         else:
             self._followup_container.hide()
+
+        # Flag state is set separately by the controller (set_flagged) once it
+        # has looked the question up in persistence.
+        self.set_flagged(False)
+
+    def set_flagged(self, flagged: bool) -> None:
+        """Reflect the persisted flag state on the toggle button."""
+        self._flagged = flagged
+        if flagged:
+            self._flag_btn.setText("⚑ Flagged — click to unflag")
+            self._flag_btn.setStyleSheet(f"color: {theme.WARNING}; font-weight: bold;")
+        else:
+            self._flag_btn.setText("⚑ Flag for review")
+            self._flag_btn.setStyleSheet("")
+
+    def is_flagged(self) -> bool:
+        return getattr(self, "_flagged", False)
 
 
 def _verdict_color(verdict: str) -> str:

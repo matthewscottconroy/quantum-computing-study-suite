@@ -20,10 +20,24 @@ _SENTINEL = "DOJO_ALL_TESTS_PASSED"
 
 _HARNESS = '''\
 """Auto-generated dojo harness: exec user code, then run kata tests."""
+import linecache
 import sys
 import traceback
 
 SENTINEL = "DOJO_ALL_TESTS_PASSED"
+
+
+def _register_source(filename, src):
+    """Let tracebacks quote source lines from the exec'd strings."""
+    linecache.cache[filename] = (len(src), None, src.splitlines(True), filename)
+
+
+def _print_error(e):
+    """One-line summary, then the traceback minus this harness's own frame,
+    so the first thing the learner reads is their own file and line."""
+    print(f"ERROR: {type(e).__name__}: {e}")
+    tb = e.__traceback__.tb_next if e.__traceback__ is not None else None
+    sys.stdout.write("".join(traceback.format_exception(type(e), e, tb)))
 
 
 def main() -> None:
@@ -31,13 +45,15 @@ def main() -> None:
         user_src = f.read()
     with open("test_code.py", encoding="utf-8") as f:
         test_src = f.read()
+    _register_source("your_code.py", user_src)
+    _register_source("kata_tests.py", test_src)
 
     ns = {"__name__": "__main__", "__builtins__": __builtins__}
     try:
         exec(compile(user_src, "your_code.py", "exec"), ns)
-    except Exception:
+    except Exception as e:
         print("=== Error while running your code ===")
-        traceback.print_exc(file=sys.stdout)
+        _print_error(e)
         sys.exit(2)
 
     try:
@@ -46,14 +62,15 @@ def main() -> None:
         print("=== Test failed ===")
         if e.args:
             print(f"FAILED: {e.args[0]}")
-        tb = traceback.format_exc().splitlines()
-        for line in tb:
-            if "kata_tests.py" in line:
-                print(line)
+        # Frames below this harness only (kata_tests.py, plus any helper in
+        # your_code.py it called), each with its source line; no header, and
+        # the message is already on the FAILED: line above.
+        tb = e.__traceback__.tb_next if e.__traceback__ is not None else None
+        sys.stdout.write("".join(traceback.extract_tb(tb).format()))
         sys.exit(3)
-    except Exception:
+    except Exception as e:
         print("=== Error while running tests ===")
-        traceback.print_exc(file=sys.stdout)
+        _print_error(e)
         sys.exit(3)
 
     print(SENTINEL)

@@ -9,6 +9,20 @@ from core.models import Problem, ProblemCategory, AnswerFormat
 from problems._utils import make_prob_distractors
 
 
+def _distinct_distractors(correct: float, candidates: list[float], n: int = 3) -> list[float]:
+    """First ``n`` candidates (in order) that differ from ``correct`` and from
+    each other.  Used where the natural distractors (p, 1-p, ...) can collide
+    with the answer -- e.g. p = 0.5 -- so every choice list has ``n`` distinct
+    wrong values and the correct value appears exactly once."""
+    out: list[float] = []
+    for v in candidates:
+        if abs(v - correct) > 1e-4 and all(abs(v - d) > 1e-4 for d in out):
+            out.append(v)
+        if len(out) == n:
+            break
+    return out
+
+
 def generate(difficulty: str) -> Problem:
     if difficulty == "beginner":
         return random.choice([
@@ -77,11 +91,12 @@ def _phase_flip_z_basis() -> Problem:
     p = random.choice([0.25, 0.5, 0.75])
     correct = 0.5
 
-    distractors_f = [round(1.0 - p, 4), round(p, 4), round((1 - p) / 2, 4)]
-    choices_f = [correct] + [v for v in distractors_f if abs(v - correct) > 1e-4][:3]
-    if len(choices_f) < 4:
-        choices_f.append(0.25)
-    choices_f = choices_f[:4]
+    # At p = 0.5 both 1-p and p equal the answer, so draw from an ordered,
+    # deduplicated pool (always yields 3 distinct wrong values).
+    choices_f = [correct] + _distinct_distractors(
+        correct,
+        [round(1.0 - p, 4), round(p, 4), round((1 - p) / 2, 4), 0.25, 0.75, 1.0, 0.0],
+    )
     random.shuffle(choices_f)
     choices = [str(round(v, 4)) for v in choices_f]
     correct_idx = next(i for i, v in enumerate(choices_f) if abs(v - correct) < 1e-9)
@@ -123,10 +138,13 @@ def _bit_flip_on_plus() -> Problem:
     # X|+⟩ = |+⟩, so the channel has no effect on |+⟩.
     correct = 0.5
 
-    choices_f = [correct, round(1.0 - p, 4), round(p, 4), round(0.5 + p / 2, 4)]
-    choices_f = list(dict.fromkeys(choices_f))[:4]
-    while len(choices_f) < 4:
-        choices_f.append(round(random.uniform(0.1, 0.9), 2))
+    # At p = 0.5 the natural distractors collide with the answer; the fixed
+    # tail of the pool guarantees 3 distinct wrong values, never a second 0.5.
+    choices_f = [correct] + _distinct_distractors(
+        correct,
+        [round(1.0 - p, 4), round(p, 4), round(0.5 + p / 2, 4),
+         0.25, 0.75, 0.0, 1.0, 0.125, 0.875],
+    )
     random.shuffle(choices_f)
     choices = [str(round(v, 4)) for v in choices_f]
     correct_idx = next(i for i, v in enumerate(choices_f) if abs(v - correct) < 1e-9)
@@ -356,7 +374,9 @@ def _repeated_bit_flip() -> Problem:
         "P(exactly one flip) = p·(1-p) + (1-p)·p = 2p(1-p).",
         f"Effective flip rate: p_eff = 2·{p}·{1-p} = {p_eff}.",
         f"P(measuring |1⟩) = {correct}.",
-        "Note: p_eff < p for p < 0.5, so repeated application amplifies noise near p = 0.5.",
+        "Note: for 0 < p < 0.5, p_eff = 2p(1-p) > p — composing the channel with itself "
+        "makes a net flip MORE likely (p_eff approaches 1/2, the completely mixed limit, "
+        "as more layers are added).",
     ]
     return Problem(
         category=ProblemCategory.NOISE_CHANNEL,
@@ -401,7 +421,8 @@ def _amplitude_damping_00() -> Problem:
         "Models T1 decay: excited state |1⟩ spontaneously decays to |0⟩ with rate γ.",
         "For |+⟩: ρ = [[1/2, 1/2],[1/2, 1/2]].",
         "ρ_out = K₀ρK₀† + K₁ρK₁†.",
-        f"ρ_out[0,0] = K₀[0,0]²·ρ[0,0] + K₁[0,0]²·ρ[1,1] ... simplifies to ρ[0,0] + γ·ρ[1,1]",
+        "ρ_out[0,0] = |K₀[0,0]|²·ρ[0,0] + |K₁[0,1]|²·ρ[1,1] = 1·ρ[0,0] + γ·ρ[1,1]  "
+        "(K₁[0,0] = 0; the |1⟩→|0⟩ decay enters through K₁[0,1] = √γ)",
         f"= 1/2 + {gamma}·(1/2) = {correct}.",
     ]
     return Problem(
@@ -430,24 +451,33 @@ def _amplitude_damping_00() -> Problem:
 def _identify_kraus() -> Problem:
     channels = [
         {
+            "slug": "bitflip",
             "name": "Bit-flip channel (p = 0.3)",
             "kraus": "K₀ = √0.7 · I,   K₁ = √0.3 · X",
             "why": "K₁ ∝ X → applies Pauli X (bit-flip) error.",
         },
         {
+            "slug": "phaseflip",
             "name": "Phase-flip channel (p = 0.3)",
             "kraus": "K₀ = √0.7 · I,   K₁ = √0.3 · Z",
             "why": "K₁ ∝ Z → applies Pauli Z (phase-flip) error.",
         },
         {
+            "slug": "ampdamp",
             "name": "Amplitude-damping channel (γ = 0.3)",
             "kraus": "K₀ = [[1,0],[0,√0.7]],   K₁ = [[0,√0.3],[0,0]]",
             "why": "K₁ has shape [[0,√γ],[0,0]] — maps |1⟩→|0⟩ (T1 decay).",
         },
         {
-            "name": "Depolarizing channel (p = 0.3)",
+            # Same convention as the rest of this module, E(ρ) = (1-p)ρ + p·I/2:
+            # Pauli weights 1-3p/4 and p/4 each, so 0.7 / 0.1 ⇔ p = 0.4.
+            "slug": "depol",
+            "name": "Depolarizing channel (p = 0.4: each Pauli with probability 0.1)",
             "kraus": "K₀=√0.7·I,  K₁=√0.1·X,  K₂=√0.1·Y,  K₃=√0.1·Z",
-            "why": "Four Kraus ops with all three Paulis at equal weight — symmetric depolarization.",
+            "why": ("Four Kraus ops with all three Paulis at equal weight — symmetric "
+                    "depolarization. In this module's convention E(ρ) = (1-p)ρ + p·I/2 the "
+                    "weights are 1-3p/4 = 0.7 and p/4 = 0.1, i.e. p = 0.4 (the same channel "
+                    "is 'p = 0.3' in the (1-p)ρ + (p/3)Σ PρP parameterisation)."),
         },
     ]
 
@@ -459,7 +489,8 @@ def _identify_kraus() -> Problem:
         f"Examine the structure of K₁: {target['kraus'].split('K₁')[1].strip()}",
         f"Identification: {target['why']}",
         "Bit-flip: K₁ ∝ X.   Phase-flip: K₁ ∝ Z.   Amplitude damping: K₁ = [[0,√γ],[0,0]].",
-        "Depolarizing: four Kraus ops using all Paulis equally.",
+        "Depolarizing: four Kraus ops using all Paulis equally — here weights 0.7 / 0.1, "
+        "i.e. p = 0.4 with E(ρ) = (1-p)ρ + p·I/2 (p = 0.3 in the (p/3)Σ PρP convention).",
         f"Answer: {target['name']}.",
     ]
     return Problem(
@@ -483,6 +514,7 @@ def _identify_kraus() -> Problem:
             "Focus on K₁: what Pauli or operator is it proportional to?",
             "Amplitude damping K₁ has the distinctive off-diagonal structure [[0,√γ],[0,0]].",
         ],
+        problem_id=f"noise:kraus:{target['slug']}",   # deterministic pool -> stable id
     )
 
 

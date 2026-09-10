@@ -11,6 +11,18 @@ from ui import theme
 from ui.widgets.code_editor import CodeEditor
 from workers.run_worker import RunWorker
 from workers.review_worker import ReviewWorker
+from persistence import is_flagged, toggle_flag
+
+_FLAG_OFF_TEXT = "⚑ Flag for review"
+_FLAG_ON_TEXT  = "⚑ Flagged for review"
+
+
+def _repolish(widget) -> None:
+    """Re-evaluate the app stylesheet after an objectName change."""
+    style = widget.style()
+    style.unpolish(widget)
+    style.polish(widget)
+    widget.update()
 
 
 class KataScreen(QWidget):
@@ -23,6 +35,7 @@ class KataScreen(QWidget):
         self._attempt: KataAttempt | None = None
         self._run_worker: RunWorker | None = None
         self._review_worker: ReviewWorker | None = None
+        self._flagged: bool = False
         self._build_ui()
 
     # ------------------------------------------------------------------ UI
@@ -42,10 +55,10 @@ class KataScreen(QWidget):
         self._diff_lbl.setStyleSheet(f"font-size: 11px; color: {theme.TEXT_MUTED};")
         top_row.addWidget(self._diff_lbl)
         top_row.addStretch()
-        end_btn = QPushButton("End Session")
-        end_btn.setObjectName("flat")
-        end_btn.clicked.connect(self._on_end_session)
-        top_row.addWidget(end_btn)
+        self._end_btn = QPushButton("End Session")
+        self._end_btn.setObjectName("flat")
+        self._end_btn.clicked.connect(self._on_end_session)
+        top_row.addWidget(self._end_btn)
         root.addLayout(top_row)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -150,6 +163,14 @@ class KataScreen(QWidget):
         self._review_btn.clicked.connect(self._on_review)
         btn_row.addWidget(self._review_btn)
 
+        self._flag_btn = QPushButton(_FLAG_OFF_TEXT)
+        self._flag_btn.setObjectName("flat")
+        self._flag_btn.setToolTip(
+            "Toggle this kata on the shared review list (dojo_flagged.json)"
+        )
+        self._flag_btn.clicked.connect(self._on_flag)
+        btn_row.addWidget(self._flag_btn)
+
         btn_row.addStretch()
 
         self._run_btn = QPushButton("Run  ▶")
@@ -187,31 +208,71 @@ class KataScreen(QWidget):
         self._hint_btn.setEnabled(bool(kata.hints))
         self._hint_btn.setText(f"Hint (0/{len(kata.hints)})" if kata.hints else "Hint")
         self._reveal_btn.setEnabled(True)
-        self._run_btn.setEnabled(True)
         self._next_btn.setText("Skip →")
+        self._next_btn.setObjectName("")        # drop the "accent" look from a pass
+        _repolish(self._next_btn)
+        # Run / Skip / End Session stay disabled while a run is still in
+        # flight (never the case when a button brought us here).
+        self._set_run_in_flight(self._run_worker is not None)
+        try:
+            flagged = is_flagged(kata.id)
+        except Exception:
+            flagged = False
+        self._set_flag_state(flagged)
+
+    def is_flagged(self) -> bool:
+        """Whether the current kata is on the review list (UI state)."""
+        return self._flagged
+
+    def _set_flag_state(self, flagged: bool) -> None:
+        self._flagged = flagged
+        if flagged:
+            self._flag_btn.setText(_FLAG_ON_TEXT)
+            self._flag_btn.setStyleSheet(
+                f"QPushButton {{ color: {theme.WARNING}; font-weight: bold; }}"
+            )
+        else:
+            self._flag_btn.setText(_FLAG_OFF_TEXT)
+            self._flag_btn.setStyleSheet("")
 
     # ------------------------------------------------------------ actions
+
+    def _set_run_in_flight(self, running: bool) -> None:
+        """While the harness runs, Run / Skip / End Session are all disabled,
+        so a result can never land on a different kata than it graded."""
+        self._run_btn.setEnabled(not running)
+        self._next_btn.setEnabled(not running)
+        self._end_btn.setEnabled(not running)
 
     def _on_run(self) -> None:
         if self._kata is None or self._run_worker is not None:
             return
-        self._attempt.tries += 1
-        self._run_btn.setEnabled(False)
+        attempt = self._attempt
+        attempt.tries += 1
+        self._set_run_in_flight(True)
         self._status_lbl.setText("Running…")
         self._status_lbl.setStyleSheet(
             f"font-weight: bold; font-size: 13px; color: {theme.TEXT_MUTED};"
         )
         self._run_worker = RunWorker(self._editor.toPlainText(), self._kata.test_code, self)
-        self._run_worker.finished_run.connect(self._on_run_finished)
-        self._run_worker.failed.connect(self._on_run_failed)
+        # Bind the attempt this run grades: should the screen have moved on
+        # by the time the result arrives, the stale result is dropped.
+        self._run_worker.finished_run.connect(
+            lambda result, a=attempt: self._on_run_finished(a, result)
+        )
+        self._run_worker.failed.connect(
+            lambda err, a=attempt: self._on_run_failed(a, err)
+        )
         self._run_worker.finished.connect(self._clear_run_worker)
         self._run_worker.start()
 
     def _clear_run_worker(self) -> None:
         self._run_worker = None
-        self._run_btn.setEnabled(True)
+        self._set_run_in_flight(False)
 
-    def _on_run_finished(self, result: RunResult) -> None:
+    def _on_run_finished(self, attempt: KataAttempt, result: RunResult) -> None:
+        if attempt is not self._attempt:
+            return                          # result for a kata we already left
         self._output_view.setPlainText(result.output)
         if result.passed:
             self._attempt.passed = True
@@ -221,7 +282,7 @@ class KataScreen(QWidget):
             )
             self._next_btn.setText("Next →")
             self._next_btn.setObjectName("accent")
-            self._next_btn.setStyle(self._next_btn.style())
+            _repolish(self._next_btn)
         else:
             label = {
                 "user_error":  "✗ ERROR IN YOUR CODE",
@@ -233,12 +294,25 @@ class KataScreen(QWidget):
                 f"font-weight: bold; font-size: 13px; color: {theme.ERROR};"
             )
 
-    def _on_run_failed(self, err: str) -> None:
+    def _on_run_failed(self, attempt: KataAttempt, err: str) -> None:
+        if attempt is not self._attempt:
+            return
         self._output_view.setPlainText(f"Harness error:\n{err}")
         self._status_lbl.setText("✗ HARNESS ERROR")
         self._status_lbl.setStyleSheet(
             f"font-weight: bold; font-size: 13px; color: {theme.ERROR};"
         )
+
+    def _on_flag(self) -> None:
+        if self._kata is None:
+            return
+        try:
+            new_state = toggle_flag(self._kata)
+        except Exception as e:
+            QMessageBox.warning(self, "Flag for Review",
+                                f"Could not update the review list:\n{e}")
+            return
+        self._set_flag_state(new_state)
 
     def _on_hint(self) -> None:
         if self._kata is None or not self._kata.hints:

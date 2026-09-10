@@ -1,9 +1,9 @@
 # Circuit Trainer
 
 A hands-on quantum circuit problem trainer. Problems are generated programmatically using
-Qiskit — the correct answers are computed by running real quantum circuits through
-Qiskit's Aer simulator, so there is no ambiguity in correctness. Free-form explanation
-questions are graded by Claude (`claude-sonnet-4-6`).
+Qiskit — the correct answers are computed by evolving real quantum circuits with
+`qiskit.quantum_info` (`Statevector` / `Operator`), so there is no ambiguity in
+correctness. Free-form explanation questions are graded by Claude (`claude-sonnet-4-6`).
 
 ---
 
@@ -11,19 +11,26 @@ questions are graded by Claude (`claude-sonnet-4-6`).
 
 - **12 problem categories** covering every aspect of circuit arithmetic
 - **3 difficulty levels** — beginner, intermediate, advanced
-- **4 answer formats** — multiple choice, numeric, state vector, and free-form explanation
-- **Auto-graded locally** — MC, numeric, and state vector answers are checked instantly
-  against Qiskit-computed correct values; no API call needed for these
+- **2 answer formats in use** — multiple choice (auto-graded) and free-form explanation
+  (Claude-graded). Numeric and state-vector graders exist in `grading/auto_grader.py`,
+  but no current generator emits those formats
+- **Auto-graded locally** — multiple-choice answers are checked instantly against
+  Qiskit-computed correct values; no API call needed
 - **Claude-graded explanations** — circuit explanation problems use Claude for open-ended
   grading with step-by-step feedback
 - **Circuit images** — every problem displays the circuit rendered as a PNG via Qiskit's
   `circuit_drawer` (matplotlib backend)
 - **Worked solutions** — each problem includes a step-by-step solution shown after
   submission
-- **Session history** — sortable table of past sessions with per-category score breakdown
-- **CollapsiblePanel** — hints and solution steps animate open on click
+- **Session history** — lifetime stat cards (sessions, problems, accuracy), an accuracy
+  trend chart, per-category average scores, and the flagged-for-review list
+- **CollapsiblePanel** — the Claude model answer on free-form problems folds open on click
 - **Sprint mode** — 10 rapid-fire prediction questions with a 60-second countdown each,
   auto-graded only, instant right/wrong flash and auto-advance
+- **Reference browser** — the repo's `docs/**/*.md` study chapters rendered in-app, with a
+  "jump to category" picker that opens the chapter behind each problem category
+- **Flag for review** — toggle a flag on any answered problem; flagged items are listed
+  (and can be unflagged) on the history screen and picked up by the repo-level coach
 
 ---
 
@@ -70,34 +77,67 @@ python main.py
 ### Setup Screen
 
 1. **Select categories** — choose any subset of the 12 categories
-2. **Pick difficulty** — Beginner / Intermediate / Advanced / Mixed
+2. **Pick difficulty** — Adaptive (recommended) / Beginner / Intermediate / Advanced
 3. **Set problem count** — default 12
-4. Click **Start Session**
+4. Click **Start Training** (or **Start Sprint ⏱** for the timed mode, see below)
 
 ### Problem Screen
 
-- The circuit image is displayed in the left panel
+- The question, circuit image(s), matrix and input state are displayed in the left panel
 - Depending on answer format:
-  - **Multiple choice** — four radio buttons
-  - **Numeric** — single-line text input (accepts decimal, e.g. `0.4330`)
-  - **State vector** — comma-separated complex amplitudes
-  - **Free-form** — multi-line text box
-- **Hint** button (collapsible) — reveals progressive hints
-- **Submit** button enables once a valid answer is entered
+  - **Multiple choice** — four answer buttons; click one or press **A / B / C / D**
+  - **Free-form** — multi-line text box plus **Submit Answer** (Enter also submits)
+- **Hint** button — reveals progressive hints (the label shows how many remain)
+- **Skip →** — counts the problem as attempted-but-unanswered; disabled once answered
 
 ### Feedback
 
 After submission:
-- Auto-graded: result shown immediately with a coloured verdict badge
-- Free-form: loading overlay while Claude grades
-- **Worked solution** — collapsible step-by-step solution
+- Auto-graded: the correct choice is highlighted green (and a wrong pick red) immediately
+- Free-form: loading overlay while Claude grades, then score + feedback + model answer
+- **Worked solution** — step-by-step solution shown inline
 - **Key concepts** — list of tested concepts
-- **Next Problem** or **End Session**
+- **⚑ Flag for review** toggle and **Next Problem →** (the last one opens the summary)
 
 ### Summary and History
 
-Session summary with accuracy and per-category scores. History screen shows all past
-sessions in a sortable table.
+Session summary with accuracy and per-category scores. History screen shows lifetime
+stats, an accuracy trend, per-category averages, and the **Flagged for review** list
+(newest first, each row with an **Unflag** button).
+
+### Flag for Review
+
+Every answered problem's result view (worked solution visible) has a **⚑ Flag for
+review** button next to **Next Problem**. Flagging is a toggle: click again to unflag.
+The flag id is the problem's `problem_id` when the generator draws from a fixed pool
+and stamps one (gate sequence `gs:H-X-H:0`, notation `notation:07`, gate identification
+`gi:matrix:H` / `gi:desc:H`, Kraus identification `noise:kraus:depol`); for the
+randomly generated problems it is a stable 16-hex-char SHA-1 of the category + question
+text. Either way, re-seeing the identical problem shows it as already flagged. Sprint
+mode has no flag control (no per-question result view).
+
+Entries are appended to `trainer_flagged.json` in the suite data directory
+(`~/.local/share/quantum-study/` unless `QUANTUM_STUDY_DATA_DIR` is set), following
+the suite-wide flagging contract:
+
+```json
+{"id": "f8bd26a68bcf28a8",
+ "label": "Single-gate output: Apply H to |0⟩. What is the output state?",
+ "category": "Single-gate output",
+ "app": "circuit-trainer",
+ "timestamp": 1788958864.57}
+```
+
+### Reference
+
+The **Reference** button on the setup screen opens an in-app browser for the shared
+`docs/` corpus (resolved relative to the app: `../docs`). The left pane lists every
+chapter grouped by section; the right pane renders the Markdown (GitHub dialect —
+tables, code, exercise solutions shown inline). The **Jump to category…** picker opens
+the chapter most relevant to a trainer category (e.g. *Noise channel* → density
+matrices and open systems; *Notation reading* → linear algebra). Relative `.md` links
+inside a chapter navigate in-app; **Open externally** hands the current file to your
+system Markdown viewer. **← Back** returns to setup.
 
 ### Sprint Mode
 
@@ -133,7 +173,7 @@ Timing constants live in `config.py`: `SPRINT_QUESTION_COUNT` (10),
 |---|---|---|
 | Single-gate output | Multiple choice | Apply one gate to a known input state; find output |
 | Gate sequence | Multiple choice | Apply 2–4 gates in sequence; find final output |
-| Measurement probabilities | Numeric | Compute measurement outcome probabilities |
+| Measurement probabilities | Multiple choice | Compute measurement outcome probabilities |
 | Gate / matrix identification | Multiple choice | Match a matrix to its gate name |
 | Circuit unitary | Multiple choice | Compute the full unitary matrix of a small circuit |
 | Entanglement detection | Multiple choice | Determine if a 2-qubit output state is entangled |
@@ -141,7 +181,7 @@ Timing constants live in `config.py`: `SPRINT_QUESTION_COUNT` (10),
 | Circuit equivalence | Multiple choice | Determine if two circuits implement the same unitary |
 | Notation reading | Multiple choice | Parse Dirac notation and circuit shorthand |
 | Circuit composition | Multiple choice | Compose two circuits; find the resulting unitary |
-| Noise channel | Multiple choice / Numeric | Identify noise channels and their Kraus operators |
+| Noise channel | Multiple choice | Exact bit-flip / phase-flip / depolarizing / amplitude-damping calculations and Kraus identification |
 | Circuit explanation | Free-form | Explain the purpose or operation of a circuit in prose |
 
 ---
@@ -150,15 +190,14 @@ Timing constants live in `config.py`: `SPRINT_QUESTION_COUNT` (10),
 
 ### Auto-grading (local, no API)
 
-**Multiple choice**: index comparison, score 0 or 10.
+**Multiple choice**: index comparison, score 0 or 10. This is the only auto-graded
+format any current generator produces.
 
-**Numeric**: absolute tolerance `NUMERIC_TOLERANCE = 1e-3`. Score 10 if within tolerance,
-0 otherwise (no partial credit for numeric in this app — exact agreement is expected for
-probability/amplitude values).
-
-**State vector**: parsed as comma-separated complex numbers, checked component-by-component
-within tolerance, with global-phase invariance (the state `e^{iφ}|ψ⟩` is accepted for any
-global phase `φ`).
+The grader also implements two formats no generator currently emits (kept for future
+problem types): **Numeric** — absolute tolerance `NUMERIC_TOLERANCE = 1e-3`, score 10
+or 0; **State vector** — comma-separated complex amplitudes, checked component-by-
+component within tolerance with global-phase invariance (`e^{iφ}|ψ⟩` accepted for any
+`φ`).
 
 ### Claude grading (free-form)
 
@@ -206,7 +245,8 @@ circuit-trainer/
 │   │   ├── problem_screen.py    Problem display and answer input
 │   │   ├── sprint_screen.py     Sprint mode: countdown question screen + end screen
 │   │   ├── summary_screen.py    Session results chart
-│   │   └── history_screen.py    Past sessions table
+│   │   ├── history_screen.py    Lifetime stats + flagged-for-review list (unflag)
+│   │   └── reference_screen.py  In-app docs browser (docs/**/*.md, category jump)
 │   └── widgets/
 │       ├── circuit_panel.py     Displays circuit PNG
 │       ├── collapsible_panel.py Animated hints and solutions
@@ -225,13 +265,21 @@ generation is always synchronous inside a `QThread` worker so the UI stays respo
 
 **Qiskit flow for computational problems** (e.g. single-gate output):
 1. Build a `QuantumCircuit`
-2. Run through `AerSimulator` (statevector mode) with the chosen input state
+2. Evolve the chosen input `Statevector` through it (`qiskit.quantum_info`; no Aer needed)
 3. Format the output statevector as a human-readable string
 4. Generate 3 distractors via `make_distractors()` (wrong answers that look plausible)
 5. Shuffle choices, record correct index, render circuit PNG
 6. Return a fully-populated `Problem` dataclass
 
-**Static pools** (notation.py): questions drawn from a fixed list, shuffled per call.
+**Static pools** (notation.py, gate_sequence.py, gate_identity.py, the Kraus
+identification problem in noise.py): questions drawn from a fixed list, choices shuffled
+per call. These generators set a stable `problem_id`, which feeds the per-problem SRS
+weights (`persistence.problem_score_weights()`) and doubles as the flag id.
+
+**Threading note**: generation runs on a `ProblemWorker` QThread. Qiskit's native
+extension must be initialised on the GUI thread first — `workers/problem_worker.py`
+imports `qiskit` at module level for exactly that reason (first-importing it inside a
+worker thread crashed the *next* worker on Python 3.14 / qiskit 2.5). Keep that import.
 
 ---
 
@@ -285,4 +333,15 @@ generation is always synchronous inside a `QThread` worker so the UI stays respo
 
 ## Data Persistence
 
-Sessions written to `~/.local/share/quantum-study/trainer_history.json`.
+Both files live in the shared suite data directory, `~/.local/share/quantum-study/` by
+default. Set `QUANTUM_STUDY_DATA_DIR` to redirect them (the same override `coach.py`
+and the other apps honour) — handy for tests and experiments that must not touch real
+history.
+
+- `trainer_history.json` — sessions (schema unchanged; read by the repo-level
+  `dashboard.py` and `coach.py`; sprint sessions carry `"sprint": true`).
+- `trainer_flagged.json` — flagged problems as a JSON list of
+  `{id, label, category, app, timestamp}` entries (see *Flag for Review* above).
+
+`persistence.py` exposes `flag_id_for()`, `toggle_flag()`, `unflag()`, `is_flagged()`,
+`load_flagged()` and `flagged_file()` (the resolved path).

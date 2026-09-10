@@ -11,8 +11,18 @@ Part of the quantum-study suite; mirrors the architecture and theme of
 ## Running
 
 ```bash
-# From the repo root, using the shared study venv:
+# From this directory (qiskit-dojo/), using the shared study venv:
 ../.venv/bin/python main.py        # or: python main.py inside the venv
+
+# Or from the repo root:
+.venv/bin/python qiskit-dojo/main.py
+```
+
+Tests (offscreen Qt, temp data dir — never touches your real history):
+
+```bash
+cd qiskit-dojo && ../.venv/bin/python -m pytest          # ~5 s
+../.venv/bin/python -m pytest -m slow tests/test_sweep.py  # all 36 katas, ~30 s
 ```
 
 Dependencies: see `requirements.txt` (PyQt6, anthropic, matplotlib for the
@@ -25,20 +35,53 @@ locates automatically (current venv → `../.venv/bin/python` → fallback to
 
 1. **Setup** — pick sections, kata count, and order (shuffled or
    curriculum order). Katas you have failed recently are weighted to
-   reappear.
+   reappear. The per-section pass rates shown here refresh every time
+   you return to this screen.
 2. **Kata** — task statement on the left; code editor (monospace,
    Tab = 4 spaces) and output pane on the right. Buttons:
    - **Run** — executes your code + the kata's tests in a subprocess
      (20 s timeout, `MPLBACKEND=Agg`), shows pass/fail plus stdout and
-     tracebacks.
+     tracebacks. Skip and End Session are disabled until the run
+     finishes, so a result always lands on the kata it graded.
    - **Hint** — progressive hints (2–3 per kata).
    - **Reveal Solution** — shows the reference solution.
    - **Claude Review** — optional: sends the task + your code to Claude
      for style/idiom feedback. Needs an Anthropic API key
      (`ANTHROPIC_API_KEY` env var or `~/.config/quantum-study/api_key.txt`);
      everything else works with no key and no network.
+   - **⚑ Flag for review** — toggles the current kata on the shared review
+     list (`dojo_flagged.json`, see Persistence). Click again to unflag.
+     The button shows the saved state whenever a kata opens, so a kata
+     flagged in an earlier session lights up immediately.
 3. **Summary** — pass rate and per-section breakdown.
-4. **History** — lifetime stats and per-section pass-rate charts.
+4. **History** — lifetime stats, per-section pass-rate charts, and the
+   **Flagged for review** list (section badge, title, date flagged) with a
+   per-row **Unflag** button.
+5. **Reference** — the **Browse Reference** button on the setup screen opens
+   the in-app docs browser (see below); **← Back** returns to setup.
+
+## Reference browser
+
+`ui/screens/reference_screen.py` renders the suite's shared documentation
+corpus without leaving the app. It resolves the docs root relative to its
+own location — `Path(__file__).resolve().parents[3] / "docs"`, i.e.
+`<repo>/docs` — so the app must live inside the repository checkout (no
+home path is hard-coded). Every `docs/**/*.md` file is listed:
+
+- **Left**: a chapter tree (one node per `docs/<NN_chapter>/` directory,
+  leaves titled from each file's first `# ` heading; `docs/README.md`
+  appears first as *Learning Ladder*) with a live filter box.
+- **Right**: the selected chapter rendered with Qt's native Markdown
+  import (GitHub tables and fenced code blocks supported). Exercise
+  `<details><summary>Solution</summary>` blocks are shown inline as a bold
+  **Solution:** lead-in. Relative `.md` links navigate inside the browser
+  and `#fragment` links jump to the matching heading (GitHub-style slugs);
+  a link whose target file is missing reports *Link target not found* in
+  the breadcrumb instead of being handed to the desktop. `http(s)` links
+  open in your system browser; **Open externally** hands the current file
+  to your desktop's Markdown handler.
+
+Fully offline; nothing here touches the network or the API key.
 
 ## Sections (~36 katas)
 
@@ -118,11 +161,18 @@ print(run_kata(k.solution_code, k.test_code))
   the kata's `test_code` against that same namespace; a sentinel line on
   stdout plus exit code 0 marks success. Exit code 2 = error in user
   code, 3 = test failure/error.
+- Feedback starts with a one-liner — `FAILED: <assert message>` or
+  `ERROR: <ExceptionType>: <message>` — followed by a traceback with the
+  harness's own frames removed, so the first frame you read is in
+  `your_code.py` or `kata_tests.py` (with the offending source line).
 - The UI runs the harness on a `QThread` so the window never blocks.
 
 ## Persistence
 
-Sessions append to `~/.local/share/quantum-study/dojo_history.json`
+All files live in `~/.local/share/quantum-study/` (override the directory
+with the `QUANTUM_STUDY_DATA_DIR` environment variable — handy for tests).
+
+Sessions append to `dojo_history.json`
 (schema is integrated against by the coach app — do not change):
 
 ```json
@@ -137,3 +187,25 @@ Sessions append to `~/.local/share/quantum-study/dojo_history.json`
   }
 ]
 ```
+
+### Flagged katas
+
+`⚑ Flag for review` maintains `dojo_flagged.json` following the suite-wide
+flagging contract (read by `coach.py`'s review queue). Flagging is a
+toggle — flagging an already-flagged kata removes its entry:
+
+```json
+[
+  {
+    "id": "dbg_bit_order",
+    "label": "Fix it: wrong bit order",
+    "category": "Debugging",
+    "app": "qiskit-dojo",
+    "timestamp": 1724800000.0
+  }
+]
+```
+
+`id` is the kata id, `label` its title, `category` its section. Helpers in
+`persistence.py`: `load_flagged()`, `flagged_ids()`, `is_flagged(id)`,
+`toggle_flag(kata) -> bool` (new state), `unflag(id)`.

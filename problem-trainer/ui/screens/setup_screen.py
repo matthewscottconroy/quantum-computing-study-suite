@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from problems import all_problems, all_topics
 from derivations import all_derivations
 from ui import theme
+import persistence
 
 MODE_PROBLEMS    = "problems"
 MODE_DERIVATIONS = "derivations"
@@ -16,8 +17,9 @@ MODE_DERIVATIONS = "derivations"
 
 class SetupScreen(QWidget):
     # emits (mode, [items]) — items are Problem or Derivation objects
-    session_started   = pyqtSignal(str, list)
-    history_requested = pyqtSignal()
+    session_started     = pyqtSignal(str, list)
+    history_requested   = pyqtSignal()
+    reference_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -100,9 +102,21 @@ class SetupScreen(QWidget):
 
         # Right column: item list
         right = QVBoxLayout(); right.setSpacing(8)
+        list_head = QHBoxLayout()
         self._list_lbl = QLabel("")
         self._list_lbl.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
-        right.addWidget(self._list_lbl)
+        list_head.addWidget(self._list_lbl)
+        list_head.addStretch()
+        self._flagged_cb = QCheckBox("⚑ Flagged for review only")
+        self._flagged_cb.setToolTip(
+            "Show only problems/derivations you flagged for review "
+            "(see History to manage flags)")
+        self._flagged_cb.setStyleSheet(
+            f"QCheckBox {{ font-size: 12px; color: {theme.WARNING}; }}"
+            f"QCheckBox::indicator:checked {{ background: {theme.WARNING}; border-color: {theme.WARNING}; }}")
+        self._flagged_cb.stateChanged.connect(self._refresh_list)
+        list_head.addWidget(self._flagged_cb)
+        right.addLayout(list_head)
 
         self._list = QListWidget()
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -123,6 +137,11 @@ class SetupScreen(QWidget):
         history_btn.setObjectName("flat")
         history_btn.clicked.connect(self.history_requested)
         btn_row.addWidget(history_btn)
+        reference_btn = QPushButton("📖 Reference")
+        reference_btn.setObjectName("flat")
+        reference_btn.setToolTip("Browse the study docs in-app")
+        reference_btn.clicked.connect(self.reference_requested)
+        btn_row.addWidget(reference_btn)
         btn_row.addStretch()
         self._start_btn = QPushButton("Start Session")
         self._start_btn.setObjectName("accent")
@@ -149,12 +168,34 @@ class SetupScreen(QWidget):
     def _selected_topics(self) -> list[str]:
         return [t for t, cb in self._topic_cbs.items() if cb.isChecked()]
 
+    def flagged_only(self) -> bool:
+        return self._flagged_cb.isChecked()
+
+    def set_flagged_only(self, on: bool) -> None:
+        self._flagged_cb.setChecked(on)
+
+    def refresh_flag_filter(self) -> None:
+        """Re-apply the list when the flagged-only filter is active (flags may
+        have changed in History or a session); leaves selection alone otherwise."""
+        if self.flagged_only():
+            self._refresh_list()
+
+    def _flag_filter(self, items: list) -> tuple[list, str]:
+        if not self.flagged_only():
+            return items, ""
+        try:
+            ids = persistence.flagged_ids()
+        except Exception:
+            ids = set()
+        return [i for i in items if i.id in ids], " flagged"
+
     def _refresh_list(self) -> None:
         self._list.clear()
         if self.current_mode() == MODE_PROBLEMS:
             topics = self._selected_topics()
             items = [p for p in all_problems() if p.topic in topics]
-            self._list_lbl.setText(f"Problems ({len(items)})")
+            items, suffix = self._flag_filter(items)
+            self._list_lbl.setText(f"Problems ({len(items)}{suffix})")
             for p in items:
                 parts = len(p.parts)
                 li = QListWidgetItem(f"{p.title}   —   {p.topic}, {parts} parts, "
@@ -162,8 +203,8 @@ class SetupScreen(QWidget):
                 li.setData(Qt.ItemDataRole.UserRole, p)
                 self._list.addItem(li)
         else:
-            items = all_derivations()
-            self._list_lbl.setText(f"Derivations ({len(items)})")
+            items, suffix = self._flag_filter(all_derivations())
+            self._list_lbl.setText(f"Derivations ({len(items)}{suffix})")
             for d in items:
                 li = QListWidgetItem(f"{d.title}   —   {len(d.steps)} steps")
                 li.setData(Qt.ItemDataRole.UserRole, d)

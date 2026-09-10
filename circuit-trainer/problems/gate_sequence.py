@@ -91,4 +91,6 @@ def generate(difficulty: str) -> Problem:
         state_str=f"Input: {input_name}",
         solution_steps=steps,
         key_concepts=["gate composition", "sequential application", "gate identities"],
+        # Stable id (sequence + input) so SRS weighting and flags survive rewording.
+        problem_id=f"gs:{'-'.join(seq)}:{input_name.strip('|⟩')}",
     )

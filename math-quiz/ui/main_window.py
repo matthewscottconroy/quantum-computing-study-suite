@@ -15,6 +15,7 @@ from ui.screens.question_screen import QuestionScreen
 from ui.screens.feedback_screen import FeedbackScreen
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
+from ui.screens.reference_screen import ReferenceScreen
 from ui.widgets.loading_overlay import LoadingOverlay
 from config import APP_NAME, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT
 
@@ -23,6 +24,7 @@ PAGE_QUESTION = 1
 PAGE_FEEDBACK = 2
 PAGE_SUMMARY  = 3
 PAGE_HISTORY  = 4
+PAGE_REFERENCE = 5
 
 
 class MainWindow(QMainWindow):
@@ -46,20 +48,25 @@ class MainWindow(QMainWindow):
         self._feedback = FeedbackScreen()
         self._summary  = SummaryScreen()
         self._history  = HistoryScreen()
+        self._reference = ReferenceScreen()
 
-        self._stack.addWidget(self._setup)    # 0
-        self._stack.addWidget(self._question) # 1
-        self._stack.addWidget(self._feedback) # 2
-        self._stack.addWidget(self._summary)  # 3
-        self._stack.addWidget(self._history)  # 4
+        self._stack.addWidget(self._setup)     # 0
+        self._stack.addWidget(self._question)  # 1
+        self._stack.addWidget(self._feedback)  # 2
+        self._stack.addWidget(self._summary)   # 3
+        self._stack.addWidget(self._history)   # 4
+        self._stack.addWidget(self._reference) # 5
 
         self._overlay = LoadingOverlay(self)
 
         self._setup.quiz_started.connect(self._on_quiz_started)
         self._setup.history_requested.connect(self._on_history)
+        self._setup.reference_requested.connect(self._on_reference)
+        self._reference.back_requested.connect(self._on_reference_back)
         self._question.answer_submitted.connect(self._on_answer_submitted)
         self._question.skip_requested.connect(self._on_skip)
         self._feedback.next_question_requested.connect(self._on_next_question)
+        self._feedback.flag_requested.connect(self._on_flag)
         self._summary.restart_requested.connect(self._on_restart)
         self._summary.review_mistakes.connect(self._on_review_mistakes)
         self._history.back_requested.connect(self._on_history_back)
@@ -124,7 +131,34 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self._feedback.load_evaluation(evaluation)
+        self._feedback.set_flagged(self._question_is_flagged(self._current_question))
         self._show_page(PAGE_FEEDBACK)
+
+    # ── Flag for review ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _question_is_flagged(question: Question | None) -> bool:
+        if question is None:
+            return False
+        try:
+            from persistence import is_flagged
+            return is_flagged(question)
+        except Exception:
+            return False
+
+    def _on_flag(self) -> None:
+        """Toggle the current question in math_flagged.json."""
+        if self._current_question is None:
+            return
+        try:
+            from persistence import toggle_flag
+            new_state = toggle_flag(self._current_question)
+        except Exception as exc:
+            # Keep the last known state and tell the user why, rather than
+            # silently looking as though the click did nothing.
+            new_state = self._feedback.is_flagged()
+            self.statusBar().showMessage(f"Could not update flag: {exc}", 5000)
+        self._feedback.set_flagged(new_state)
 
     def _on_skip(self) -> None:
         self._session.record_skip()
@@ -173,6 +207,13 @@ class MainWindow(QMainWindow):
         self._show_page(PAGE_HISTORY)
 
     def _on_history_back(self) -> None:
+        self._show_page(PAGE_SETUP)
+
+    def _on_reference(self) -> None:
+        self._reference.load_all()
+        self._show_page(PAGE_REFERENCE)
+
+    def _on_reference_back(self) -> None:
         self._show_page(PAGE_SETUP)
 
     def _check_for_draft(self) -> None:

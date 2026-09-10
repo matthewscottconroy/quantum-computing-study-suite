@@ -21,6 +21,9 @@ Claude (`claude-sonnet-4-6`).
 - **Decoder Game** — interactive syndrome-decoding rounds with a difficulty ladder
   (3-qubit repetition → 5-qubit repetition → distance-3 surface code), verified
   locally with GF(2)/symplectic arithmetic — no API key needed
+- **Reference browser** — the suite's shared `docs/**/*.md` corpus rendered inside
+  the app: chapter filter, full-text search, jump-to-topic for every QEC category,
+  in-app cross-reference links — no API key needed
 
 ---
 
@@ -60,7 +63,7 @@ python main.py
 
 ### Setup Screen
 
-1. **Select categories** — all 5 checked by default
+1. **Select categories** — all 6 checked by default
 2. **Difficulty** — Beginner / Intermediate / Advanced / Mixed
 3. **Problem count** — default 10
 4. Click **Start Session**
@@ -85,6 +88,51 @@ After submission:
 
 Session summary with accuracy rate and per-category scores. History table shows all past
 sessions.
+
+### Reference Screen
+
+**Browse Reference** on the setup screen opens the in-app docs browser for the
+repository's shared `docs/` corpus — the same browser every app in the suite ships;
+no API key needed. The docs folder is resolved relative to the app
+(`qec-trainer/ui/screens/reference_screen.py` → `<repo>/docs`), so run the app from
+inside a checkout.
+
+- **Chapter list** (left) — every `docs/**/*.md` file grouped by chapter and numbered in
+  ladder order (`5.6  The Surface Code`). The screen opens on
+  `05_quantum_error_correction/01_why_qec_is_hard.md`, this trainer's rung; the whole
+  corpus stays listed. Files added, removed or edited while the app is running
+  are picked up the next time the screen is used.
+- **Jump to topic** — opens the chapter that backs a problem category:
+
+  | Category | Doc |
+  |---|---|
+  | Repetition Code | `05_quantum_error_correction/03_repetition_code.md` |
+  | Stabilizer Formalism | `05_quantum_error_correction/04_stabilizer_formalism.md` |
+  | Steane Code | `05_quantum_error_correction/05_css_codes_and_steane.md` |
+  | Surface Code, Decoder Game | `05_quantum_error_correction/06_surface_code.md` |
+  | Fault Tolerance | `05_quantum_error_correction/07_fault_tolerance.md` |
+  | Bosonic Codes | `05_quantum_error_correction/08_bosonic_codes.md` |
+
+- **Chapter filter** and **search** — the search box matches titles and full text, shows
+  a hit count per document, and highlights the first hit in the reader.
+- **Reader** (right) — Markdown rendered in-app with dark-theme styling for code, tables,
+  quotes and links. Relative links between docs — including the bare
+  `NN_chapter/NN_file.md` cross-references the chapters use in prose (a bare `NN_file.md`
+  means the sibling file, or the one file of that name anywhere in the corpus) —
+  navigate inside the browser (a `#heading` suffix on a cross-reference is honoured),
+  `#heading` links scroll to that heading — headings get GitHub-style anchors
+  (`## Key Formulas` → `#key-formulas`; a repeated heading gets `-1`, `-2`, …) —
+  `http(s)` links open in the system browser, and files outside `docs/` open with the
+  system default application. `$$ … $$` display math is shown as a monospace block that
+  soft-wraps long lines (kept inside its block quote when quoted); fenced code keeps its
+  layout. `<details><summary>Solution</summary>` blocks become "▸ Solution" sections.
+- **Show solutions** — untick to hide exercise solutions for self-testing.
+- **Open externally** — opens the current `.md` file with the system default application.
+- **← Back** returns to the setup screen; the reader keeps its place when you return.
+
+Programmatic entry points (for tests and other screens):
+`open_doc("05_quantum_error_correction/06_surface_code.md")`, `show_chapter("05_quantum_error_correction")`,
+`show_category("Surface Code")`.
 
 ---
 
@@ -237,6 +285,7 @@ qec-trainer/
 │   │   ├── result_screen.py     Verdict, feedback, model answer
 │   │   ├── summary_screen.py    Session stats
 │   │   ├── history_screen.py    Past sessions table
+│   │   ├── reference_screen.py  In-app docs browser (../docs/**/*.md, jump to topic)
 │   │   └── decoder_screen.py    Decoder Game rounds, surface-code grid, results
 │   └── widgets/
 │       └── loading_overlay.py   Grading spinner

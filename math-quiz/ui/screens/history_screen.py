@@ -1,6 +1,9 @@
-"""Lifetime history screen — score trend + per-subject averages + stats cards."""
+"""Lifetime history screen — score trend, per-subject averages, stats cards,
+and the list of questions flagged for review (with unflag)."""
 
 from __future__ import annotations
+
+import datetime
 
 import matplotlib
 matplotlib.use("Agg")
@@ -9,7 +12,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QScrollArea,
+    QFrame, QScrollArea, QListWidget, QListWidgetItem,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -91,6 +94,41 @@ class HistoryScreen(QWidget):
         self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._empty_lbl)
 
+        # ── Flagged for review ────────────────────────────────────────────────
+        flag_lbl = QLabel("Flagged for review")
+        flag_lbl.setStyleSheet(
+            f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};"
+        )
+        root.addWidget(flag_lbl)
+        self._flag_frame = QFrame()
+        self._flag_frame.setObjectName("card")
+        flag_inner = QVBoxLayout(self._flag_frame)
+        flag_inner.setContentsMargins(12, 10, 12, 10)
+        flag_inner.setSpacing(8)
+        self._flag_empty_lbl = QLabel(
+            "No questions flagged yet. Use \u201cFlag for review\u201d on the feedback screen."
+        )
+        self._flag_empty_lbl.setObjectName("muted")
+        self._flag_empty_lbl.setWordWrap(True)
+        flag_inner.addWidget(self._flag_empty_lbl)
+        self._flag_list = QListWidget()
+        self._flag_list.setMaximumHeight(200)
+        self._flag_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self._flag_list.itemSelectionChanged.connect(self._update_unflag_btn)
+        flag_inner.addWidget(self._flag_list)
+        flag_btn_row = QHBoxLayout()
+        self._flag_count_lbl = QLabel("")
+        self._flag_count_lbl.setObjectName("muted")
+        flag_btn_row.addWidget(self._flag_count_lbl)
+        flag_btn_row.addStretch()
+        self._unflag_btn = QPushButton("Unflag selected")
+        self._unflag_btn.setObjectName("flat")
+        self._unflag_btn.setEnabled(False)
+        self._unflag_btn.clicked.connect(self._on_unflag_selected)
+        flag_btn_row.addWidget(self._unflag_btn)
+        flag_inner.addLayout(flag_btn_row)
+        root.addWidget(self._flag_frame)
+
         root.addStretch()
 
         # ── Bottom bar ────────────────────────────────────────────────────────
@@ -113,6 +151,60 @@ class HistoryScreen(QWidget):
             sessions = []
 
         self._render(sessions)
+        self.refresh_flagged()
+
+    # ── Flagged for review ────────────────────────────────────────────────────
+
+    def refresh_flagged(self) -> None:
+        try:
+            from persistence import load_flagged
+            entries = load_flagged()
+        except Exception:
+            entries = []
+        self._render_flagged(entries)
+
+    def flagged_ids(self) -> list[str]:
+        """Ids currently shown in the flagged list (newest first)."""
+        return [
+            str(self._flag_list.item(i).data(Qt.ItemDataRole.UserRole))
+            for i in range(self._flag_list.count())
+        ]
+
+    def _render_flagged(self, entries: list[dict]) -> None:
+        self._flag_list.clear()
+        # Newest first so the most recent bookmark is at the top.
+        ordered = sorted(entries, key=lambda e: _num(e.get("timestamp")), reverse=True)
+        for e in ordered:
+            label = str(e.get("label") or e.get("id") or "")
+            category = str(e.get("category") or "")
+            when = _fmt_date(e.get("timestamp"))
+            meta = "  ·  ".join(x for x in (category, when) if x)
+            item = QListWidgetItem(f"{label}\n{meta}" if meta else label)
+            item.setData(Qt.ItemDataRole.UserRole, str(e.get("id")))
+            item.setToolTip(str(e.get("id")))
+            self._flag_list.addItem(item)
+        has_any = bool(ordered)
+        self._flag_list.setVisible(has_any)
+        self._flag_empty_lbl.setVisible(not has_any)
+        self._flag_count_lbl.setText(
+            f"{len(ordered)} flagged" if has_any else ""
+        )
+        self._update_unflag_btn()
+
+    def _update_unflag_btn(self) -> None:
+        self._unflag_btn.setEnabled(bool(self._flag_list.selectedItems()))
+
+    def _on_unflag_selected(self) -> None:
+        items = self._flag_list.selectedItems()
+        if not items:
+            return
+        flag_id = str(items[0].data(Qt.ItemDataRole.UserRole))
+        try:
+            from persistence import unflag
+            unflag(flag_id)
+        except Exception:
+            pass
+        self.refresh_flagged()
 
     def _render(self, sessions: list[dict]) -> None:
         if not sessions:
@@ -241,3 +333,20 @@ def _clear_slot(layout) -> None:
         child = layout.takeAt(0)
         if child.widget():
             child.widget().deleteLater()
+
+
+def _num(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _fmt_date(ts) -> str:
+    t = _num(ts)
+    if t <= 0:
+        return ""
+    try:
+        return datetime.datetime.fromtimestamp(t).strftime("%Y-%m-%d")
+    except (OverflowError, OSError, ValueError):
+        return ""

@@ -106,6 +106,7 @@ def _matrix_problem(correct_name: str, pool: list[str], difficulty: str) -> Prob
         state_str=None,
         solution_steps=steps,
         key_concepts=["gate matrices", "Pauli gates", "phase gates"],
+        problem_id=f"gi:matrix:{correct_name}",
     )
 
 
@@ -138,6 +139,7 @@ def _description_problem(correct_name: str, pool: list[str], difficulty: str) ->
         state_str=None,
         solution_steps=steps,
         key_concepts=["gate identification", "gate properties"],
+        problem_id=f"gi:desc:{correct_name}",
     )
 
 

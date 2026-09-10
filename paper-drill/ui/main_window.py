@@ -9,17 +9,21 @@ from ui.screens.feedback_screen import FeedbackScreen
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
 from ui.screens.library_screen import LibraryScreen
+from ui.screens.reference_screen import ReferenceScreen
 from ui.widgets.loading_overlay import LoadingOverlay
-from persistence import save_session
+from persistence import (
+    save_session, toggle_flag, is_flagged, make_flag_id, make_flag_label,
+)
 from workers.generation_worker import GenerationWorker
 from workers.grading_worker import GradingWorker
 
-PAGE_INPUT    = 0
-PAGE_QUESTION = 1
-PAGE_FEEDBACK = 2
-PAGE_SUMMARY  = 3
-PAGE_HISTORY  = 4
-PAGE_LIBRARY  = 5
+PAGE_INPUT     = 0
+PAGE_QUESTION  = 1
+PAGE_FEEDBACK  = 2
+PAGE_SUMMARY   = 3
+PAGE_HISTORY   = 4
+PAGE_LIBRARY   = 5
+PAGE_REFERENCE = 6
 
 
 class MainWindow(QMainWindow):
@@ -32,30 +36,34 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget()
         self.setCentralWidget(self._stack)
 
-        self._input    = PaperInputScreen()
-        self._question = QuestionScreen()
-        self._feedback = FeedbackScreen()
-        self._summary  = SummaryScreen()
-        self._history  = HistoryScreen()
-        self._library  = LibraryScreen()
-        self._overlay  = LoadingOverlay(self)
+        self._input     = PaperInputScreen()
+        self._question  = QuestionScreen()
+        self._feedback  = FeedbackScreen()
+        self._summary   = SummaryScreen()
+        self._history   = HistoryScreen()
+        self._library   = LibraryScreen()
+        self._reference = ReferenceScreen()
+        self._overlay   = LoadingOverlay(self)
 
         for w in (self._input, self._question, self._feedback, self._summary,
-                  self._history, self._library):
+                  self._history, self._library, self._reference):
             self._stack.addWidget(w)
 
         self._input.drill_requested.connect(self._on_drill_requested)
         self._input.history_requested.connect(self._on_history)
         self._input.library_requested.connect(self._on_library)
+        self._input.reference_requested.connect(self._on_reference)
         self._question.answer_submitted.connect(self._on_answer_submitted)
         self._question.session_cancelled.connect(self._go_input)
         self._feedback.next_requested.connect(self._go_next_question)
         self._feedback.done_requested.connect(self._on_done)
+        self._feedback.flag_requested.connect(self._on_flag)
         self._summary.drill_again.connect(self._drill_again)
         self._summary.back_requested.connect(self._go_input)
         self._history.back_requested.connect(self._go_input)
         self._library.back_requested.connect(self._go_input)
         self._library.drill_requested.connect(self._on_drill_requested)
+        self._reference.back_requested.connect(self._go_input)
 
         self._config = None
         self._questions = []
@@ -73,6 +81,11 @@ class MainWindow(QMainWindow):
         self._gen_worker.start()
 
     def _on_questions_ready(self, questions) -> None:
+        if not questions:
+            # An empty array parses fine but would leave the question screen
+            # blank with nothing to submit — treat it as a generation failure.
+            self._on_gen_failed("Claude returned no questions for this text.")
+            return
         self._overlay.hide()
         self._questions = questions
         self._stats = SessionStats(title=self._config.paper_title)
@@ -105,8 +118,7 @@ class MainWindow(QMainWindow):
         self._stats.scores.append(evaluation.score)
 
         is_last = len(self._attempts) >= len(self._questions)
-        self._feedback.show_attempt(self._current_attempt, is_last)
-        self._stack.setCurrentIndex(PAGE_FEEDBACK)
+        self._show_feedback(self._current_attempt, is_last)
 
     def _on_grade_failed(self, err: str) -> None:
         self._question.hide_grading()
@@ -126,10 +138,51 @@ class MainWindow(QMainWindow):
             self._stats.total += 1
             self._stats.scores.append(0)
             is_last = len(self._attempts) >= len(self._questions)
-            self._feedback.show_attempt(self._current_attempt, is_last)
-            self._stack.setCurrentIndex(PAGE_FEEDBACK)
+            self._show_feedback(self._current_attempt, is_last)
+        # "No": nothing to rewind — the question screen never advanced, so the
+        # same question and the typed answer are still in place for a retry.
+
+    def _show_feedback(self, attempt: QuestionAttempt, is_last: bool) -> None:
+        self._feedback.show_attempt(attempt, is_last)
+        try:
+            flagged = is_flagged(self._flag_id_for(attempt))
+        except Exception:
+            flagged = False
+        self._feedback.set_flagged(flagged)
+        self._stack.setCurrentIndex(PAGE_FEEDBACK)
+
+    # ------------------------------------------------------------------
+    # Flag for review
+    # ------------------------------------------------------------------
+
+    def _paper_title(self) -> str:
+        return self._config.paper_title if self._config else "Untitled Paper"
+
+    def _flag_id_for(self, attempt: QuestionAttempt) -> str:
+        return make_flag_id(self._paper_title(), attempt.question.text)
+
+    def _on_flag(self) -> None:
+        attempt = self._current_attempt
+        if attempt is None:
+            return
+        flag_id = self._flag_id_for(attempt)
+        try:
+            new_state = toggle_flag(
+                flag_id,
+                make_flag_label(attempt.question.text),
+                self._paper_title(),
+            )
+        except Exception:
+            try:
+                new_state = is_flagged(flag_id)
+            except Exception:
+                new_state = False
+        self._feedback.set_flagged(new_state)
+
+    # ------------------------------------------------------------------
 
     def _go_next_question(self) -> None:
+        self._question.advance()
         self._question.show_current()
         self._stack.setCurrentIndex(PAGE_QUESTION)
 
@@ -149,6 +202,10 @@ class MainWindow(QMainWindow):
     def _on_library(self) -> None:
         self._library.refresh()
         self._stack.setCurrentIndex(PAGE_LIBRARY)
+
+    def _on_reference(self) -> None:
+        self._reference.load_all()
+        self._stack.setCurrentIndex(PAGE_REFERENCE)
 
     def _go_input(self) -> None:
         self._stack.setCurrentIndex(PAGE_INPUT)

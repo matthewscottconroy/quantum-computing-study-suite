@@ -12,6 +12,10 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Initialise qiskit's native extension on the main thread before any
+# ProblemWorker QThread runs (see workers/problem_worker.py for the why).
+import qiskit  # noqa: F401,E402
+
 from PyQt6.QtWidgets import QApplication
 from ui.main_window import MainWindow
 from ui import theme

@@ -25,6 +25,11 @@ TOPIC_COLORS = {
     "Derivation":               "#d29922",
 }
 
+# Labels for the "flag for review" toggle — shared by the problem, derivation
+# and summary screens so the same button reads the same way everywhere.
+FLAG_ON_TEXT  = "⚑ Flagged for review"
+FLAG_OFF_TEXT = "⚑ Flag for review"
+
 QSS = f"""
 QWidget {{
     background-color: {BG}; color: {TEXT};
@@ -84,6 +89,21 @@ QProgressBar {{
     height: 8px; text-align: center; color: transparent;
 }}
 QProgressBar::chunk {{ background: {ACCENT}; border-radius: 4px; }}
+QComboBox {{
+    background-color: {SURFACE2}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
+}}
+QComboBox:hover {{ border-color: {ACCENT}; }}
+QComboBox::drop-down {{ border: none; }}
+QComboBox QAbstractItemView {{
+    background-color: {SURFACE2}; color: {TEXT};
+    border: 1px solid {BORDER}; selection-background-color: {ACCENT2};
+}}
+QSplitter::handle {{ background: {BORDER}; }}
+QSplitter::handle:horizontal {{ width: 1px; }}
+QPushButton#flag {{ background: transparent; border: 1px solid {BORDER}; color: {TEXT_MUTED}; padding: 6px 12px; }}
+QPushButton#flag:hover {{ border-color: {WARNING}; color: {WARNING}; }}
+QPushButton#flag:checked {{ border-color: {WARNING}; color: {WARNING}; font-weight: bold; }}
 """
 
 
