@@ -10,6 +10,7 @@ from core.models import Derivation, Step, StepState, StepCheck
 from ui import theme
 from ui.theme import FLAG_ON_TEXT, FLAG_OFF_TEXT
 from ui.widgets.collapsible import CollapsibleSection
+from ui.widgets.errata import ErrataButton, quote_for
 from ui.widgets.study_journal import ConfidenceStrip, MistakeRow, safe
 import persistence
 
@@ -152,6 +153,10 @@ class DerivationScreen(QWidget):
         self._reveal_btn.clicked.connect(self._on_reveal)
         btns.addWidget(self._reveal_btn)
         btns.addStretch()
+        # Errata: the step prompt, its expected answer and its model step are
+        # the items most likely to read as ambiguous, and they are on screen.
+        self._errata_btn = ErrataButton()
+        btns.addWidget(self._errata_btn)
         sf.addLayout(btns)
         root.addWidget(self._step_frame)
         root.addStretch()
@@ -217,6 +222,13 @@ class DerivationScreen(QWidget):
             self._complete()
             return
         self._step_lbl.setText(f"Step {self._idx + 1}:  {st.step.prompt}")
+        self._errata_btn.set_item(
+            step_item_id(self._derivation, st.step),
+            quote_for("Derivation",
+                      getattr(self._derivation, "title", ""),
+                      f"Step {self._idx + 1} ({st.step.step_id})", st.step.prompt,
+                      "Expected", st.step.expected,
+                      "Model step", st.step.model_step))
         self._nudge_lbl.hide()
         self._hint_lbl.hide()
         self._answer_edit.clear()

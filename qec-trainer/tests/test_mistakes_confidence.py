@@ -7,13 +7,27 @@ data dir rather than by shape alone.
 from __future__ import annotations
 
 import json
-import os
 import time
 
 import pytest
 
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+from common import journal, schema
+
 import persistence
 from core.models import Attempt, GradeMode, Problem, Verdict
+
+
+def _one_session():
+    """One finished session, for the tests that need a history file on disk."""
+    from core.models import SessionStats
+
+    p = Problem(id="p1", category="Surface Code", difficulty="beginner",
+                question="q", choices=["a", "b"], correct_index=0,
+                grade_mode=GradeMode.AUTO)
+    return SessionStats(total=1, correct=0,
+                        attempts=[Attempt(p, "B", 0, Verdict.INCORRECT, "fb")])
+
 
 MISTAKE_FIELDS = {
     "id", "app", "category", "question", "your_answer", "correct_answer",
@@ -24,45 +38,51 @@ CONFIDENCE_FIELDS = {"id", "app", "category", "confidence", "correct", "timestam
 
 # ── config honours QUANTUM_STUDY_DATA_DIR ─────────────────────────────────────
 
-def test_config_resolves_every_file_under_the_env_override(tmp_path):
-    """config.py must read QUANTUM_STUDY_DATA_DIR (8 of 10 apps already did)."""
-    import importlib
+def test_config_resolves_every_file_under_the_env_override(tmp_path, monkeypatch):
+    """Every path honours QUANTUM_STUDY_DATA_DIR, and re-reads it each time.
+
+    No ``importlib.reload`` any more: ``common.datadir`` resolves at call time,
+    so setting the variable is enough — which is the point of the extraction.
+    """
     import config
 
     target = tmp_path / "elsewhere"
-    old = os.environ.get("QUANTUM_STUDY_DATA_DIR")
-    os.environ["QUANTUM_STUDY_DATA_DIR"] = str(target)
-    try:
-        fresh = importlib.reload(config)
-        assert fresh.DATA_DIR == target
-        for attr in ("HISTORY_FILE", "FLAGGED_FILE", "MISTAKES_FILE",
-                     "CONFIDENCE_FILE", "SETTINGS_FILE"):
-            assert getattr(fresh, attr).parent == target, attr
-        assert fresh.MISTAKES_FILE.name == "mistakes.json"
-        assert fresh.CONFIDENCE_FILE.name == "confidence.json"
-        # the API key lives in ~/.config and is deliberately not moved
-        assert fresh.API_KEY_FILE.name == "api_key.txt"
-    finally:
-        if old is None:
-            os.environ.pop("QUANTUM_STUDY_DATA_DIR", None)
-        else:
-            os.environ["QUANTUM_STUDY_DATA_DIR"] = old
-        importlib.reload(config)
+    monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", str(target))
+    assert config.DATA_DIR == target
+    for attr in ("HISTORY_FILE", "FLAGGED_FILE", "MISTAKES_FILE",
+                 "CONFIDENCE_FILE", "SETTINGS_FILE"):
+        assert getattr(config, attr).parent == target, attr
+        assert getattr(persistence, attr).parent == target, attr
+    assert config.MISTAKES_FILE.name == "mistakes.json"
+    assert config.CONFIDENCE_FILE.name == "confidence.json"
+    assert config.HISTORY_FILE.name == "qec_history.json"
+    assert config.FLAGGED_FILE.name == "qec_flagged.json"
+    assert config.SETTINGS_FILE.name == "qec_settings.json"
+    # the API key lives in ~/.config and is deliberately not moved
+    assert config.API_KEY_FILE.name == "api_key.txt"
+
+    # …and moving the variable moves every path, with nothing reloaded.
+    moved = tmp_path / "moved"
+    monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", str(moved))
+    assert config.DATA_DIR == moved and persistence.HISTORY_FILE.parent == moved
 
 
-def test_config_default_is_unchanged_without_the_env_var(tmp_path):
-    import importlib
+def test_config_default_is_unchanged_without_the_env_var(monkeypatch):
     import pathlib
     import config
 
-    old = os.environ.pop("QUANTUM_STUDY_DATA_DIR", None)
-    try:
-        fresh = importlib.reload(config)
-        assert fresh.DATA_DIR == pathlib.Path.home() / ".local" / "share" / "quantum-study"
-    finally:
-        if old is not None:
-            os.environ["QUANTUM_STUDY_DATA_DIR"] = old
-        importlib.reload(config)
+    monkeypatch.delenv("QUANTUM_STUDY_DATA_DIR", raising=False)
+    assert config.DATA_DIR == pathlib.Path.home() / ".local" / "share" / "quantum-study"
+    assert persistence.MISTAKES_FILE == config.DATA_DIR / "mistakes.json"
+
+
+def test_a_blank_override_is_no_override(monkeypatch):
+    """`QUANTUM_STUDY_DATA_DIR=" "` used to make a directory literally named " "."""
+    import pathlib
+    import config
+
+    monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", "   ")
+    assert config.DATA_DIR == pathlib.Path.home() / ".local" / "share" / "quantum-study"
 
 
 # ── Mistake journal ───────────────────────────────────────────────────────────
@@ -124,21 +144,34 @@ def test_skip_then_categorise_then_resolve():
     assert persistence.open_mistakes() == []
 
 
-def test_relogging_an_open_mistake_updates_it_and_keeps_the_cause():
+def test_missing_the_same_item_twice_keeps_both_rows():
+    """A repeat is a second row, not an update.
+
+    This app used to merge a re-log into the open row.  ``dashboard.py`` says
+    why that is wrong in so many words — "a genuine second miss of the same
+    item keeps its own entry, because repetition is exactly the signal" — and
+    merging destroyed the count ``coach --mistakes`` reports.  Eight of the ten
+    apps already appended; ``common.journal`` is the append.
+    """
     persistence.log_mistake(persistence.make_mistake_entry("p", "C", "q", "A", "D"))
     persistence.set_mistake_cause("p", "misread", "slow down")
     persistence.log_mistake(persistence.make_mistake_entry("p", "C", "q", "B", "D"))
-    rows = persistence.load_mistakes()
-    assert len(rows) == 1
-    assert rows[0]["your_answer"] == "B"          # refreshed
-    assert rows[0]["cause"] == "misread"          # preserved
-    assert rows[0]["note"] == "slow down"
 
-    persistence.resolve_mistake("p")
-    persistence.log_mistake(persistence.make_mistake_entry("p", "C", "q", "C", "D"))
     rows = persistence.load_mistakes()
-    assert len(rows) == 2                         # a resolved item starts a new record
-    assert rows[1]["cause"] is None
+    assert [r["your_answer"] for r in rows] == ["A", "B"]      # both misses kept
+    assert rows[0]["cause"] == "misread" and rows[0]["note"] == "slow down"
+    assert rows[1]["cause"] is None                            # the new one is fresh
+
+    # categorising now edits the newest open row, so causes do not pile up
+    persistence.set_mistake_cause("p", "confused")
+    rows = persistence.load_mistakes()
+    assert [r["cause"] for r in rows] == ["misread", "confused"]
+    assert persistence.cause_counts() == {"misread": 1, "confused": 1}
+
+    # resolving clears every open row for the item at once
+    assert persistence.resolve_mistake("p") == 2
+    assert persistence.open_mistakes() == []
+    assert [r["cause"] for r in persistence.load_mistakes()] == ["misread", "confused"]
 
 
 def test_entries_from_other_apps_are_never_touched():
@@ -188,8 +221,10 @@ def test_calibration_summary_finds_the_confidently_wrong():
     persistence.log_confidence("b", "Steane Code", 1, True)
     persistence.save_confidence(persistence.load_confidence() + [
         persistence.make_confidence_entry("z", "Other", 4, False, app="math-quiz")])
-    assert persistence.calibration_summary() == {4: {"n": 3, "correct": 2},
-                                                 1: {"n": 1, "correct": 1}}
+    # {"total", "correct"} — the suite-wide bucket names (this app said "n")
+    assert persistence.calibration_summary() == {1: {"total": 1, "correct": 1},
+                                                 4: {"total": 3, "correct": 2}}
+    assert [r["id"] for r in persistence.confidently_wrong()] == ["a"]
 
 
 # ── Robustness: missing, corrupt, non-list, capped ────────────────────────────
@@ -223,8 +258,9 @@ def test_missing_files_and_missing_directory_are_fine(isolated_data_dir):
 
 
 def test_growth_is_capped_keeping_the_newest(monkeypatch, isolated_data_dir):
-    monkeypatch.setattr(persistence, "MISTAKES_MAX", 5)
-    monkeypatch.setattr(persistence, "CONFIDENCE_MAX", 5)
+    monkeypatch.setattr(journal, "MISTAKES_MAX", 5)
+    monkeypatch.setattr(journal, "CONFIDENCE_MAX", 5)
+    assert persistence.MISTAKES_MAX == 5 and persistence.CONFIDENCE_MAX == 5
     for i in range(12):
         persistence.log_mistake(persistence.make_mistake_entry(
             f"p{i}", "c", "q", "a", "b", timestamp=1000.0 + i))
@@ -233,17 +269,156 @@ def test_growth_is_capped_keeping_the_newest(monkeypatch, isolated_data_dir):
     assert [r["id"] for r in persistence.load_confidence()] == [f"p{i}" for i in range(7, 12)]
 
 
+def test_the_cap_never_trims_another_apps_rows(monkeypatch, isolated_data_dir):
+    """The data-loss bug this app shipped: trimming the *merged* list.
+
+    ``sorted(all_rows, key=timestamp)[-MAX:]`` deleted rows belonging to the
+    other nine apps during a write to a file this app does not own.  Only our
+    own rows may ever be dropped.
+    """
+    monkeypatch.setattr(journal, "MISTAKES_MAX", 4)
+    foreign = [persistence.make_mistake_entry(
+        f"x{i}", "C", "q", "a", "b", timestamp=1.0 + i, app="exam-sim")
+        for i in range(3)]
+    persistence.save_mistakes(foreign, app="exam-sim")
+
+    for i in range(6):
+        persistence.log_mistake(persistence.make_mistake_entry(
+            f"p{i}", "c", "q", "a", "b", timestamp=1000.0 + i))
+
+    rows = persistence.load_mistakes()
+    assert [r["id"] for r in rows if r["app"] == "exam-sim"] == ["x0", "x1", "x2"]
+    assert [r["id"] for r in rows if r["app"] == "qec-trainer"] == ["p5"]
+
+
 def test_writes_are_atomic_and_leave_no_temp_files(isolated_data_dir):
     persistence.log_mistake(persistence.make_mistake_entry("i", "c", "q", "a", "b"))
     persistence.log_confidence("i", "c", 3, True)
     persistence.set_confidence_prompt_enabled(False)
-    # The ".lock" sidecars are journal_sync's: empty files flock()ed for the
-    # length of a read-modify-write on the two shared journals, so a second app
-    # running at the same time cannot clobber rows we just wrote.
+    # Three kinds of sidecar, and no ".tmp" left anywhere:
+    #   .lock         empty, flock()ed for the length of a read-modify-write on
+    #                 the shared journals, so a second app running at the same
+    #                 time cannot clobber rows we just wrote;
+    #   .schema.json  the version marker (a sidecar, never a key in the data —
+    #                 coach.py and dashboard.py require a plain JSON list).
     assert sorted(p.name for p in isolated_data_dir.iterdir()) == [
-        "confidence.json", "confidence.json.lock",
-        "mistakes.json", "mistakes.json.lock", "qec_settings.json"]
+        "confidence.json", "confidence.json.lock", "confidence.json.schema.json",
+        "mistakes.json", "mistakes.json.lock", "mistakes.json.schema.json",
+        "qec_settings.json", "qec_settings.json.schema.json"]
     assert (isolated_data_dir / "mistakes.json.lock").read_bytes() == b""
+
+
+# ── Schema versioning, migration and backups ──────────────────────────────────
+
+@pytest.mark.parametrize("name,kind", [
+    ("mistakes.json", "mistakes"), ("confidence.json", "confidence"),
+    ("qec_flagged.json", "flagged"), ("qec_history.json", "history"),
+    ("qec_settings.json", "settings"),
+])
+def test_every_file_this_app_writes_is_version_stamped(isolated_data_dir, name, kind):
+    persistence.log_mistake(persistence.make_mistake_entry("i", "c", "q", "a", "b"))
+    persistence.log_confidence("i", "c", 3, True)
+    persistence.toggle_flag("i", "a question", "c")
+    persistence.save_session(_one_session())
+    persistence.set_confidence_prompt_enabled(False)
+
+    meta = json.loads((isolated_data_dir / f"{name}.schema.json").read_text())
+    assert meta["file"] == name
+    assert meta["kind"] == kind
+    assert meta["schema"] == schema.get(kind).version == 1
+    assert meta["written_by"].startswith("common/")
+    assert isinstance(meta["updated"], float)
+    # …and the data file itself is still exactly the shape it always was.
+    assert isinstance(json.loads((isolated_data_dir / name).read_text()), list) \
+        or name == "qec_settings.json"
+
+
+def test_an_unmarked_file_is_read_as_v1_and_stamped_on_the_next_write(isolated_data_dir):
+    """Every file written before versioning existed is a v1 file."""
+    isolated_data_dir.mkdir(parents=True, exist_ok=True)
+    legacy = [persistence.make_mistake_entry("old", "c", "q", "a", "b",
+                                             timestamp=1.0)]
+    (isolated_data_dir / "mistakes.json").write_text(json.dumps(legacy))
+    assert not (isolated_data_dir / "mistakes.json.schema.json").exists()
+
+    assert [r["id"] for r in persistence.load_mistakes()] == ["old"]
+    persistence.log_mistake(persistence.make_mistake_entry("new", "c", "q", "a", "b"))
+    assert [r["id"] for r in persistence.load_mistakes()] == ["old", "new"]
+    assert json.loads(
+        (isolated_data_dir / "mistakes.json.schema.json").read_text())["schema"] == 1
+
+
+def test_a_newer_file_is_refused_rather_than_overwritten(isolated_data_dir):
+    """A build that does not understand v99 must not write its v1 view over it."""
+    persistence.log_mistake(persistence.make_mistake_entry("mine", "c", "q", "a", "b"))
+    side = isolated_data_dir / "mistakes.json.schema.json"
+    side.write_text(json.dumps({"file": "mistakes.json", "kind": "mistakes",
+                                "schema": 99}))
+    before = (isolated_data_dir / "mistakes.json").read_text()
+
+    persistence.clear_write_error()
+    persistence.log_mistake(persistence.make_mistake_entry("later", "c", "q", "a", "b"))
+
+    assert (isolated_data_dir / "mistakes.json").read_text() == before   # untouched
+    err = persistence.last_write_error()
+    assert isinstance(err, schema.SchemaTooNewError)
+    assert err.found == 99 and err.understood == 1
+    persistence.clear_write_error()
+    assert persistence.last_write_error() is None
+
+
+def test_a_migration_runs_forward_in_memory_without_rewriting_the_file(isolated_data_dir):
+    """Reading an old file is never destructive; the write is what upgrades it."""
+    isolated_data_dir.mkdir(parents=True, exist_ok=True)
+    (isolated_data_dir / "qec_settings.json").write_text(
+        json.dumps({"confidence_prompt": False}))
+    (isolated_data_dir / "qec_settings.json.schema.json").write_text(
+        json.dumps({"file": "qec_settings.json", "kind": "settings", "schema": 1}))
+
+    original = schema.get("settings")
+    schema.register(schema.FileSchema(
+        "settings", version=2,
+        migrations={1: lambda d: {**d, "migrated": True}}), replace=True)
+    try:
+        assert persistence.load_settings()["migrated"] is True
+        assert "migrated" not in json.loads(          # the file is untouched
+            (isolated_data_dir / "qec_settings.json").read_text())
+        persistence.set_confidence_prompt_enabled(True)
+        on_disk = json.loads((isolated_data_dir / "qec_settings.json").read_text())
+        assert on_disk == {"confidence_prompt": True, "migrated": True}
+        assert json.loads(
+            (isolated_data_dir / "qec_settings.json.schema.json").read_text()
+        )["schema"] == 2
+    finally:
+        schema.register(original, replace=True)
+
+
+def test_the_first_write_of_a_session_rotates_a_backup(isolated_data_dir):
+    """One backup per file per session, three generations deep."""
+    target = isolated_data_dir / "mistakes.json"
+    persistence.log_mistake(persistence.make_mistake_entry("gen0", "c", "q", "a", "b"))
+    assert not target.with_suffix(".json.bak").exists()   # nothing to back up yet
+
+    for generation in range(1, 4):
+        schema.reset_session()                            # a new "session"
+        persistence.log_mistake(persistence.make_mistake_entry(
+            f"gen{generation}", "c", "q", "a", "b"))
+        # a second write in the same session does not make a second backup
+        persistence.log_mistake(persistence.make_mistake_entry(
+            f"gen{generation}b", "c", "q", "a", "b"))
+
+    def ids(path):
+        return [r["id"] for r in json.loads(path.read_text())]
+
+    assert ids(target)[-1] == "gen3b"
+    assert ids(isolated_data_dir / "mistakes.json.bak") == [
+        "gen0", "gen1", "gen1b", "gen2", "gen2b"]
+    assert ids(isolated_data_dir / "mistakes.json.bak.1") == ["gen0", "gen1", "gen1b"]
+    assert ids(isolated_data_dir / "mistakes.json.bak.2") == ["gen0"]
+    assert not (isolated_data_dir / "mistakes.json.bak.3").exists()
+
+    assert schema.restore_backup(target, 2) is True
+    assert ids(target) == ["gen0"]
 
 
 # ── Settings opt-out ──────────────────────────────────────────────────────────
@@ -274,7 +449,7 @@ def test_history_and_flag_schemas_are_untouched(isolated_data_dir):
     stats = SessionStats(total=1, correct=0,
                          attempts=[Attempt(p, "B", 0, Verdict.INCORRECT, "fb")])
     persistence.save_session(stats)
-    persistence.toggle_flag("p1")
+    persistence.toggle_flag("p1", "q", "Surface Code")
     persistence.log_mistake(persistence.make_mistake_entry("p1", "Surface Code", "q", "B", "A. a"))
 
     sessions = json.loads((isolated_data_dir / "qec_history.json").read_text())
@@ -282,7 +457,14 @@ def test_history_and_flag_schemas_are_untouched(isolated_data_dir):
     assert set(sessions[0]["attempts"][0]) == {
         "problem_id", "category", "difficulty", "score", "verdict",
         "hints_used", "elapsed_secs"}
-    assert json.loads((isolated_data_dir / "qec_flagged.json").read_text()) == ["p1"]
+    # qec_flagged.json used to be a bare id list written with a plain
+    # write_text (truncate first: a crash mid-write lost every flag).  It is
+    # now the suite's contract shape, written atomically; coach.py parses both,
+    # and the label means the review queue shows the question, not the id.
+    flagged = json.loads((isolated_data_dir / "qec_flagged.json").read_text())
+    assert flagged == [{"id": "p1", "label": "q", "category": "Surface Code",
+                        "app": "qec-trainer", "timestamp": flagged[0]["timestamp"]}]
+    assert persistence.load_flagged() == {"p1"}
 
 
 # ---------------------------------------------------------------------------

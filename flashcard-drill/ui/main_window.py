@@ -1,13 +1,24 @@
-"""Main application window for flashcard-drill."""
+"""Main application window for flashcard-drill.
+
+The Reference screen is the suite-wide one
+(:class:`common.ui.reference.ReferenceScreen`): the same ~900 lines used to sit
+in ``ui/screens/reference_screen.py`` in this app and in nine others.  This app
+has no chapter of its own in the corpus and no topic map, so it takes the
+defaults — the whole corpus, opened on its README, exactly as before — and the
+"Jump to topic" picker hides itself.
+"""
 from __future__ import annotations
 from PyQt6.QtWidgets import QMainWindow, QStackedWidget
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.ui.reference import ReferenceScreen
 from config import WINDOW_TITLE, WINDOW_MIN_SIZE
 from ui.screens.setup_screen import SetupScreen
 from ui.screens.card_screen import CardScreen
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
 from ui.screens.browse_screen import BrowseScreen
-from ui.screens.reference_screen import ReferenceScreen
 from persistence.storage import save_session
 
 PAGE_SETUP     = 0

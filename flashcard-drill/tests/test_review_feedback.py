@@ -228,8 +228,8 @@ def test_confidence_is_taken_before_the_reveal_and_paired_with_the_grade(qapp, s
     screen._got_btn.click(); qapp.processEvents()
     assert [(r["confidence"], r["correct"]) for r in rs.load_confidence()] == [
         (4, False), (2, True)]
-    assert rs.calibration_summary() == {4: {"n": 1, "correct": 0, "accuracy": 0.0},
-                                        2: {"n": 1, "correct": 1, "accuracy": 1.0}}
+    assert rs.calibration_summary() == {2: {"total": 1, "correct": 1},
+                                        4: {"total": 1, "correct": 0}}
 
 
 def test_confidence_is_optional_and_toggles_off(qapp, screen):
@@ -342,19 +342,29 @@ def test_history_and_flag_files_keep_their_frozen_schemas(qapp, window, data_dir
         btn.click(); qapp.processEvents()
     qapp.processEvents()
 
-    sessions = json.loads(storage.HISTORY_FILE.read_text())
+    sessions = json.loads(storage.history_path().read_text())
     assert len(sessions) == 1
     assert set(sessions[0]) == {"total", "got_it", "unsure", "missed",
                                 "timestamp", "results"}
     assert all(set(r) == {"card_id", "category", "rating", "elapsed_secs"}
                for r in sessions[0]["results"])
-    # mistakes.json.lock is the sidecar journal_sync flocks for the duration of
-    # a read-modify-write: it is empty, it is never read, and it is what stops a
-    # second app clobbering rows we just appended.
+    # Three data files, each with the version sidecar common.schema stamps
+    # beside it, plus the lock common.locking flocks for the duration of a
+    # read-modify-write (empty, never read, and what stops a second app
+    # clobbering rows we just appended).  No backups: every file here was
+    # created by this session, so there was no earlier state to keep.
     assert sorted(p.name for p in data_dir.iterdir()) == [
-        "flashcard_history.json", "flashcard_schedule.json",
-        "mistakes.json", "mistakes.json.lock"]
+        "flashcard_history.json", "flashcard_history.json.schema.json",
+        "flashcard_schedule.json", "flashcard_schedule.json.schema.json",
+        "mistakes.json", "mistakes.json.lock", "mistakes.json.schema.json"]
     assert (data_dir / "mistakes.json.lock").read_bytes() == b""
+
+    # The sidecar is what makes the next format change survivable: it says what
+    # the file is and which version wrote it, and it is invisible to every
+    # reader (coach.py / dashboard.py open one exact file name).
+    marker = json.loads((data_dir / "mistakes.json.schema.json").read_text())
+    assert marker["file"] == "mistakes.json" and marker["kind"] == "mistakes"
+    assert marker["schema"] == 1 and marker["written_by"].startswith("common/")
 
 
 # ---------------------------------------------------------------------------

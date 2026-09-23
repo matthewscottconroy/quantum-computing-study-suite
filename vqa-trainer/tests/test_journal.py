@@ -6,7 +6,10 @@ import time
 
 import pytest
 
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 import persistence
+from common import journal
 from core.models import Attempt, GradeMode, Problem, Verdict, answer_texts
 
 MISTAKE_KEYS = {"id", "app", "category", "question", "your_answer",
@@ -29,12 +32,25 @@ def test_make_mistake_entry_matches_the_shared_contract():
     assert isinstance(e["timestamp"], float) and isinstance(e["resolved"], bool)
 
 
-def test_entry_fields_are_clipped_to_200_chars_and_causes_validated():
+def test_entry_fields_are_clipped_and_causes_validated():
+    """One-line fields collapse to 200 chars; the note keeps its shape to 500.
+
+    common.journal draws the line where the two kinds of text differ: the
+    question and the answers are shown in a one-line list row (so a newline in
+    them breaks the row and they are whitespace-collapsed), while the note is
+    prose the learner typed and reflowing it destroys deliberate structure.
+    """
     e = persistence.make_mistake_entry("p", "QAOA", "q" * 500, "a" * 500, "c" * 500,
-                                       cause="NOT A CAUSE", note="n" * 500)
-    for field in ("question", "your_answer", "correct_answer", "note"):
+                                       cause="NOT A CAUSE", note="n" * 900)
+    for field in ("question", "your_answer", "correct_answer"):
         assert len(e[field]) == 200, field
         assert e[field].endswith("…")
+    assert len(e["note"]) == 500 and e["note"].endswith("…")
+    multiline = persistence.make_mistake_entry(
+        "p", "QAOA", "one\ntwo", "a", "c", note="one\ntwo", timestamp=1.0)
+    assert multiline["question"] == "one two", "list rows are one line"
+    assert multiline["note"] == "one\ntwo", "the learner's own line breaks stay"
+
     assert e["cause"] is None, "an unknown cause degrades to null, never crashes"
     assert persistence.normalise_cause(None) is None
     for cause in persistence.MISTAKE_CAUSES:
@@ -153,23 +169,44 @@ def test_writes_are_atomic_and_leave_no_temp_files(isolated_data_dir):
     persistence.log_mistake("p", "QAOA", "q", "A", "B")
     persistence.log_confidence("p", "QAOA", 3, False)
     persistence.set_confidence_prompt_enabled(False)
-    # The ".lock" sidecars are journal_sync's: empty files flock()ed for the
-    # length of a read-modify-write on the shared journals, so another app
-    # writing at the same moment cannot drop the rows we just appended.
+    # ".lock"        common.locking: an empty file flock()ed for the length of
+    #                a read-modify-write on a shared journal, so another app
+    #                writing at the same moment cannot drop our new rows.
+    # ".schema.json" common.schema: the version sidecar.  It is a separate file
+    #                and not a key in the payload because coach.py and
+    #                dashboard.py require the top level to be a plain list.
     names = sorted(f.name for f in isolated_data_dir.iterdir())
-    assert names == ["confidence.json", "confidence.json.lock",
-                     "mistakes.json", "mistakes.json.lock", "vqa_settings.json"]
+    assert names == [
+        "confidence.json", "confidence.json.lock", "confidence.json.schema.json",
+        "mistakes.json", "mistakes.json.lock", "mistakes.json.schema.json",
+        "vqa_settings.json", "vqa_settings.json.schema.json",
+    ]
     assert (isolated_data_dir / "mistakes.json.lock").read_bytes() == b""
+    assert not [f for f in isolated_data_dir.iterdir() if f.name.endswith(".tmp")]
 
 
-def test_growth_is_capped_at_the_newest_rows(monkeypatch):
-    monkeypatch.setattr(persistence, "MAX_MISTAKES", 5)
-    monkeypatch.setattr(persistence, "MAX_CONFIDENCE", 5)
+def test_growth_is_capped_and_only_our_own_rows_are_dropped(monkeypatch):
+    """The cap trims OUR oldest rows, never another app's.
+
+    Eight of the ten app copies did ``sorted(merged, key=timestamp)[-MAX:]`` on
+    the *merged* list, which deleted other apps' history during our own write.
+    common.journal.trim_own is the fix; the cap lives there, so that is what a
+    test shrinks.
+    """
+    monkeypatch.setattr(journal, "MISTAKES_MAX", 5)
+    monkeypatch.setattr(journal, "CONFIDENCE_MAX", 5)
+    persistence.log_mistake("theirs", "QAOA", "q", "A", "B", timestamp=-1.0,
+                            app="qec-trainer")
     for i in range(12):
         persistence.log_mistake(f"p{i}", "QAOA", "q", "A", "B", timestamp=float(i))
         persistence.log_confidence(f"p{i}", "QAOA", 2, False, timestamp=float(i))
-    assert [r["id"] for r in persistence.load_mistakes()] == [f"p{i}" for i in range(7, 12)]
-    assert [r["id"] for r in persistence.load_confidence()] == [f"p{i}" for i in range(7, 12)]
+    ours = [r["id"] for r in persistence.load_mistakes() if r["app"] == "vqa-trainer"]
+    assert ours == [f"p{i}" for i in range(8, 12)]
+    assert [r["id"] for r in persistence.load_mistakes()
+            if r["app"] == "qec-trainer"] == ["theirs"], \
+        "the oldest row in the file belongs to another app and must survive"
+    assert [r["id"] for r in persistence.load_confidence()] == \
+        [f"p{i}" for i in range(7, 12)]
 
 
 def test_settings_opt_out_round_trip(isolated_data_dir):

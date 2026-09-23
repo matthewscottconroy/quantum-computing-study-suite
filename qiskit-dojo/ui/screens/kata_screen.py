@@ -1,11 +1,18 @@
 """Kata screen for qiskit-dojo — task pane, code editor, run/grade loop."""
 from __future__ import annotations
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QPlainTextEdit, QSplitter, QMessageBox,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QFontMetricsF
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices, QFont, QFontMetricsF
+
+from common.ui.errata_dialog import ErrataButton
+
+from config import APP_DIR_NAME
 from core.models import Kata, KataAttempt, RunResult
 from ui import theme
 from ui.widgets.code_editor import CodeEditor
@@ -219,6 +226,24 @@ class KataScreen(QWidget):
         self._flag_btn.clicked.connect(self._on_flag)
         btn_row.addWidget(self._flag_btn)
 
+        # "This kata is wrong" -> a prefilled GitHub issue.  The repository is
+        # public, and without this the only route from noticing a bad kata to
+        # fixing it is remembering it later, which nobody does.  open_browser
+        # is off so the failure of QDesktopServices (a machine with no browser,
+        # a bare X session, a container) is ours to report instead of silent.
+        self._errata_btn = ErrataButton(app=APP_DIR_NAME, open_browser=False,
+                                        text="⚠ Report a problem")
+        self._errata_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._errata_btn.setAccessibleName("Report a problem with this kata")
+        self._errata_btn.setAccessibleDescription(
+            "Open a prefilled GitHub issue about this kata: a wrong test, a "
+            "retired Qiskit API, an ambiguous prompt. Nothing is sent until "
+            "you submit it on GitHub."
+        )
+        self._errata_btn.setToolTip(self._errata_btn.accessibleDescription())
+        self._errata_btn.reported.connect(self._on_errata_reported)
+        btn_row.addWidget(self._errata_btn)
+
         btn_row.addStretch()
 
         self._run_btn = QPushButton("Run  ▶")
@@ -271,6 +296,7 @@ class KataScreen(QWidget):
         # Run / Skip / End Session stay disabled while a run is still in
         # flight (never the case when a button brought us here).
         self._set_run_in_flight(self._run_worker is not None)
+        self._errata_btn.set_item(kata.id, f"{kata.title}\n\n{kata.prompt}")
         try:
             flagged = is_flagged(kata.id)
         except Exception:
@@ -379,6 +405,29 @@ class KataScreen(QWidget):
                                 f"Could not update the review list:\n{e}")
             return
         self._set_flag_state(new_state)
+
+    def _on_errata_reported(self, url: str) -> None:
+        """Hand the prefilled issue URL to the system browser.
+
+        Never blocks (``openUrl`` hands off to the desktop and returns at
+        once) and never loses the report: when there is no browser to hand it
+        to, the URL is shown so it can be copied somewhere that has one.
+        """
+        if not url:
+            return
+        try:
+            opened = QDesktopServices.openUrl(QUrl(url))
+        except Exception:
+            opened = False
+        if opened:
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("Report a problem")
+        box.setText("No browser could be opened. Copy this link and open it "
+                    "anywhere you can reach GitHub:")
+        box.setInformativeText(url)
+        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        box.exec()
 
     def _on_hint(self) -> None:
         if self._kata is None or not self._kata.hints:

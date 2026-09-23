@@ -10,20 +10,26 @@ The file is **new and private to this app**:
 and ``dashboard.py``; neither is touched here — the schedule is derived from
 history, never a replacement for it.
 
-Paths are read from :mod:`config` *at call time* (``config.SCHEDULE_FILE``), so
-``QUANTUM_STUDY_DATA_DIR`` and the test-suite's path relocation both apply.
+The path is read from :mod:`config` *at call time* (``config.schedule_file()``,
+which resolves ``QUANTUM_STUDY_DATA_DIR`` on every call), and the file is read
+and written through :mod:`common.schema`: an older schedule is migrated forward
+in memory, one backup of the pre-session state is kept, a version sidecar is
+stamped beside it, and a schedule written by a *newer* build is refused rather
+than silently rewritten with this build's narrower view of it.
+
 Every public function is failure-tolerant: a missing, unreadable or corrupt
 schedule degrades to "everything is new", it never raises into a drill.
 """
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 from datetime import date, datetime
 from pathlib import Path
 
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 import config
+from common import schema
+from common.jsonio import read_json_dict
 from core.scheduler import CardState, ReviewOutcome, review_outcome
 
 __all__ = [
@@ -33,7 +39,7 @@ __all__ = [
 
 
 def schedule_path() -> Path:
-    return config.SCHEDULE_FILE
+    return config.schedule_file()
 
 
 def schedule_exists() -> bool:
@@ -47,12 +53,10 @@ def schedule_exists() -> bool:
 
 def load_states() -> dict[str, CardState]:
     """Every persisted card state.  ``{}`` when the file is absent or unusable."""
-    path = schedule_path()
     try:
-        if not path.exists():
-            return {}
-        raw = json.loads(path.read_text())
-    except (OSError, ValueError):
+        raw = schema.load_versioned(schedule_path(), "schedule",
+                                    reader=read_json_dict)
+    except (OSError, ValueError, schema.SchemaError):
         return {}
     if not isinstance(raw, dict):
         return {}
@@ -65,22 +69,15 @@ def load_states() -> dict[str, CardState]:
 
 
 def save_states(states: dict[str, CardState]) -> None:
-    """Write the schedule atomically (temp file + ``os.replace``)."""
-    path = schedule_path()
+    """Write the schedule atomically, with a backup and a version stamp.
+
+    Raises on failure (an unwritable directory, or a schedule written by a
+    newer build): the callers below turn that into "the rating was not
+    scheduled" rather than losing the drill.
+    """
     payload = {cid: st.to_dict() for cid, st in sorted(states.items())}
-    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".flashcard_schedule-",
-                                    suffix=".json")
-    try:
-        with os.fdopen(fd, "w") as fh:
-            json.dump(payload, fh, indent=2)
-        os.replace(tmp_name, path)
-    except BaseException:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+    config.ensure_data_dir()
+    schema.save_versioned(schedule_path(), payload, "schedule")
 
 
 # --- migration --------------------------------------------------------------
@@ -152,7 +149,7 @@ def ensure_states(today: date | None = None) -> dict[str, CardState]:
     if states:
         try:
             save_states(states)
-        except OSError:
+        except (OSError, schema.SchemaError):
             pass
     return states
 
@@ -179,5 +176,5 @@ def record_rating(card_id: str, rating, today: date | None = None) -> ReviewOutc
         states[card_id] = outcome.after
         save_states(states)
         return outcome
-    except (OSError, ValueError):
+    except (OSError, ValueError, schema.SchemaError):
         return None

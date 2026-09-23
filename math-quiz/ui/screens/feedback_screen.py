@@ -1,19 +1,28 @@
-"""Evaluation / feedback screen shown after each answer is graded."""
+"""Evaluation / feedback screen shown after each answer is graded.
+
+This is where a study item is finally *shown* — the question, your answer, the
+grade and the model answer — so it is also where the "report a problem with
+this item" control lives (:mod:`common.ui.errata_dialog`).
+"""
 
 from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextBrowser,
     QPushButton, QListWidget, QListWidgetItem, QFrame, QScrollArea,
+    QApplication,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QColor, QDesktopServices
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.ui.errata_dialog import ErrataButton
+from common.ui.widgets import CollapsiblePanel, ScoreBar
 
 from core.models import Evaluation
-from persistence import MISTAKE_CAUSES, TEXT_FIELD_MAX
+from persistence import APP, MISTAKE_CAUSES, NOTE_FIELD_MAX
 from ui import theme
 from ui.widgets.chip_button import ChipButton
-from ui.widgets.score_bar import ScoreBar
-from ui.widgets.collapsible_panel import CollapsiblePanel
 from config import SCORE_CORRECT_THRESHOLD, SCORE_PARTIAL_THRESHOLD
 
 # Cause code → button label, in the order they are shown.
@@ -25,7 +34,7 @@ CAUSE_LABELS: dict[str, str] = {
     "out_of_time":      "Ran out of time",
     "other":            "Other",
 }
-NOTE_MAX_CHARS = TEXT_FIELD_MAX      # the journal clips to this anyway
+NOTE_MAX_CHARS = NOTE_FIELD_MAX      # the journal clips to this anyway
 
 
 class FeedbackScreen(QWidget):
@@ -34,6 +43,8 @@ class FeedbackScreen(QWidget):
     # Mistake journal: cause code chosen ("" when the user unselects it again).
     mistake_cause_chosen = pyqtSignal(str)
     mistake_note_committed = pyqtSignal(str)
+    #: An errata report was filed: (issue url, True if a browser opened it).
+    errata_reported = pyqtSignal(str, bool)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -161,6 +172,23 @@ class FeedbackScreen(QWidget):
         )
         self._flag_btn.clicked.connect(self.flag_requested)
         bar_layout.addWidget(self._flag_btn)
+
+        # "This item is wrong" -> a prefilled GitHub issue.  open_browser=False
+        # so the browser call stays here, where a refusal can be handled
+        # (see _on_errata_reported) instead of vanishing into the widget.
+        self._errata_btn = ErrataButton(
+            app=APP, open_browser=False,
+            text="\u26a0 Report a problem with this item",
+        )
+        self._errata_btn.setAccessibleName("Report a problem with this question")
+        self._errata_btn.setToolTip(
+            "Wrong, ambiguous or badly worded? Open a prefilled GitHub issue "
+            "(nothing is sent until you submit it there)."
+        )
+        self._errata_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._errata_btn.reported.connect(self._on_errata_reported)
+        bar_layout.addWidget(self._errata_btn)
+
         bar_layout.addStretch()
         next_btn = QPushButton("Next Question →")
         next_btn.setObjectName("accent")
@@ -230,6 +258,38 @@ class FeedbackScreen(QWidget):
 
         self._mistake_container.hide()
         return self._mistake_container
+
+    # ── Errata ────────────────────────────────────────────────────────────────
+
+    def set_item(self, item_id: str, item_text: str = "") -> None:
+        """Point the errata button at the question currently on screen."""
+        self._errata_btn.set_item(str(item_id or ""), str(item_text or ""))
+
+    def errata_item(self) -> tuple[str, str]:
+        """The (id, text) the errata report would carry — for tests and callers."""
+        return (self._errata_btn._item_id, self._errata_btn._item_text)
+
+    def _on_errata_reported(self, url: str) -> None:
+        """Hand the URL to the system browser; degrade if there is not one.
+
+        ``QDesktopServices.openUrl`` returns False on a machine with no
+        browser (a bare X session, a container, a locked-down desktop).  The
+        report must not be lost in that case, so the URL goes to the clipboard
+        and the window says so.  Nothing here blocks or raises.
+        """
+        opened = False
+        try:
+            opened = bool(QDesktopServices.openUrl(QUrl(url)))
+        except Exception:
+            opened = False
+        if not opened:
+            try:
+                clipboard = QApplication.clipboard()
+                if clipboard is not None:
+                    clipboard.setText(url)
+            except Exception:
+                pass
+        self.errata_reported.emit(url, opened)
 
     # ── Public API ────────────────────────────────────────────────────────────
 

@@ -33,9 +33,9 @@ def _session(ratings: dict[str, str], when: date, category: str = "Algorithms") 
             stats.missed += 1
     storage.save_session(stats)
     # Re-date the session we just appended (save_session stamps "now").
-    sessions = json.loads(storage.HISTORY_FILE.read_text())
+    sessions = json.loads(storage.history_path().read_text())
     sessions[-1]["timestamp"] = time.mktime(when.timetuple())
-    storage.HISTORY_FILE.write_text(json.dumps(sessions, indent=2))
+    storage.history_path().write_text(json.dumps(sessions, indent=2))
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ def _session(ratings: dict[str, str], when: date, category: str = "Algorithms") 
 
 def test_schedule_lives_in_the_data_dir_under_its_own_name(data_dir):
     assert store.schedule_path() == data_dir / "flashcard_schedule.json"
-    assert store.schedule_path() == config.SCHEDULE_FILE
+    assert store.schedule_path() == config.schedule_file()
     assert not store.schedule_exists()
     assert store.load_states() == {}
 
@@ -53,9 +53,13 @@ def test_recording_a_rating_creates_only_the_schedule_file(data_dir):
     outcome = store.record_rating("card_a", Rating.GOT_IT, TODAY)
     assert outcome is not None and outcome.after.interval_days == 1
     assert store.schedule_exists()
-    assert not storage.HISTORY_FILE.exists()
-    assert not storage._FLAGGED_FILE.exists()
-    assert [p.name for p in data_dir.iterdir()] == ["flashcard_schedule.json"]
+    assert not storage.history_path().exists()
+    assert not storage.flagged_path().exists()
+    # The schedule and its version sidecar, and nothing else: no history, no
+    # flags, no journal.  (common.schema stamps <file>.schema.json beside every
+    # file it writes; the readers open exact names and never see it.)
+    assert sorted(p.name for p in data_dir.iterdir()) == [
+        "flashcard_schedule.json", "flashcard_schedule.json.schema.json"]
 
 
 def test_on_disk_shape_matches_the_documented_schema(data_dir):
@@ -105,7 +109,7 @@ def test_bootstrap_replays_history_into_a_schedule(data_dir):
     _session({"old_card": "got_it"}, TODAY - timedelta(days=30))
     _session({"old_card": "got_it", "hard_card": "unsure"}, TODAY - timedelta(days=20))
     _session({"missed_card": "missed"}, TODAY - timedelta(days=2))
-    before = storage.HISTORY_FILE.read_bytes()
+    before = storage.history_path().read_bytes()
 
     assert not store.schedule_exists()
     states = store.ensure_states(TODAY)
@@ -121,7 +125,7 @@ def test_bootstrap_replays_history_into_a_schedule(data_dir):
     # Migration is persisted, and history is byte-for-byte untouched.
     assert store.schedule_exists()
     assert store.load_states() == states
-    assert storage.HISTORY_FILE.read_bytes() == before
+    assert storage.history_path().read_bytes() == before
 
 
 def test_bootstrap_runs_once_and_then_the_file_wins(data_dir):
@@ -183,7 +187,7 @@ def test_unwritable_schedule_never_raises_into_a_drill(data_dir, monkeypatch):
     data_dir.mkdir(parents=True, exist_ok=True)
     blocker = data_dir / "not-a-dir"
     blocker.write_text("")                       # a *file* where a directory is needed
-    monkeypatch.setattr(config, "SCHEDULE_FILE", blocker / "flashcard_schedule.json")
+    monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", str(blocker / "nope"))
     assert store.load_states() == {}
     assert store.record_rating("card_a", "got_it", TODAY) is None
 

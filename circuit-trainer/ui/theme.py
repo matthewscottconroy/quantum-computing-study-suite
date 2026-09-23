@@ -1,22 +1,31 @@
-"""Dark theme — same palette as quantum-quiz for visual consistency."""
+"""Circuit Trainer's theme: the shared suite palette plus this app's vocabulary.
+
+The twelve palette constants (``BG`` … ``PARTIAL``) and the base stylesheet now
+come from :mod:`common.ui.theme`, where they were byte-identical in all ten
+apps before the extraction — so nothing here is a compromise, it is what this
+app already used.  ``PURPLE`` and ``TEAL`` were circuit-trainer's own additions
+and were promoted with it.
+
+What stays here is what is genuinely this app's: the two colour maps keyed by
+*this* app's words (``ProblemCategory`` values and the three difficulty names),
+and the handful of stylesheet rules for widgets only this app has — the
+multiple-choice buttons in their four graded states, the confidence strip, the
+"What went wrong?" cause buttons, the history table, and the teal focus ring
+those controls use.  ``extend()`` appends them to the shared base, so the
+accessibility rules and the pill rules in the base are inherited rather than
+re-stated.
+"""
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
 
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont
 
-BG        = "#0d1117"
-SURFACE   = "#161b22"
-SURFACE2  = "#21262d"
-BORDER    = "#30363d"
-ACCENT    = "#58a6ff"
-ACCENT2   = "#388bfd"
-TEXT      = "#e6edf3"
-TEXT_MUTED = "#8b949e"
-SUCCESS   = "#3fb950"
-WARNING   = "#d29922"
-ERROR     = "#f85149"
-PARTIAL   = "#e3b341"
-PURPLE    = "#bc8cff"
-TEAL      = "#39d0d8"
+from common.ui.theme import *            # noqa: F403  (the shared palette)
+from common.ui.theme import (            # noqa: F401  (names used below)
+    ACCENT, ACCENT2, BORDER, ERROR, SUCCESS, SURFACE, SURFACE2, TEAL, TEXT,
+    MONO, TEXT_MUTED, WARNING, alpha, extend,
+)
+from common.ui.theme import apply as _apply
 
 CATEGORY_COLORS = {
     "Single-gate output":         "#1f6feb",
@@ -39,32 +48,9 @@ DIFFICULTY_COLORS = {
     "advanced":     "#f85149",
 }
 
-QSS = f"""
-QWidget {{
-    background-color: {BG};
-    color: {TEXT};
-    font-family: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
-    font-size: 14px;
-}}
-QScrollArea, QScrollArea > QWidget > QWidget {{ background-color: {BG}; border: none; }}
-QScrollBar:vertical {{ background: {SURFACE}; width: 8px; border-radius: 4px; }}
-QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 4px; min-height: 24px; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-QPushButton {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px; padding: 8px 18px; font-size: 13px;
-}}
-QPushButton:hover {{ background-color: {BORDER}; border-color: {ACCENT}; }}
-QPushButton:pressed {{ background-color: {ACCENT2}; color: white; }}
-QPushButton:disabled {{ color: {TEXT_MUTED}; border-color: {SURFACE2}; }}
-QPushButton#accent {{
-    background-color: {ACCENT}; color: {BG}; border: none;
-    font-weight: bold; font-size: 14px; padding: 10px 28px;
-}}
-QPushButton#accent:hover {{ background-color: {ACCENT2}; }}
-QPushButton#accent:disabled {{ background-color: {SURFACE2}; color: {TEXT_MUTED}; }}
-QPushButton#flat {{ background: transparent; border: none; color: {ACCENT}; padding: 4px 8px; }}
-QPushButton#flat:hover {{ color: {TEXT}; }}
+#: Rules for the widgets only Circuit Trainer has.  Appended to the shared
+#: base stylesheet by :data:`QSS`.
+EXTRA_QSS = f"""
 QPushButton#choice {{
     background-color: {SURFACE}; color: {TEXT};
     border: 2px solid {BORDER}; border-radius: 8px;
@@ -72,15 +58,15 @@ QPushButton#choice {{
 }}
 QPushButton#choice:hover {{ border-color: {ACCENT}; background-color: {SURFACE2}; }}
 QPushButton#choice_correct {{
-    background-color: {SUCCESS}22; color: {SUCCESS};
+    background-color: {alpha(SUCCESS, 13)}; color: {SUCCESS};
     border: 2px solid {SUCCESS}; border-radius: 8px; padding: 12px 16px; font-size: 14px; text-align: left;
 }}
 QPushButton#choice_wrong {{
-    background-color: {ERROR}22; color: {ERROR};
+    background-color: {alpha(ERROR, 13)}; color: {ERROR};
     border: 2px solid {ERROR}; border-radius: 8px; padding: 12px 16px; font-size: 14px; text-align: left;
 }}
 QPushButton#choice_missed {{
-    background-color: {WARNING}22; color: {WARNING};
+    background-color: {alpha(WARNING, 13)}; color: {WARNING};
     border: 2px solid {WARNING}; border-radius: 8px; padding: 12px 16px; font-size: 14px; text-align: left;
 }}
 /* ── Confidence strip + mistake-journal causes ───────────────────────────────
@@ -99,53 +85,23 @@ QPushButton#confidence_on, QPushButton#cause_on {{
     border: 2px solid {ACCENT}; border-radius: 6px;
     padding: 5px 9px; font-size: 12px; font-weight: bold;
 }}
-/* Visible keyboard focus ring on every interactive control. */
+/* Visible keyboard focus ring on every interactive control.  The shared base
+   already draws one in ACCENT; this app's is teal, so it reads against the
+   accent fill a selected pill uses. */
 QPushButton:focus, QPushButton#accent:focus, QPushButton#flat:focus,
 QPushButton#choice:focus, QPushButton#confidence:focus,
 QPushButton#confidence_on:focus, QPushButton#cause:focus,
 QPushButton#cause_on:focus {{
     border: 2px solid {TEAL};
 }}
-QLineEdit {{
-    background-color: {SURFACE}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px;
-    padding: 6px 8px; font-size: 13px;
-}}
-QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus {{
-    border: 2px solid {TEAL};
-}}
+/* The padding shrinks by the pixel the border grows, so focusing a field
+   never nudges the layout. */
+QLineEdit:focus {{ border: 2px solid {TEAL}; padding: 4px 7px; }}
+QPlainTextEdit:focus, QTextEdit:focus {{ border: 2px solid {TEAL}; padding: 7px; }}
 QCheckBox:focus {{ color: {TEAL}; }}
 QCheckBox::indicator:focus {{ border: 2px solid {TEAL}; }}
-QPlainTextEdit, QTextEdit {{
-    background-color: {SURFACE}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px; padding: 8px; font-size: 14px;
-}}
-QTextBrowser {{ background-color: transparent; color: {TEXT}; border: none; font-size: 15px; }}
-QLabel {{ background: transparent; }}
-QLabel#heading {{ font-size: 22px; font-weight: bold; }}
-QLabel#subheading {{ font-size: 15px; color: {TEXT_MUTED}; }}
 QLabel#muted {{ color: {TEXT_MUTED}; font-size: 12px; }}
-QLabel#mono {{ font-family: "JetBrains Mono","Fira Code","Consolas",monospace; font-size: 13px; }}
-QFrame#card {{ background-color: {SURFACE}; border: 1px solid {BORDER}; border-radius: 8px; }}
-QFrame#separator {{ background-color: {BORDER}; max-height: 1px; }}
-QComboBox {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
-}}
-QComboBox QAbstractItemView {{
-    background-color: {SURFACE2}; color: {TEXT}; border: 1px solid {BORDER};
-    selection-background-color: {ACCENT2};
-}}
-QSpinBox {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
-}}
-QCheckBox {{ spacing: 8px; color: {TEXT}; }}
-QCheckBox::indicator {{
-    width: 16px; height: 16px; border: 1px solid {BORDER};
-    border-radius: 3px; background: {SURFACE2};
-}}
-QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+QLabel#mono {{ font-family: {MONO}; font-size: 13px; }}
 QTableWidget {{
     background-color: {SURFACE}; border: 1px solid {BORDER};
     border-radius: 6px; gridline-color: {BORDER};
@@ -165,9 +121,10 @@ QToolTip {{
 }}
 """
 
+#: The whole stylesheet this app applies: the shared base plus EXTRA_QSS.
+QSS = extend(EXTRA_QSS)
+
 
 def apply(app: QApplication) -> None:
-    app.setStyleSheet(QSS)
-    font = QFont("Inter", 10)
-    font.setStyleHint(QFont.StyleHint.SansSerif)
-    app.setFont(font)
+    """Apply the suite theme with this app's extra rules."""
+    _apply(app, QSS)

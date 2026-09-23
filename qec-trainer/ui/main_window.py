@@ -216,11 +216,18 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_flag(self) -> None:
+        """Flag (or unflag) the problem on screen for later review.
+
+        The question text and category go into the flag file too, so
+        ``coach.py``'s review queue can list the question rather than the bare
+        problem id.
+        """
         if not self._problems or self._idx >= len(self._problems):
             return
-        problem_id = self._problems[self._idx].id
+        problem = self._problems[self._idx]
         try:
-            new_state = toggle_flag(problem_id)
+            new_state = toggle_flag(problem.id, problem.question,
+                                    problem.category)
         except Exception:
             new_state = True
         self._result.set_flagged(new_state)

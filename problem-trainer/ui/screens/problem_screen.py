@@ -5,11 +5,15 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit, QScrollArea,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.ui.widgets import LoadingOverlay
 from core.models import Problem, Part, PartState, GradeResult, problem_score
 from ui import theme
 from ui.theme import FLAG_ON_TEXT, FLAG_OFF_TEXT
-from ui.widgets.loading_overlay import LoadingOverlay
 from ui.widgets.collapsible import CollapsibleSection
+from ui.widgets.errata import ErrataButton, quote_for
 from ui.widgets.study_journal import ConfidenceStrip, MistakeRow, safe
 import persistence
 
@@ -86,6 +90,14 @@ class _PartWidget(QFrame):
         self._reveal_btn.clicked.connect(self._on_reveal)
         btn_row.addWidget(self._reveal_btn)
         btn_row.addStretch()
+        # Errata: this part, its rubric-backed model solution and its id are
+        # all on screen, so this is where "that is wrong" can become an issue.
+        self._errata_btn = ErrataButton(
+            item_id=self.item_id,
+            item_text=quote_for("Problem", getattr(problem, "title", ""),
+                                f"Part ({part.part_id})", part.prompt,
+                                "Model solution", part.model_solution))
+        btn_row.addWidget(self._errata_btn)
         root.addLayout(btn_row)
 
         # Feedback section (filled after grading)

@@ -5,8 +5,11 @@ A desktop "coding dojo" for the IBM Certified Quantum Developer exam
 executes it in an isolated subprocess, and assertion-based tests grade it
 automatically — fully offline.
 
-Part of the quantum-study suite; mirrors the architecture and theme of
-`vqa-trainer`.
+Part of the quantum-study suite. Everything cross-cutting — the data
+directory, the mistake journal, the confidence log, the flag store, the
+palette and the Reference browser — comes from the repository's shared
+[`common/`](../common/README.md) package rather than from a copy in this
+tree; see *Shared code* below.
 
 ## Running
 
@@ -30,9 +33,11 @@ The fast suite checks the bank structurally (`tests/test_katas.py`: at least
 72 katas, per-section floors matching the exam blueprint, unique ids and
 titles, 2-3 hints, code compiles, files live in their section directory),
 the persistence contracts (`tests/test_persistence.py`,
-`tests/test_flagging.py`, `tests/test_mistake_journal.py`) and the screens
+`tests/test_flagging.py`, `tests/test_mistake_journal.py`), the screens
 offscreen (`tests/test_screens.py`, `tests/test_feedback_ui.py` — the
-fail → reveal → categorise → pass loop end to end).
+fail → reveal → categorise → pass loop end to end), schema versioning and
+the errata button (`tests/test_schema_and_errata.py`) and the wiring to the
+shared package (`tests/test_common_integration.py`).
 The slow sweep runs every kata twice through `core/runner.py` - the
 reference solution must pass and the starter must not - so it is one
 parametrised case per kata (144+ cases, ~1-1.5 s each on an idle machine;
@@ -71,6 +76,10 @@ locates automatically (current venv → `../.venv/bin/python` → fallback to
      **before** your first Run so the rating can never be hindsight. It
      is optional; **Don't ask again** turns it off for good. See
      *Confidence calibration* below.
+   - **⚠ Report a problem** — the kata itself is wrong? One click opens a
+     GitHub issue that is already filled in with the kata id, the prompt as
+     you saw it, what you say is wrong, an optional correction and a
+     severity. See *Reporting a bad kata* below.
    - **✎ What went wrong?** — appears under the output pane when you
      reveal the solution on a kata you could not pass. See *Mistake
      journal* below.
@@ -85,24 +94,37 @@ locates automatically (current venv → `../.venv/bin/python` → fallback to
 
 ## Reference browser
 
-`ui/screens/reference_screen.py` renders the suite's shared documentation
-corpus without leaving the app. It resolves the docs root relative to its
-own location — `Path(__file__).resolve().parents[3] / "docs"`, i.e.
-`<repo>/docs` — so the app must live inside the repository checkout (no
-home path is hard-coded). Every `docs/**/*.md` file is listed:
+The Reference screen is the suite's shared one — `common/ui/reference.py`,
+one implementation for all ten apps instead of ten forks of the same ~900
+lines. This app supplies exactly two things, as constructor arguments in
+`ui/main_window.py` (both defined in `config.py`):
 
-- **Left**: a chapter tree (one node per `docs/<NN_chapter>/` directory,
-  leaves titled from each file's first `# ` heading; `docs/README.md`
-  appears first as *Learning Ladder*) with a live filter box.
-- **Right**: the selected chapter rendered with Qt's native Markdown
-  import (GitHub tables and fenced code blocks supported). Exercise
-  `<details><summary>Solution</summary>` blocks are shown inline as a bold
-  **Solution:** lead-in. Relative `.md` links navigate inside the browser
-  and `#fragment` links jump to the matching heading (GitHub-style slugs);
-  a link whose target file is missing reports *Link target not found* in
-  the breadcrumb instead of being handed to the desktop. `http(s)` links
-  open in your system browser; **Open externally** hands the current file
-  to your desktop's Markdown handler.
+```python
+ReferenceScreen(default_chapter=DOCS_DEFAULT_CHAPTER,   # 03_quantum_gates_and_circuits
+                category_docs=DOCS_FOR_SECTION)         # kata section -> chapter
+```
+
+- **`DOCS_DEFAULT_CHAPTER`** — the dojo opens on
+  `docs/03_quantum_gates_and_circuits/`, its own rung of the ladder; the
+  whole corpus is still listed.
+- **`DOCS_FOR_SECTION`** — one chapter per kata section, behind a
+  **Jump to topic** picker in the top bar: *Sampler* → quantum
+  measurements, *Estimator* → VQE fundamentals, *Results analysis* →
+  probability and statistics, *Debugging* → tensor products and
+  multipartite systems, and so on. `tests/test_screens.py` fails if a
+  section is added to `katas/` without a chapter, or if a chapter is
+  renamed out from under the map.
+
+The docs root is resolved **at call time** (package location → cwd →
+`sys.argv[0]`), so the app finds `<repo>/docs` from any working directory;
+`QUANTUM_STUDY_DOCS_DIR` overrides it. Everything the old local screen did
+still works — the chapter list, the live filter, Markdown rendering with
+tables and fenced code, relative `.md` links, `#fragment` heading links,
+`http(s)` links to the system browser, **Open externally** — plus what came
+with the shared version: full-text search, a chapter filter, `$$…$$`
+display-math rendering, resolved bare cross-references, and a **Show
+solutions** checkbox that hides `<details>` exercise answers so you can try
+them first.
 
 Fully offline; nothing here touches the network or the API key.
 
@@ -202,10 +224,101 @@ print(run_kata(k.solution_code, k.test_code))
   `your_code.py` or `kata_tests.py` (with the offending source line).
 - The UI runs the harness on a `QThread` so the window never blocks.
 
+## Shared code (`common/`)
+
+This app used to carry its own copy of the journal, the flag store, the
+data-directory resolver, the palette, a loading overlay and a ~420-line
+Reference screen. All six now come from `common/` at the repository root —
+one implementation, ten callers, and a cross-cutting fix is one edit
+instead of ten.
+
+| Was here | Now |
+|---|---|
+| `persistence.py`'s journal internals (lock, merge, atomic write, caps) | `common.journal`, `common.locking`, `common.jsonio` |
+| `persistence.py`'s `dojo_flagged.json` reader/writer | `common.flags` |
+| `config.py`'s `QUANTUM_STUDY_DATA_DIR` handling | `common.datadir` (resolved per call, never frozen at import) |
+| `ui/theme.py`'s palette and stylesheet | `common.ui.theme` |
+| `ui/screens/reference_screen.py` (deleted) | `common.ui.reference` |
+| `ui/widgets/loading_overlay.py` (deleted, was unused) | `common.ui.widgets.LoadingOverlay` |
+| — | `common.schema` (versioning + backups), `common.ui.errata_dialog` |
+
+### The import shim
+
+The apps are not packages and several define the same top-level module
+names, so the repository root is not importable from inside one.
+`common_path.py` is an **unedited copy** of `common/app_shim.py`; importing
+it appends `<repo>` to `sys.path` (appends, so this app's `tests`, `config`
+and `ui` always win over the root's). Every module that touches `common`
+imports it first — `config.py`, `persistence.py`, `ui/theme.py`,
+`ui/main_window.py`, `ui/screens/kata_screen.py` and `tests/conftest.py` —
+because each of them is, somewhere, the first thing imported:
+`persistence.py` is loaded **by path** by the root suite's
+`tests/test_journal_concurrency.py`, with no `main` and no `conftest` in
+the way. `tests/test_common_integration.py` fails if a module forgets, or
+if `common_path.py` drifts from the canonical copy.
+
+### Where this app deliberately differs, and why
+
+Two behaviours the shared journal does not have are kept here as thin
+adapters over `common.journal`'s own primitives (its lock, its loaders, its
+`save_*`), never as forked logic:
+
+1. **A repeat failure folds into the kata's open row.**
+   `journal.log_mistake` appends every miss — right for a quiz, where three
+   misses of one card are three real signals. A dojo is not a quiz: you
+   press Run while you iterate and the screen re-journals on every failed
+   run, so appending would turn one stuck kata into thirty rows and drown
+   `coach --mistakes`. `persistence.log_mistake` therefore takes
+   `journal.lock`, re-reads with `journal.load_mistakes`, refreshes the open
+   row and writes with `journal.save_mistakes` — so the locking, the
+   foreign-row preservation, the growth cap, the version stamp and the
+   backup are all the shared ones.
+2. **A confidence rating is clamped, not rejected.**
+   `journal.log_confidence` records nothing outside 1–4, meaning "the strip
+   was skipped". This app decides that upstream (the kata screen only logs
+   when the strip was used) and its documented contract is that
+   `log_confidence` returns the row it stored, so it builds the row with the
+   shared pure builder — which clamps — and appends it with
+   `journal.save_confidence`.
+
+One thing is local because it is *vocabulary*, not logic: the cause button
+labels. The taxonomy written to disk is `common.journal.MISTAKE_CAUSES`
+unchanged; only the wording is this app's, because "Confused two APIs" is
+the dojo's failure mode and would mean nothing in math-quiz. Likewise
+`ui/theme.py` keeps `SECTION_COLORS` and the handful of rules only a code
+dojo needs (monospaced code/output panes, a horizontal scrollbar, splitter
+and radio chrome) and appends them to the shared stylesheet with
+`theme.extend()`.
+
+### What changed for you
+
+- The **focus ring** on buttons is now the suite's (a 2px accent border with
+  compensating padding, so nothing shifts) rather than this app's 1px one,
+  and `#pill` rules arrived from the shared base.
+- `dojo_flagged.json` is written **atomically under a lock** and rebuilt
+  from the *raw* list, so a row this app does not understand survives a
+  rewrite instead of being deleted. A legacy bare-id list (`["id", "id"]`,
+  which three other apps still write and `coach.py` parses) is now read as
+  flags and upgraded to the object form on the first write.
+- The growth cap trims **only this app's rows**. The old code sorted the
+  whole merged file by timestamp and kept the newest *N*, which deleted
+  other apps' rows during our own write — a data-loss bug that eight of the
+  ten copies shared.
+- `QUANTUM_STUDY_DATA_DIR` is read on every call instead of once at import,
+  so a blank value is no override and `~` is expanded.
+
 ## Persistence
 
 All files live in `~/.local/share/quantum-study/` (override the directory
 with the `QUANTUM_STUDY_DATA_DIR` environment variable — handy for tests).
+The directory is resolved by `common.datadir` **on every call**, so setting
+the variable is all a test or a launcher has to do. `persistence.py`
+exposes `history_path()`, `flagged_path()`, `settings_path()`,
+`mistakes_path()` and `confidence_path()`; the older module constants
+(`HISTORY_FILE`, …) are import-time snapshots kept for compatibility.
+
+Every file this app writes now carries a **version sidecar** and a
+**rotating backup** — see *Schema versioning and backups* below.
 
 Sessions append to `dojo_history.json`
 (schema is integrated against by the coach app — do not change):
@@ -243,7 +356,10 @@ toggle — flagging an already-flagged kata removes its entry:
 
 `id` is the kata id, `label` its title, `category` its section. Helpers in
 `persistence.py`: `load_flagged()`, `flagged_ids()`, `is_flagged(id)`,
-`toggle_flag(kata) -> bool` (new state), `unflag(id)`.
+`toggle_flag(kata) -> bool` (new state), `unflag(id)` — all thin wrappers
+over `common.flags`, which writes atomically under the file's lock, rebuilds
+the file from the raw list (so an unrecognised row is never deleted) and
+reads the suite's legacy bare-id form as well as the object form above.
 
 ### Mistake journal
 
@@ -326,11 +442,16 @@ Helpers: `make_confidence_entry(...)` (pure), `load_confidence()` /
 - Both honour `QUANTUM_STUDY_DATA_DIR` like every other data file.
 - A missing or corrupt file reads as empty and is recreated on the next
   write — a bad file never crashes the app, and readers never create one.
-- Writes are **atomic**: a temp file in the same directory, `fsync`, then
-  `os.replace`, so a crash mid-write leaves the previous file intact.
+- Writes are **atomic** (`common.jsonio`): a pid-qualified temp file in the
+  same directory, then `os.replace`, so a crash mid-write leaves the
+  previous file intact and two processes cannot collide on the temp name.
+- Every read-modify-write is held under an `fcntl.flock` on a `<file>.lock`
+  sidecar (`common.locking`) and re-reads the file *inside* the lock, so two
+  open apps cannot drop each other's rows.
 - Growth is **capped**: `MAX_MISTAKES = 2000` and `MAX_CONFIDENCE = 5000`
-  rows, oldest dropped first. The text fields are clipped to 200
-  characters on a single line.
+  (aliases of `common.journal.MISTAKES_MAX` / `CONFIDENCE_MAX`), and only
+  **this app's own** oldest rows are ever dropped. The text fields are
+  clipped to 200 characters on a single line.
 
 ### App settings
 
@@ -345,6 +466,68 @@ holds UI preferences. Today it has one key, written when you press
 Delete the key (or set it to `true`) to get the strip back. Unknown keys
 are preserved on write.
 
+### Schema versioning and backups
+
+The suite now collects data you cannot regenerate. `common.schema` gives
+every file this app writes — `dojo_history.json`, `dojo_flagged.json`,
+`dojo_settings.json`, and the shared `mistakes.json` / `confidence.json` — a
+version marker, a migration path and a safety net.
+
+**The marker is a sidecar, not a key in the data.** `mistakes.json` gains
+`mistakes.json.schema.json`:
+
+```json
+{"file": "mistakes.json", "kind": "mistakes", "schema": 1,
+ "written_by": "common/1.0.0", "updated": 1758600000.0}
+```
+
+Wrapping the payload in `{"schema": 1, "rows": [...]}` was not available:
+`coach.py` and `dashboard.py` all require the top level to be a plain JSON
+list and would read a wrapped file as **empty**. The data files are
+therefore byte-for-byte the same shape as before, and `coach.py --review` /
+`--mistakes` need no changes. The sidecars are invisible to them, and
+`*_flagged.json` discovery does not match `dojo_flagged.json.schema.json`.
+
+- **Older file** — a file with no sidecar is a v1 file (versioning was
+  introduced without changing any format). `load_versioned` migrates it
+  forward **in memory**; the file on disk is only rewritten, and restamped,
+  the next time something writes. Reading is never destructive.
+- **Newer file** — a file written by a build that understands a later
+  version is **refused, not overwritten**: `save_session` and
+  `save_settings` raise `common.schema.SchemaTooNewError` (their callers
+  already wrap writes in `try/except`, so the session reports "nothing
+  happened" instead of crashing), and the journal helpers swallow it and
+  record it in `persistence.last_write_error()`. In every case the file on
+  disk is untouched. Reading a newer file still works, so the History
+  screen does not go blank when another machine is ahead.
+- **Backups** — before the **first** write of a process to a file, the
+  current contents are copied aside and the generations age:
+  `<name>.bak` → `.bak.1` → `.bak.2`. One backup per session, not per row,
+  and best-effort — a full disk must not stop the write that matters.
+  `common.schema.restore_backup(path)` puts a generation back.
+
+### Reporting a bad kata
+
+The repository is public, and a wrong kata used to have no route to a fix
+except remembering it later. **⚠ Report a problem** on the kata screen
+opens `common.ui.errata_dialog.ErrataDialog`: three fields (what is wrong,
+what it should say, how bad) over the kata id and the prompt as you saw it.
+Accepting builds a URL for the repository's `content_error.yml` issue form
+with `file`, `quote`, `why_wrong`, `correction`, `severity` and the title
+already filled in, and hands it to `QDesktopServices`.
+
+- **Nothing is sent from the app.** It builds a URL; you see and edit the
+  issue on GitHub before filing it. No network call, no API key, no write
+  to the data directory.
+- **It never blocks.** `openUrl` hands off to the desktop and returns; the
+  dialog is an ordinary modal you opened, like Reveal Solution's prompt.
+- **It degrades.** When there is no browser to hand the link to, the app
+  says so and shows the whole URL, selectable, so the report is not lost.
+- **It is keyboard reachable**: a real `StrongFocus` button in the kata
+  button row with an accessible name and description, and the dialog's
+  "Open the issue on GitHub" stays disabled until you have written
+  something.
+
 ## Accessibility
 
 The kata screen's new controls follow the suite accessibility rules:
@@ -352,10 +535,13 @@ The kata screen's new controls follow the suite accessibility rules:
 - every button and the note field is a real focusable widget
   (`StrongFocus`) with an accessible name and description, so the whole
   row is reachable and announceable from the keyboard alone;
-- the focus ring is an explicit accent border painted over a border the
-  resting state already reserves, so focus is visible and the button never
-  shifts by a pixel — `ui/theme.py` now defines `:focus` rules for the
-  default, `#accent` and `#flat` button variants too;
+- the focus ring is an explicit accent border with compensating padding, so
+  focus is visible and the button never shifts by a pixel — the rules for
+  the default, `#accent`, `#flat` and `#pill` button variants come from the
+  shared `common/ui/theme.py` stylesheet, which every app in the suite now
+  gets;
+- the **⚠ Report a problem** button is a focusable, named control in the
+  same row, and its dialog refuses to submit an empty report;
 - selection is never colour alone: the confidence buttons carry `○`/`●`
   and the cause buttons a `✓` tick, alongside the existing `✓ PASSED` /
   `✗ FAILED` glyphs on the status line;

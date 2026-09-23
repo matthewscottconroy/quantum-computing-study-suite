@@ -6,13 +6,19 @@ from PyQt6.QtWidgets import (
     QPushButton, QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common import journal
+from common.ui.widgets import LoadingOverlay
+
 from core.models import Question, DrillConfig, QuestionAttempt
 from ui import theme
-from ui.widgets.loading_overlay import LoadingOverlay
 
 # 1 = guessing … 4 = certain.  Rated *before* Submit so the number cannot be
-# hindsight; paired with the grade in confidence.json.
-CONFIDENCE_LEVELS = {1: "Guessing", 2: "Unsure", 3: "Fairly sure", 4: "Certain"}
+# hindsight; paired with the grade in confidence.json.  The labels come from
+# common.journal so the strip and the stored rating cannot drift apart.
+CONFIDENCE_LEVELS = journal.CONFIDENCE_LABELS
 
 
 class QuestionScreen(QWidget):
@@ -251,7 +257,10 @@ class QuestionScreen(QWidget):
         self._overlay.show_with_message("Grading…")
 
     def hide_grading(self) -> None:
-        self._overlay.hide()
+        # hide_overlay(), not hide(): the shared overlay animates its ellipsis
+        # on a timer, and plain hide() would leave that timer running for the
+        # life of the screen.
+        self._overlay.hide_overlay()
 
     def resizeEvent(self, event) -> None:
         self._overlay.resize(self.size())

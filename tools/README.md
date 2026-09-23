@@ -696,3 +696,155 @@ this tool. After a `--write` that changes the count, update:
 
 `export_cards.py` needs no change: it reads the deck through
 `cards.all_cards()` and compares the count against the modules on disk.
+
+---
+
+## `export_audio.py` — the audio deck
+
+The desktop app needs a screen and the web deck needs a thumb. Neither reaches
+the walk to the station. `export_audio.py` reads the same 856 cards through
+flashcard-drill's own loader (`cards.all_cards()` — the card text is never
+duplicated here either), rewrites each side from mathematical notation into
+spoken English, and synthesises **front → silent recall gap → back** with
+whatever offline speech engine this machine happens to have.
+
+```bash
+python3 tools/export_audio.py --dry-run --limit 60     # review the speech, synthesise nothing
+python3 tools/export_audio.py --list-engines           # what this machine can do
+python3 tools/export_audio.py                          # whole deck -> exports/audio/
+python3 tools/export_audio.py --category "Pauli Matrices" --pause 6
+python3 tools/export_audio.py --encode mp3 --out ~/audio-deck
+python3 tools/export_audio.py --per-card --category Theorems
+```
+
+| Flag | Meaning |
+|---|---|
+| `--category NAME` | one category, repeatable, case-insensitive |
+| `--limit N` | at most N cards, spread evenly across the chosen categories |
+| `--pause SECONDS` | the recall gap between front and back (default 4) |
+| `--voice NAME` | engine voice: `en-us`/`en-gb` for eSpeak, a `.onnx` path for piper |
+| `--rate WPM` | speaking rate (default 150) |
+| `--out DIR` | output directory (default `exports/audio/`, which is gitignored) |
+| `--dry-run` | print raw and spoken text side by side; synthesise nothing |
+| `--playlist` / `--no-playlist` | write `quantum-study.m3u` (default: yes) |
+| `--per-card` | one file per card instead of one track per category |
+| `--encode wav\|mp3\|opus` | re-encode with ffmpeg (default `wav`, needs nothing) |
+| `--engine NAME` | force an engine instead of the best installed one |
+| `--list-engines` | print the engine survey and exit |
+
+### Output
+
+By default you get **one continuous track per category**, numbered so a phone
+sorts them in category order, plus two chapter sidecars and a playlist:
+
+```
+exports/audio/
+  01-algorithms.wav            the track
+  01-algorithms.cue            chapter marks, one per card (CUE sheet)
+  01-algorithms.chapters.txt   the same marks as ffmetadata
+  02-cloze.wav  02-cloze.cue  02-cloze.chapters.txt
+  …
+  quantum-study.m3u            #EXTM3U playlist over all the tracks
+```
+
+The `.cue` sheet is what most desktop and Android players read to give you
+card-by-card skip inside a track. The ffmetadata file is for muxing an
+audiobook:
+
+```bash
+ffmpeg -i 01-algorithms.wav -i 01-algorithms.chapters.txt \
+       -map_metadata 1 -c:a aac 01-algorithms.m4b
+```
+
+`--per-card` swaps that for `exports/audio/<category>/0001-<card id>.wav`, with
+the M3U naming every card. Skip-track then means skip-card, at the cost of 856
+files.
+
+**Sizes.** eSpeak returns 22.05 kHz mono 16-bit, so WAV runs about 2.7 MB per
+minute — the whole deck is roughly 4.4 hours and 700 MB. `--encode mp3` drops
+that to about 0.33 MB per minute (~90 MB for the deck); `--encode opus` is
+smaller again. Both shell out to `ffmpeg`, and the tool checks for it *before*
+it starts synthesising.
+
+### Engines — offline only, no API key, no network
+
+Surveyed in quality order; the first one installed wins, `--engine` overrides.
+
+| Engine | Get it | Notes |
+|---|---|---|
+| `piper` | <https://github.com/rhasspy/piper> | neural, by far the most listenable; needs a voice model (`--voice en_US-*.onnx` or `PIPER_VOICE`) |
+| `say` | built in to macOS | |
+| `pico2wave` | `apt install libttspico-utils` / `dnf install svox-pico-tts` | small and natural; ignores `--rate` |
+| `espeak-ng` | `apt install espeak-ng` / `dnf install espeak-ng` | robotic but clear, fast, and the only one that is everywhere |
+| `espeak` | `apt install espeak` | the older eSpeak |
+| `flite` | `apt install flite` | CMU Flite |
+| `pyttsx3` | `pip install pyttsx3` | optional, imported lazily, and on Linux it only drives espeak — last resort |
+
+Nothing here opens a socket. If no engine is installed the tool prints the
+table above with the install lines, exits **3**, and writes nothing at all —
+it will not silently degrade to a cloud voice, because there is no cloud path
+in the file. `--dry-run` works with no engine installed, which is the point:
+the speech text is reviewable on a machine that cannot speak.
+
+`pyttsx3` is deliberately **not** in `requirements.txt` or
+`requirements-dev.txt`. Everything else the tool needs is the standard library,
+so `python3 tools/export_audio.py` works in a bare checkout.
+
+### The pronunciation layer — the part that actually matters
+
+Card text is written to be read. Fed to a synthesiser raw, `XZ = −iY` comes out
+"ex-zed equals why", `⟨ψ|P_m|ψ⟩` comes out "psi pee em psi", and `O(√N)` and
+`[[7,1,3]]` mostly come out as silence. So every card goes through thirteen
+rewriting passes before synthesis:
+
+| Raw | Spoken |
+|---|---|
+| `Σ_i \|i⟩⟨i\| = I` | the sum over i of ket i bra i equals I |
+| `⟨ψ\|P_m\|ψ⟩` | bra psi, P sub m, ket psi |
+| `⟨u\|v⟩ = Σ_{i=1}^n u_i^* v_i` | the inner product of u with v equals the sum from i equals 1 to n of u sub i conjugate v sub i |
+| `Rx(θ) = e^{-iθX/2}` | R x theta equals e to the power of minus i theta X over 2 |
+| `[CNOT, I⊗Z] = 0` | the commutator of CNOT and I tensor Z equals 0 |
+| `{X, Z} = 0` | the anticommutator of X and Z equals 0 |
+| `O(log(N)·κ²·ε⁻¹)` | big O of, log N times kappa squared times epsilon inverse |
+| `Steane [[7,1,3]] code` | Steane the 7, 1, 3 code |
+| `qc.count_ops()` | Q C dot count ops |
+| `SparsePauliOp`, `SamplerV2` | Sparse Pauli Op, Sampler V two |
+| `‖ρ−σ‖₁` | the trace norm of rho minus sigma |
+| `â\|α⟩ = α\|α⟩` | a hat ket alpha equals alpha ket alpha |
+| `Πₐ` vs `Π_{k=0}^{n-1}` | projector sub a — vs — the product from k equals 0 to n minus 1 of |
+
+The mapping lives in plain tables at the top of the file — `GREEK`, `SYMBOLS`,
+`SUPERSCRIPT`, `SUBSCRIPT`, `EXPONENT_WORDS`, `COMBINING`, `PRECOMPOSED`,
+`PHRASES`, `WORD_PHRASES`, `SPOKEN_WORDS`, `FUNCTIONS` — followed by the passes
+that use them, in the order `spoken()` documents. Add a row, re-run
+`--dry-run`, read the sentence out loud.
+
+Two tables are less obvious than the rest:
+
+* **`SPOKEN_WORDS`** only fixes what the synthesiser gets *wrong*. eSpeak reads
+  `LOCC` as "lock", `GHZ` as "gigahertz", `POVM` as "povvum", `EPR` as "epper"
+  and `eigenstate` as "eye-jen-state", so those are respelled. It reads `BQP`,
+  `QFT`, `CSS`, `HHL` and `CNOT` ("see-not") correctly already, so those are
+  deliberately absent. Acronyms that *are* said as words stay words: `NISQ`
+  → "nisk", `QASM` → "kazm", `SIC` → "sick", `CLOPS` → "clops".
+* **Gate runs** — `XZX`, `HZH`, `IXZZX`, `SX` — are split into letters by rule
+  rather than by table, because a run of `I X Y Z H S T` is always a product of
+  gates. The handful that spell English words (`IT`, `HIS`, `THIS`, …) are
+  excluded in `GATE_RUN_SKIP`.
+
+`--dry-run` ends with an **unmapped characters** line listing anything the
+tables did not recognise and the final scrub had to drop. That list is the
+to-do list; it is empty for the current 856-card deck. Grouping brackets are
+excluded from it, since they are dropped on purpose.
+
+### Reviewing it
+
+```bash
+python3 tools/export_audio.py --dry-run --limit 60 | less
+```
+
+`--limit` spreads its budget across categories rather than taking the first N
+cards, so `--limit 60` is four cards from each of the fifteen categories rather
+than sixty cards of `Algorithms`. Each card prints the raw front, the spoken
+front, the raw back and the spoken back, so a bad rewrite is visible without
+listening to anything.

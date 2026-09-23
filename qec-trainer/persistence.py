@@ -1,108 +1,180 @@
-"""Persistence for qec-trainer.
+"""Persistence for qec-trainer — a thin adapter over the shared ``common`` package.
 
-Three groups of files, all resolved under ``config.DATA_DIR`` (which honours
+Five files, all under :func:`config.data_dir` (which honours
 ``QUANTUM_STUDY_DATA_DIR``):
 
-* ``qec_history.json`` / ``qec_flagged.json`` — this app's own, load-bearing
-  schemas parsed by ``coach.py`` and ``dashboard.py``. Untouched.
-* ``mistakes.json`` / ``confidence.json`` — the suite-wide study-analytics
-  files every app appends to. Each record carries an ``app`` field.
-* ``qec_settings.json`` — this app's small local settings blob.
+===========================  ===========  ==================================
+File                         schema kind  Owned by
+===========================  ===========  ==================================
+``qec_history.json``         history      this app (load-bearing: ``coach.py``
+                                          and ``dashboard.py`` parse it)
+``qec_flagged.json``         flagged      this app (``coach.py`` review queue)
+``qec_settings.json``        settings     this app
+``mistakes.json``            mistakes     **the whole suite** — ten writers
+``confidence.json``          confidence   **the whole suite** — ten writers
+===========================  ===========  ==================================
 
-Every helper below is pure Python (no Qt) so it can be unit tested directly,
-and every path is a module-level constant so tests can monkeypatch it.
+What this module is now
+=======================
+Everything that was duplicated in all ten apps — the data-directory resolver,
+the mistake/confidence journal, the flag store, the atomic JSON writer and the
+cross-process lock — lives in :mod:`common` and is *called* from here, never
+re-implemented.  What is left is this app's own vocabulary: its session-history
+schema, its exponential-decay mastery weighting, and the argument order its own
+screens and tests already use.
+
+Three behaviours changed, and all three are fixes the shared package makes for
+every app at once (see ``common/README.md`` §3):
+
+* **The growth cap no longer deletes other apps' rows.**  This app used to trim
+  ``mistakes.json`` with ``sorted(all_rows, key=timestamp)[-MAX:]`` on the
+  *merged* list, which threw away rows belonging to the other nine apps during
+  a write to a file it does not own.  :func:`common.journal.trim_own` drops
+  only this app's oldest rows.
+* **A repeated mistake appends a new row instead of merging into the open
+  one.**  ``dashboard.load_mistakes`` says it outright: "a genuine second miss
+  of the same item keeps its own entry, because repetition is exactly the
+  signal".  Merging destroyed the count ``coach --mistakes`` reports.
+* **:func:`calibration_summary` buckets are ``{"total", "correct"}``**, not
+  ``{"n", "correct"}`` — the name the other apps and the dashboard use.
+
+Every file this app writes now carries a schema version in a sidecar
+(``qec_history.json.schema.json``), migrates forward on read, refuses to be
+overwritten by a build that does not understand it, and is copied to a
+rotating ``.bak`` before the first write of each session.  The *data* files
+themselves are byte-for-byte the same shape they always were: the sidecar
+exists precisely so that ``coach.py`` and ``dashboard.py``, which require the
+top level to be a plain JSON list, keep working untouched.
 """
 from __future__ import annotations
-import json
-import os
+
+import math
 import time
 from pathlib import Path
-import journal_sync
-from config import (
-    APP_DIR_NAME, CONFIDENCE_FILE, DATA_DIR, FLAGGED_FILE, HISTORY_FILE,
-    MISTAKES_FILE, SETTINGS_FILE,
-)
-from core.models import SessionStats, Attempt
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common import flags, journal, schema
+from common.jsonio import read_json_dict
+
+import config
+from config import APP_DIR_NAME
+from core.models import Attempt, SessionStats  # noqa: F401  (Attempt: public re-export)
 
 _HALF_LIFE_DAYS = 14.0   # score halves in weight every 14 days
-_FLAGGED_FILE = FLAGGED_FILE
 
 APP_ID = APP_DIR_NAME
 
-# ── Mistake journal / confidence calibration contract ─────────────────────────
+# ── Mistake journal / confidence contract (one definition, in common) ─────────
 
-MISTAKE_CAUSES: tuple[str, ...] = (
-    "misread", "didnt_know", "knew_but_slipped", "confused", "out_of_time", "other",
-)
-CAUSE_LABELS: dict[str, str] = {
-    "misread":          "Misread",
-    "didnt_know":       "Didn't know",
-    "knew_but_slipped": "Knew but slipped",
-    "confused":         "Confused",
-    "out_of_time":      "Out of time",
-    "other":            "Other",
+MISTAKE_CAUSES: tuple[str, ...] = journal.MISTAKE_CAUSES
+CAUSE_LABELS: dict[str, str] = journal.CAUSE_LABELS
+CONFIDENCE_LEVELS: tuple[int, ...] = journal.CONFIDENCE_LEVELS
+CONFIDENCE_LABELS: dict[int, str] = journal.CONFIDENCE_LABELS
+
+_TEXT_MAX = journal.TEXT_MAX
+_NOTE_MAX = journal.NOTE_MAX
+
+
+# ── Paths, resolved at call time ──────────────────────────────────────────────
+#
+# The module-level names (``HISTORY_FILE``, ``MISTAKES_FILE``, …) are kept as a
+# backwards-compatible surface and are computed on each attribute access, so a
+# test needs nothing but ``monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", tmp)``.
+
+def history_path() -> Path:
+    """``qec_history.json`` — this app's session history."""
+    return config.history_file()
+
+
+def flagged_path() -> Path:
+    """``qec_flagged.json`` — this app's flag-for-review store."""
+    return config.flagged_file()
+
+
+def settings_path() -> Path:
+    """``qec_settings.json`` — this app's settings blob."""
+    return config.settings_file()
+
+
+def mistakes_path() -> Path:
+    """``mistakes.json`` — the suite-wide mistake journal."""
+    return journal.mistakes_path()
+
+
+def confidence_path() -> Path:
+    """``confidence.json`` — the suite-wide calibration log."""
+    return journal.confidence_path()
+
+
+_PATHS = {
+    "DATA_DIR":        config.data_dir,
+    "HISTORY_FILE":    history_path,
+    "FLAGGED_FILE":    flagged_path,
+    "_FLAGGED_FILE":   flagged_path,
+    "SETTINGS_FILE":   settings_path,
+    "MISTAKES_FILE":   mistakes_path,
+    "CONFIDENCE_FILE": confidence_path,
 }
-CONFIDENCE_LABELS: dict[int, str] = {
-    1: "Guessing", 2: "Unsure", 3: "Fairly sure", 4: "Certain",
-}
-
-_TEXT_MAX = 200            # per the shared schema: question/answers cap at 200 chars
-_NOTE_MAX = 500
-# Both shared files are append-only logs; keep the newest N records so a few
-# years of study cannot grow them without bound. Trimming is by timestamp, so
-# other apps' records are treated exactly like this app's.
-MISTAKES_MAX = 2000
-CONFIDENCE_MAX = 5000
+#: Growth caps live with the journal; read through so patching one place works.
+_FROM_JOURNAL = ("MISTAKES_MAX", "CONFIDENCE_MAX")
 
 
-# ── Low-level IO ──────────────────────────────────────────────────────────────
+def __getattr__(name: str):                     # PEP 562
+    """``persistence.HISTORY_FILE`` &c., resolved at the moment they are read."""
+    if name in _PATHS:
+        return _PATHS[name]()
+    if name in _FROM_JOURNAL:
+        return getattr(journal, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-def _clip(value, limit: int) -> str:
-    text = "" if value is None else str(value)
-    return text[:limit]
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_PATHS) | set(_FROM_JOURNAL))
 
 
-def _atomic_write_json(path: Path, payload) -> None:
-    """Write JSON to *path* via a temp file + replace, so a crash or a second
-    writer never leaves a half-written file behind."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+# ── Refused writes ────────────────────────────────────────────────────────────
+
+_LAST_WRITE_ERROR: schema.SchemaError | None = None
+
+
+def last_write_error() -> schema.SchemaError | None:
+    """The most recent write this build refused to make, or None.
+
+    :mod:`common.schema` will not overwrite a file written by a *newer* build:
+    that is how a newer build's fields get silently deleted.  Nothing raises
+    into a drill; the refusal is recorded here instead.
+    """
+    return _LAST_WRITE_ERROR or journal.last_write_error()
+
+
+def clear_write_error() -> None:
+    """Forget the last refused write (this app's and the journal's)."""
+    global _LAST_WRITE_ERROR
+    _LAST_WRITE_ERROR = None
+    journal.clear_write_error()
+
+
+def _write(path: Path, payload, kind: str) -> bool:
+    """``schema.save_versioned`` that reports a refusal instead of raising."""
+    global _LAST_WRITE_ERROR
     try:
-        tmp.write_text(json.dumps(payload, indent=2))
-        os.replace(tmp, path)
-    finally:
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
+        schema.save_versioned(path, payload, kind)
+    except schema.SchemaTooNewError as exc:
+        _LAST_WRITE_ERROR = exc
+        return False
+    return True
 
 
-def _read_json_list(path: Path) -> list[dict]:
-    """Read a JSON list of objects; anything missing or corrupt reads as []."""
-    try:
-        if not path.exists():
-            return []
-        data = json.loads(path.read_text())
-    except Exception:
-        return []
-    if not isinstance(data, list):
-        return []
-    return [row for row in data if isinstance(row, dict)]
+# ── Session history (existing on-disk schema — deliberately unchanged) ────────
+
+def _load_raw() -> list:
+    """Every saved session, oldest first.  Never raises; corrupt reads as ``[]``."""
+    return schema.load_versioned(history_path(), "history")
 
 
-# ── Session history (existing schema — do not change) ─────────────────────────
-
-def _load_raw() -> list[dict]:
-    if not HISTORY_FILE.exists():
-        return []
-    try:
-        return json.loads(HISTORY_FILE.read_text())
-    except Exception:
-        return []
-
-
-def save_session(stats: SessionStats) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+def save_session(stats: SessionStats) -> bool:
+    """Append one finished session.  Returns False if the write was refused."""
     sessions = _load_raw()
     sessions.append({
         "total":     stats.total,
@@ -122,32 +194,7 @@ def save_session(stats: SessionStats) -> None:
             for a in stats.attempts
         ],
     })
-    _atomic_write_json(HISTORY_FILE, sessions)
-
-
-def load_flagged() -> set[str]:
-    if not _FLAGGED_FILE.exists():
-        return set()
-    try:
-        return set(json.loads(_FLAGGED_FILE.read_text()))
-    except Exception:
-        return set()
-
-
-def save_flagged(ids: set[str]) -> None:
-    _atomic_write_json(_FLAGGED_FILE, sorted(ids))
-
-
-def toggle_flag(problem_id: str) -> bool:
-    ids = load_flagged()
-    if problem_id in ids:
-        ids.discard(problem_id)
-        save_flagged(ids)
-        return False
-    else:
-        ids.add(problem_id)
-        save_flagged(ids)
-        return True
+    return _write(history_path(), sessions, "history")
 
 
 def _session_weight(session: dict) -> float:
@@ -156,7 +203,6 @@ def _session_weight(session: dict) -> float:
     if ts is None:
         return 0.1   # very old sessions with no timestamp get low weight
     days = (time.time() - ts) / 86400.0
-    import math
     return math.exp(-days * math.log(2) / _HALF_LIFE_DAYS)
 
 
@@ -203,6 +249,42 @@ def problem_score_weights() -> dict[str, float]:
     return result
 
 
+# ── Flag for review (qec_flagged.json) ────────────────────────────────────────
+#
+# The file used to be written with a plain ``write_text`` of a bare id list.
+# ``common.flags`` reads that legacy shape and upgrades it in place on the first
+# write to the contract shape every other app uses
+# ({id, label, category, app, timestamp}); ``coach.py`` parses both, so the
+# review queue keeps working either way — and now shows the question text
+# instead of the bare problem id.
+
+def load_flagged() -> set[str]:
+    """The ids currently flagged for review.  Never raises."""
+    return flags.flagged_ids(flagged_path(), APP_ID)
+
+
+def save_flagged(ids) -> bool:
+    """Replace the flag file with *ids* (a set, or contract-shaped rows)."""
+    rows = sorted(ids) if isinstance(ids, (set, frozenset)) else list(ids)
+    return flags.save_flagged(flagged_path(), rows, APP_ID)
+
+
+def flagged_entries() -> list[dict]:
+    """Flagged items with their label, category and timestamp, oldest first."""
+    return flags.load_flagged(flagged_path(), APP_ID)
+
+
+def toggle_flag(problem_id: str, label: str = "", category: str = "") -> bool:
+    """Flag the problem, or unflag it if it is already flagged.
+
+    Returns the **new** state.  *label* and *category* are stored so the review
+    queue in ``coach.py`` can show the question rather than the bare id; they
+    are ignored when the item is being unflagged.
+    """
+    return flags.toggle_flag(flagged_path(), problem_id, label, category,
+                             app=APP_ID)
+
+
 # ── Mistake journal (shared mistakes.json) ────────────────────────────────────
 
 def make_mistake_entry(item_id: str, category: str, question: str,
@@ -211,126 +293,64 @@ def make_mistake_entry(item_id: str, category: str, question: str,
                        timestamp: float | None = None,
                        resolved: bool = False,
                        app: str = APP_ID) -> dict:
-    """Build one mistake record in the suite-wide schema.
+    """Build one mistake record in the suite-wide schema (pure; writes nothing).
 
-    ``cause`` is one of MISTAKE_CAUSES, or None for "logged but not yet
-    categorised". Anything unrecognised is stored as None rather than rejected,
-    so a stray value can never lose the mistake itself.
+    ``cause`` is one of :data:`MISTAKE_CAUSES`, or None for "logged but not yet
+    categorised".  Anything unrecognised is stored as None rather than
+    rejected, so a stray value can never lose the mistake itself.
     """
-    return {
-        "id":             str(item_id),
-        "app":            str(app),
-        "category":       str(category),
-        "question":       _clip(question, _TEXT_MAX),
-        "your_answer":    _clip(your_answer, _TEXT_MAX),
-        "correct_answer": _clip(correct_answer, _TEXT_MAX),
-        "cause":          cause if cause in MISTAKE_CAUSES else None,
-        "note":           _clip(note, _NOTE_MAX),
-        "timestamp":      float(time.time() if timestamp is None else timestamp),
-        "resolved":       bool(resolved),
-    }
+    return journal.make_mistake_entry(
+        item_id, app, category=category, question=question,
+        your_answer=your_answer, correct_answer=correct_answer, cause=cause,
+        note=note, timestamp=timestamp, resolved=resolved)
 
 
 def load_mistakes() -> list[dict]:
-    """Every mistake record in the shared journal (all apps). Never raises."""
-    return _read_json_list(MISTAKES_FILE)
+    """Every mistake record in the shared journal (all apps).  Never raises."""
+    return journal.load_mistakes()
 
 
-def save_mistakes(entries: list[dict]) -> None:
-    """Rewrite the journal atomically, keeping the newest MISTAKES_MAX records.
+def save_mistakes(entries: list[dict], app: str = APP_ID) -> bool:
+    """Rewrite the journal, keeping every other app's rows exactly as stored.
 
-    mistakes.json is shared with the other nine apps, so the rewrite runs under
-    journal_sync.lock() and every row belonging to another app is written back
-    exactly as it is on disk (unknown keys included) — only this app's rows are
-    taken from *entries*.
+    Locked for the whole read-modify-write, written atomically, and capped by
+    dropping only **this app's** oldest rows.
     """
-    _write_mistakes(entries, APP_ID)
-
-
-def _write_mistakes(entries: list[dict], app: str) -> None:
-    """save_mistakes() for one owning *app* (re-entrant under the lock)."""
-    with journal_sync.lock(MISTAKES_FILE, create=True):
-        rows = journal_sync.merge_foreign(_read_json_list(MISTAKES_FILE),
-                                          list(entries), app)
-        if len(rows) > MISTAKES_MAX:
-            rows = sorted(rows, key=lambda e: e.get("timestamp") or 0.0)[-MISTAKES_MAX:]
-        _atomic_write_json(MISTAKES_FILE, rows)
+    return journal.save_mistakes(entries, app)
 
 
 def log_mistake(entry: dict) -> dict:
-    """Append *entry*, or refresh the open (unresolved) record for the same
-    app+id. Returns the stored record."""
-    owner = entry.get("app") or APP_ID
-    with journal_sync.lock(MISTAKES_FILE, create=True):
-        rows = load_mistakes()       # read inside the lock: never stale
-        for i in range(len(rows) - 1, -1, -1):
-            row = rows[i]
-            if (row.get("app") == entry.get("app") and row.get("id") == entry.get("id")
-                    and not row.get("resolved")):
-                merged = dict(row)
-                merged.update(entry)
-                # a cause already chosen for this open mistake survives a re-log
-                if entry.get("cause") is None and row.get("cause"):
-                    merged["cause"] = row["cause"]
-                if not entry.get("note") and row.get("note"):
-                    merged["note"] = row["note"]
-                rows[i] = merged
-                _write_mistakes(rows, owner)
-                return merged
-        rows.append(entry)
-        _write_mistakes(rows, owner)
-        return entry
+    """Append one prepared mistake row.  Returns the record as stored.
+
+    A repeat is a new row, not an update: three slips on the same item are the
+    signal ``coach --mistakes`` counts.
+    """
+    return journal.log_mistake(entry)
 
 
 def set_mistake_cause(item_id: str, cause: str | None, note: str | None = None,
                       app: str = APP_ID) -> dict | None:
-    """Attach a cause (and optional note) to the newest open mistake for
-    app+id. Returns the updated record, or None if there is nothing to update."""
-    with journal_sync.lock(MISTAKES_FILE):
-        rows = load_mistakes()       # read inside the lock: never stale
-        for i in range(len(rows) - 1, -1, -1):
-            row = rows[i]
-            if row.get("app") == app and row.get("id") == str(item_id) and not row.get("resolved"):
-                row["cause"] = cause if cause in MISTAKE_CAUSES else None
-                if note is not None:
-                    row["note"] = _clip(note, _NOTE_MAX)
-                _write_mistakes(rows, app)
-                return row
-        return None
+    """Attach a cause (and optional note) to the newest record for app+id.
+
+    ``note=None`` leaves the existing note alone; ``note=""`` clears it.
+    Returns the updated record, or None when there is nothing to update.
+    """
+    return journal.set_mistake_cause(item_id, cause, note, app=app)
 
 
 def resolve_mistake(item_id: str, app: str = APP_ID) -> int:
-    """Mark every open mistake for app+id resolved (the item was re-answered
-    correctly). Returns how many records changed."""
-    with journal_sync.lock(MISTAKES_FILE):
-        rows = load_mistakes()       # read inside the lock: never stale
-        changed = 0
-        for row in rows:
-            if row.get("app") == app and row.get("id") == str(item_id) and not row.get("resolved"):
-                row["resolved"] = True
-                changed += 1
-        if changed:
-            _write_mistakes(rows, app)
-        return changed
+    """Mark every open mistake for app+id resolved.  Returns how many changed."""
+    return journal.resolve_mistakes(item_id, app)
 
 
 def open_mistakes(app: str | None = APP_ID) -> list[dict]:
     """Unresolved mistakes, newest first; *app* None means every app."""
-    rows = [r for r in load_mistakes()
-            if not r.get("resolved") and (app is None or r.get("app") == app)]
-    return sorted(rows, key=lambda e: e.get("timestamp") or 0.0, reverse=True)
+    return journal.open_mistakes(app)
 
 
 def cause_counts(app: str | None = APP_ID) -> dict[str, int]:
-    """How many mistakes each cause accounts for — the analysis payload."""
-    counts: dict[str, int] = {}
-    for row in load_mistakes():
-        if app is not None and row.get("app") != app:
-            continue
-        cause = row.get("cause")
-        if cause in MISTAKE_CAUSES:
-            counts[cause] = counts.get(cause, 0) + 1
-    return counts
+    """How many mistakes each recognised cause accounts for."""
+    return journal.cause_counts(app, include_uncategorised=False)
 
 
 # ── Confidence calibration (shared confidence.json) ───────────────────────────
@@ -338,69 +358,44 @@ def cause_counts(app: str | None = APP_ID) -> dict[str, int]:
 def make_confidence_entry(item_id: str, category: str, confidence: int,
                           correct: bool, timestamp: float | None = None,
                           app: str = APP_ID) -> dict:
-    return {
-        "id":         str(item_id),
-        "app":        str(app),
-        "category":   str(category),
-        "confidence": max(1, min(4, int(confidence))),
-        "correct":    bool(correct),
-        "timestamp":  float(time.time() if timestamp is None else timestamp),
-    }
+    """Build one calibration record (pure; the rating is clamped to 1–4)."""
+    return journal.make_confidence_entry(item_id, app, category=category,
+                                         confidence=confidence,
+                                         correct=correct, timestamp=timestamp)
 
 
 def load_confidence() -> list[dict]:
-    """Every confidence record (all apps). Never raises."""
-    return _read_json_list(CONFIDENCE_FILE)
+    """Every confidence record (all apps).  Never raises."""
+    return journal.load_confidence()
 
 
-def save_confidence(entries: list[dict]) -> None:
+def save_confidence(entries: list[dict], app: str = APP_ID) -> bool:
     """Rewrite the calibration log (same shared-file contract as the journal)."""
-    _write_confidence(entries, APP_ID)
+    return journal.save_confidence(entries, app)
 
 
-def _write_confidence(entries: list[dict], app: str) -> None:
-    with journal_sync.lock(CONFIDENCE_FILE, create=True):
-        rows = journal_sync.merge_foreign(_read_json_list(CONFIDENCE_FILE),
-                                          list(entries), app)
-        if len(rows) > CONFIDENCE_MAX:
-            rows = sorted(rows, key=lambda e: e.get("timestamp") or 0.0)[-CONFIDENCE_MAX:]
-        _atomic_write_json(CONFIDENCE_FILE, rows)
+def log_confidence(item_id: str, category: str, confidence, correct: bool,
+                   timestamp: float | None = None,
+                   app: str = APP_ID) -> dict | None:
+    """Record one confidence/outcome pairing.
 
-
-def log_confidence(item_id: str, category: str, confidence: int, correct: bool,
-                   timestamp: float | None = None, app: str = APP_ID) -> dict | None:
-    """Record one confidence/outcome pairing. A rating outside 1–4 (or None,
-    meaning "the user skipped the strip") records nothing and returns None."""
-    if confidence is None:
-        return None
-    try:
-        rating = int(confidence)
-    except (TypeError, ValueError):
-        return None
-    if rating not in (1, 2, 3, 4):
-        return None
-    entry = make_confidence_entry(item_id, category, rating, correct, timestamp, app)
-    with journal_sync.lock(CONFIDENCE_FILE, create=True):
-        rows = load_confidence()     # read inside the lock: never stale
-        rows.append(entry)
-        _write_confidence(rows, app)
-    return entry
+    A rating outside 1–4 — including None, meaning "the user skipped the
+    strip" — records nothing and returns None.
+    """
+    return journal.log_confidence(item_id, app, category=category,
+                                  confidence=confidence, correct=correct,
+                                  timestamp=timestamp)
 
 
 def calibration_summary(app: str | None = APP_ID) -> dict[int, dict[str, int]]:
-    """{confidence: {"n": …, "correct": …}} — the confidently-wrong report."""
-    out: dict[int, dict[str, int]] = {}
-    for row in load_confidence():
-        if app is not None and row.get("app") != app:
-            continue
-        rating = row.get("confidence")
-        if rating not in (1, 2, 3, 4):
-            continue
-        bucket = out.setdefault(rating, {"n": 0, "correct": 0})
-        bucket["n"] += 1
-        if row.get("correct"):
-            bucket["correct"] += 1
-    return out
+    """``{rating: {"total": n, "correct": c}}`` — the confidently-wrong report."""
+    return journal.calibration_summary(app)
+
+
+def confidently_wrong(app: str | None = APP_ID, *,
+                      min_confidence: int = journal.CONFIDENT_LEVEL) -> list[dict]:
+    """Rows the learner was sure about and got wrong — the unknown unknowns."""
+    return journal.confidently_wrong(app, min_confidence=min_confidence)
 
 
 # ── App-local settings (opt-outs) ─────────────────────────────────────────────
@@ -409,21 +404,17 @@ _DEFAULT_SETTINGS = {"confidence_prompt": True}
 
 
 def load_settings() -> dict:
-    try:
-        if not SETTINGS_FILE.exists():
-            return dict(_DEFAULT_SETTINGS)
-        data = json.loads(SETTINGS_FILE.read_text())
-    except Exception:
-        return dict(_DEFAULT_SETTINGS)
-    if not isinstance(data, dict):
-        return dict(_DEFAULT_SETTINGS)
+    """The settings blob merged over the defaults.  Unknown keys are kept."""
+    data = schema.load_versioned(settings_path(), "settings",
+                                 reader=read_json_dict)
     merged = dict(_DEFAULT_SETTINGS)
-    merged.update(data)
+    if isinstance(data, dict):
+        merged.update(data)
     return merged
 
 
-def save_settings(settings: dict) -> None:
-    _atomic_write_json(SETTINGS_FILE, settings)
+def save_settings(settings: dict) -> bool:
+    return _write(settings_path(), dict(settings), "settings")
 
 
 def confidence_prompt_enabled() -> bool:

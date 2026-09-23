@@ -42,8 +42,8 @@ def _stats(rows: list[tuple[ProblemCategory, str | None, int]]) -> SessionStats:
 
 
 def test_save_session_round_trip(isolated_data_dir):
-    assert persistence._HISTORY_FILE.is_relative_to(isolated_data_dir)
-    assert not persistence._HISTORY_FILE.exists() and persistence._load_raw() == []
+    assert persistence.history_file().is_relative_to(isolated_data_dir)
+    assert not persistence.history_file().exists() and persistence._load_raw() == []
 
     stats = _stats([
         (ProblemCategory.SINGLE_GATE_OUTPUT, "sg-1", 10),
@@ -52,8 +52,8 @@ def test_save_session_round_trip(isolated_data_dir):
     persistence.save_session(stats)
     persistence.save_session(_stats([(ProblemCategory.NOISE_CHANNEL, None, 5)]), sprint=True)
 
-    assert persistence._HISTORY_FILE.exists()
-    raw = json.loads(persistence._HISTORY_FILE.read_text())
+    assert persistence.history_file().exists()
+    raw = json.loads(persistence.history_file().read_text())
     assert raw == persistence._load_raw()
     assert len(raw) == 2
 
@@ -105,7 +105,7 @@ def test_time_decay_halves_weight_every_14_days(isolated_data_dir):
         {"date": str(today), "attempts": [{"problem_id": "p", "category": "C", "score": 10}]},
     ]
     isolated_data_dir.mkdir(parents=True, exist_ok=True)
-    persistence._HISTORY_FILE.write_text(json.dumps(raw))
+    persistence.history_file().write_text(json.dumps(raw))
 
     w_old = math.exp(-14 * math.log(2) / 14.0)          # 0.5
     expected_avg = (w_old * 0 + 1.0 * 10) / (w_old + 1.0)
@@ -116,7 +116,7 @@ def test_time_decay_halves_weight_every_14_days(isolated_data_dir):
 
 def test_corrupt_history_is_treated_as_empty_and_recoverable(isolated_data_dir):
     isolated_data_dir.mkdir(parents=True, exist_ok=True)
-    persistence._HISTORY_FILE.write_text("{not json")
+    persistence.history_file().write_text("{not json")
     assert persistence._load_raw() == []
     assert persistence.avg_scores_by_category() == {}
     persistence.save_session(_stats([(ProblemCategory.GATE_SEQUENCE, "x", 10)]))
@@ -124,13 +124,14 @@ def test_corrupt_history_is_treated_as_empty_and_recoverable(isolated_data_dir):
 
 
 # ── QUANTUM_STUDY_DATA_DIR ────────────────────────────────────────────────────
-# The override is read at import time, so check it from a fresh interpreter
-# (the autouse fixture patches the constants in-process for isolation).
+# Since the move to common.datadir the override is resolved on every call, not
+# frozen at import time -- but a fresh interpreter is still the honest check
+# that nothing anywhere caches it.
 
 _APP_ROOT = pathlib.Path(persistence.__file__).resolve().parent
 _PRINT_PATHS = (
-    "import json, persistence; print(json.dumps([str(persistence._DATA_DIR), "
-    "str(persistence._HISTORY_FILE), str(persistence.flagged_file())]))"
+    "import json, persistence; print(json.dumps([str(persistence.data_dir()), "
+    "str(persistence.history_file()), str(persistence.flagged_file())]))"
 )
 
 
@@ -156,3 +157,49 @@ def test_default_data_dir_when_env_var_unset():
     assert data_dir == str(expected)
     assert history == str(expected / "trainer_history.json")
     assert flagged == str(expected / "trainer_flagged.json")
+
+
+def test_the_data_dir_is_resolved_on_every_call(monkeypatch, tmp_path):
+    """No import-time snapshot: setting the variable now is enough, anywhere."""
+    first, second = tmp_path / "one", tmp_path / "two"
+    monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", str(first))
+    assert persistence.data_dir() == first
+    assert persistence.history_file() == first / "trainer_history.json"
+    monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", str(second))
+    assert persistence.data_dir() == second
+    assert persistence.mistakes_file() == second / "mistakes.json"
+
+    # A blank override is no override, and "~" is expanded.
+    monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", "   ")
+    assert persistence.data_dir() == pathlib.Path.home() / ".local" / "share" / "quantum-study"
+    monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", "~/scratch-quantum-study")
+    assert persistence.data_dir() == pathlib.Path.home() / "scratch-quantum-study"
+
+
+def test_session_history_is_version_stamped_and_backed_up(isolated_data_dir):
+    from common import schema
+
+    stats = _stats([(ProblemCategory.GATE_SEQUENCE, "gs-1", 10)])
+    persistence.save_session(stats)
+    meta = json.loads((isolated_data_dir / "trainer_history.json.schema.json").read_text())
+    assert (meta["kind"], meta["schema"]) == ("history", 1)
+    assert not (isolated_data_dir / "trainer_history.json.bak").exists()
+
+    schema.reset_session()                       # a second session starts
+    persistence.save_session(stats)
+    assert len(json.loads((isolated_data_dir / "trainer_history.json.bak").read_text())) == 1
+    assert len(persistence._load_raw()) == 2
+
+
+def test_a_history_file_from_a_newer_build_is_refused(isolated_data_dir):
+    isolated_data_dir.mkdir(parents=True, exist_ok=True)
+    path = isolated_data_dir / "trainer_history.json"
+    path.write_text(json.dumps([{"date": "2026-01-01", "total": 1, "correct": 1}]))
+    (isolated_data_dir / "trainer_history.json.schema.json").write_text(
+        json.dumps({"file": path.name, "kind": "history", "schema": 42}))
+
+    before = path.read_text()
+    persistence.save_session(_stats([(ProblemCategory.GATE_SEQUENCE, "gs-1", 10)]))
+    assert path.read_text() == before
+    assert "v42" in str(persistence.last_write_error())
+    persistence.clear_write_error()

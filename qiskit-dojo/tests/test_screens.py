@@ -14,14 +14,13 @@ from pathlib import Path
 
 import pytest
 from PyQt6.QtCore import QObject, Qt, QUrl, pyqtSignal
-from PyQt6.QtWidgets import QPushButton
+from PyQt6.QtWidgets import QPushButton, QWidget
 
 import persistence
 from core.models import Kata, KataAttempt, RunResult, SessionStats
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 DOCS_ROOT = APP_ROOT.parent / "docs"
-PATH_ROLE = Qt.ItemDataRole.UserRole
 
 
 def _kata(kid: str, title: str = "t", section: str = "Sampler") -> Kata:
@@ -107,8 +106,11 @@ def history_screen(qapp, data_dir):
 
 @pytest.fixture
 def reference_screen(qapp):
-    from ui.screens.reference_screen import ReferenceScreen
-    screen = ReferenceScreen()
+    """The SHARED reference screen, configured exactly as MainWindow does."""
+    from common.ui.reference import ReferenceScreen
+    from config import DOCS_DEFAULT_CHAPTER, DOCS_FOR_SECTION
+    screen = ReferenceScreen(default_chapter=DOCS_DEFAULT_CHAPTER,
+                             category_docs=DOCS_FOR_SECTION)
     screen.resize(1100, 700)
     screen.show()
     _pump(qapp)
@@ -348,83 +350,122 @@ def test_history_footer_style_is_scoped_to_the_bar(history_screen):
 
 
 # ---------------------------------------------------------- ReferenceScreen
+#
+# The screen itself is common/ui/reference.py — one implementation for all ten
+# apps.  What is this app's own, and therefore what these tests pin, is the two
+# constructor arguments MainWindow passes: the chapter the dojo opens on and
+# the kata-section -> chapter map behind the "Jump to topic" picker.
 
 def test_reference_discovers_every_doc_under_repo_docs(reference_screen, qapp):
     r = reference_screen
-    assert r.docs_root == DOCS_ROOT and DOCS_ROOT.is_dir()
+    assert r.docs_root() == DOCS_ROOT and DOCS_ROOT.is_dir()
     expected = sorted(DOCS_ROOT.rglob("*.md"))
     assert expected, "docs corpus is empty?"
 
     r.load_all(); _pump(qapp)
-    leaves = list(r._iter_leaves())
-    assert sorted(Path(l.data(0, PATH_ROLE)) for l in leaves) == expected
-    assert r._doc_count == len(expected)
-    assert r._count_lbl.text().startswith(f"{len(expected)} chapters")
-    assert r.current_path == DOCS_ROOT / "README.md"
+    assert sorted(e.path for e in r.entries) == expected
+    assert r._count_lbl.text().startswith(f"{len(expected)} document")
     assert r._open_btn.isEnabled()
-    # every leaf is titled from its H1 (no prettified-stem fallbacks)
-    for leaf in leaves:
-        text = Path(leaf.data(0, PATH_ROLE)).read_text(encoding="utf-8")
-        h1 = next(line[2:].strip() for line in text.splitlines() if line.startswith("# "))
-        assert leaf.text(0) in (h1, "Learning Ladder (README)")
+    # every entry is titled from its H1 (no prettified-stem fallbacks)
+    for entry in r.entries:
+        text = entry.path.read_text(encoding="utf-8")
+        h1 = next(line[2:].strip() for line in text.splitlines()
+                  if line.startswith("# "))
+        assert entry.title == h1, entry.rel
 
     r.load_all(); _pump(qapp)                           # idempotent: no re-scan
-    assert len(list(r._iter_leaves())) == len(expected)
+    assert len(r.entries) == len(expected)
 
 
-def test_reference_rewrites_details_blocks_in_every_doc(reference_screen):
+def test_reference_opens_on_the_dojo_chapter(reference_screen, qapp):
+    """The dojo is a circuits trainer, so it lands on the circuits chapter."""
+    from config import DOCS_DEFAULT_CHAPTER
     r = reference_screen
-    with_details = [p for p in sorted(DOCS_ROOT.rglob("*.md"))
-                    if "<details>" in p.read_text(encoding="utf-8")]
+    r.load_all(); _pump(qapp)
+    current = r.current_doc_path()
+    assert current is not None
+    assert current.parent.name == DOCS_DEFAULT_CHAPTER
+    assert current == sorted(
+        (DOCS_ROOT / DOCS_DEFAULT_CHAPTER).rglob("*.md"))[0]
+
+
+def test_reference_jump_to_topic_covers_every_kata_section(reference_screen, qapp):
+    """Every kata section maps to a chapter that exists, and the picker opens it."""
+    from config import DOCS_FOR_SECTION
+    from katas import all_sections
+    r = reference_screen
+    r.load_all(); _pump(qapp)
+
+    assert set(DOCS_FOR_SECTION) == set(all_sections()), (
+        "the Jump-to-topic map and the kata sections have drifted apart")
+    # the picker is populated: the placeholder plus one row per section
+    assert r._jump.count() == len(DOCS_FOR_SECTION) + 1
+
+    for section, rel in DOCS_FOR_SECTION.items():
+        assert (DOCS_ROOT / rel).is_file(), f"{section} -> missing {rel}"
+        assert r.show_category(section) is True, section
+        _pump(qapp)
+        assert r.current_doc_path() == DOCS_ROOT / rel, section
+    assert r.show_category("Not a kata section") is False
+
+
+def test_reference_rewrites_details_blocks_in_every_doc(reference_screen, qapp):
+    r = reference_screen
+    r.load_all(); _pump(qapp)
+    with_details = [e for e in r.entries if "<details>" in e.text()]
     assert with_details
-    for p in with_details:
-        assert r.show_doc(p) is True
+    for entry in with_details:
+        assert r.open_doc(entry.rel) is True
         txt = r._browser.toPlainText()
-        assert "<details>" not in txt and "<summary>" not in txt and "</details>" not in txt, p
-        assert "Solution:" in txt, p
-        assert r.current_path == p
+        assert "<details>" not in txt and "<summary>" not in txt, entry.rel
+        assert "</details>" not in txt, entry.rel
+        assert "Solution" in txt, entry.rel
+        assert r.current_doc_path() == entry.path
+
+    # and the solutions can be hidden, which the app's own screen could not do
+    entry = with_details[0]
+    assert r.open_doc(entry.rel)
+    r._solutions_cb.setChecked(False); _pump(qapp)
+    assert "tick" in r._browser.toPlainText().lower()
 
 
 def test_reference_fragment_links_scroll_to_headings(reference_screen, qapp):
     r = reference_screen
-    doc = next(p for p in sorted(DOCS_ROOT.rglob("*.md"))
-               if "\n## Key Formulas" in p.read_text(encoding="utf-8"))
-    assert r.show_doc(doc)
+    r.load_all(); _pump(qapp)
+    entry = next(e for e in r.entries if "\n## Key Formulas" in e.text())
+    assert r.open_doc(entry.rel)
     _pump(qapp)
     sb = r._browser.verticalScrollBar()
     assert sb.value() == 0 and sb.maximum() > 0
 
-    r._on_anchor(QUrl("#key-formulas")); _pump(qapp)
+    r._on_anchor_clicked(QUrl("#key-formulas")); _pump(qapp)
     assert sb.value() > 0
-    assert r.scroll_to_fragment("Key Formulas") is True   # normalised like GitHub
-    assert r.scroll_to_fragment("no-such-heading-xyz") is False
-    assert "<a href" not in r._browser.toHtml()            # anchors are not links
+    assert r.open_doc(entry.rel, "no-such-heading-xyz") is True   # never raises
 
 
-def test_reference_relative_missing_and_external_links(reference_screen, qapp, monkeypatch):
-    import ui.screens.reference_screen as ref_mod
+def test_reference_relative_missing_and_external_links(reference_screen, qapp,
+                                                       monkeypatch):
+    from common.ui import reference as ref_mod
     opened: list[str] = []
     monkeypatch.setattr(ref_mod.QDesktopServices, "openUrl",
                         staticmethod(lambda url: (opened.append(url.toString()), True)[1]))
     r = reference_screen
     r.load_all(); _pump(qapp)
 
-    chapters = sorted(p for p in DOCS_ROOT.rglob("*.md") if p.parent != DOCS_ROOT)
+    chapters = [e for e in r.entries if e.path.parent != DOCS_ROOT]
     src = chapters[0]
-    dst = next(p for p in chapters if p.parent != src.parent)
-    assert r.show_doc(src)
-    rel = os.path.relpath(dst, src.parent)
-    r._on_anchor(QUrl(rel)); _pump(qapp)                 # relative .md: in-app
-    assert r.current_path == dst
-    assert Path(r._tree.currentItem().data(0, PATH_ROLE)) == dst
+    dst = next(e for e in chapters if e.path.parent != src.path.parent)
+    assert r.open_doc(src.rel)
+    rel = os.path.relpath(dst.path, src.path.parent)
+    r._on_anchor_clicked(QUrl(rel)); _pump(qapp)         # relative .md: in-app
+    assert r.current_doc_path() == dst.path
     assert opened == []
 
-    r._on_anchor(QUrl("does_not_exist.md")); _pump(qapp)  # broken: feedback, no xdg-open
+    r._on_anchor_clicked(QUrl("does_not_exist.md")); _pump(qapp)   # no xdg-open
     assert opened == []
-    assert r._crumb_lbl.text() == "Link target not found: does_not_exist.md"
-    assert r.current_path == dst
+    assert r.current_doc_path() == dst.path              # and we stay put
 
-    r._on_anchor(QUrl("https://example.com/x")); _pump(qapp)
+    r._on_anchor_clicked(QUrl("https://example.com/x")); _pump(qapp)
     assert opened == ["https://example.com/x"]
 
 
@@ -434,20 +475,21 @@ def test_reference_back_button_and_scoped_top_bar(reference_screen, qapp):
     r.back_requested.connect(lambda: fired.append(True))
     r._back_btn.click(); _pump(qapp)
     assert fired == [True]
-    assert r._top_bar.objectName() == "refTopBar"
-    assert r._top_bar.styleSheet().lstrip().startswith("QWidget#refTopBar")
+    top_bar = r.findChild(QWidget, "refTopBar")
+    assert top_bar is not None
+    assert top_bar.styleSheet().lstrip().startswith("QWidget#refTopBar")
     assert r._back_btn.styleSheet() == "" and r._open_btn.styleSheet() == ""
 
 
-def test_reference_missing_docs_root_is_reported(qapp, tmp_path, monkeypatch):
-    import ui.screens.reference_screen as ref_mod
-    monkeypatch.setattr(ref_mod, "_DOCS_ROOT", tmp_path / "nope")
-    r = ref_mod.ReferenceScreen()
+def test_reference_missing_docs_root_is_reported(qapp, tmp_path):
+    from common.ui.reference import ReferenceScreen
+    r = ReferenceScreen(docs_root=tmp_path / "nope")
     try:
         r.load_all(); _pump(qapp)
-        assert "Docs folder not found" in r._browser.toPlainText()
-        assert r._count_lbl.text() == "0 chapters"
-        assert list(r._iter_leaves()) == []
+        assert "No documentation found" in r._browser.toPlainText()
+        assert r._count_lbl.text() == "0 documents"
+        assert r._list.count() == 0
+        assert not r._open_btn.isEnabled()
     finally:
         r.close(); r.deleteLater(); _pump(qapp)
 

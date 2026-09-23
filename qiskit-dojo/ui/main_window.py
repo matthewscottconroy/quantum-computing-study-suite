@@ -1,14 +1,21 @@
 """Main application window for qiskit-dojo."""
 from __future__ import annotations
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 from PyQt6.QtWidgets import QMainWindow, QStackedWidget, QMessageBox
-from config import WINDOW_TITLE, WINDOW_MIN_SIZE
+
+from common.ui.reference import ReferenceScreen
+
+from config import (
+    DOCS_DEFAULT_CHAPTER, DOCS_FOR_SECTION, WINDOW_TITLE, WINDOW_MIN_SIZE,
+)
 from core.models import SessionStats
 from katas import build_kata_set
 from ui.screens.setup_screen import SetupScreen
 from ui.screens.kata_screen import KataScreen
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
-from ui.screens.reference_screen import ReferenceScreen
 from persistence import save_session
 
 PAGE_SETUP     = 0
@@ -32,7 +39,14 @@ class MainWindow(QMainWindow):
         self._kata      = KataScreen()
         self._summary   = SummaryScreen()
         self._history   = HistoryScreen()
-        self._reference = ReferenceScreen()
+        # The shared Reference screen; the only two things this app does
+        # differently are the chapter it opens on and the kata-section ->
+        # chapter map behind its "Jump to topic" picker, both of which are
+        # constructor arguments rather than a fork of the screen.
+        self._reference = ReferenceScreen(
+            default_chapter=DOCS_DEFAULT_CHAPTER,
+            category_docs=DOCS_FOR_SECTION,
+        )
 
         for w in (self._setup, self._kata, self._summary, self._history,
                   self._reference):

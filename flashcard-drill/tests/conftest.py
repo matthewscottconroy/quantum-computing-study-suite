@@ -1,18 +1,18 @@
 """Shared fixtures for flashcard-drill tests.
 
 * Puts the app root on sys.path so bare imports (``from cards import all_cards``)
-  work exactly as they do when the app runs.
+  work exactly as they do when the app runs, and runs the ``common_path`` shim
+  so ``from common import journal`` resolves the same way the app's own modules
+  make it resolve.
 * Points QUANTUM_STUDY_DATA_DIR at a throwaway session directory *before* any
-  app module is imported (apps that honour the variable never see real data),
-  and then, per test, relocates every module-level path constant that points
-  into either the real ``~/.local/share/quantum-study`` or that session
-  directory into a fresh ``tmp_path`` (autouse, so it also covers the
-  MainWindow smoke test and gives each test an empty history).
+  app module is imported, and then, per test, at a fresh ``tmp_path``.  Since
+  the migration to :mod:`common.datadir` every path in the app is resolved
+  **at call time** from that one variable, so setting it is all a test needs —
+  there are no module-level path constants left to relocate.
 * Forces the offscreen Qt platform so the suite runs headless.
 """
 from __future__ import annotations
 
-import importlib
 import os
 import pathlib
 import shutil
@@ -25,6 +25,8 @@ APP_ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(APP_ROOT) not in sys.path:
     sys.path.insert(0, str(APP_ROOT))
 
+import common_path  # noqa: E402,F401  (puts the repo root on sys.path)
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 # Always override (never inherit) so a developer's own QUANTUM_STUDY_DATA_DIR is
@@ -33,19 +35,6 @@ _SESSION_DATA_DIR = pathlib.Path(tempfile.mkdtemp(prefix="flashcard-drill-tests-
 os.environ["QUANTUM_STUDY_DATA_DIR"] = str(_SESSION_DATA_DIR)
 
 REAL_DATA_DIR = pathlib.Path.home() / ".local" / "share" / "quantum-study"
-_DATA_ROOTS = (REAL_DATA_DIR, _SESSION_DATA_DIR)
-
-# Every module that defines a Path constant pointing into the data dir.
-_PATH_MODULES = ("config", "persistence.storage")
-
-
-def _relocate(path: pathlib.PurePath, target: pathlib.Path) -> pathlib.Path | None:
-    for root in _DATA_ROOTS:
-        try:
-            return target / path.relative_to(root)
-        except ValueError:
-            continue
-    return None
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -54,16 +43,16 @@ def pytest_sessionfinish(session, exitstatus):
 
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
-    """Per-test data directory; all persistence path constants are pointed at it."""
+    """Per-test data directory: one environment variable, resolved at call time."""
+    from common import journal, schema
+
     target = tmp_path / "quantum-study"
-    for mod_name in _PATH_MODULES:
-        mod = importlib.import_module(mod_name)
-        for name, value in list(vars(mod).items()):
-            if isinstance(value, pathlib.PurePath):
-                relocated = _relocate(value, target)
-                if relocated is not None:
-                    monkeypatch.setattr(mod, name, relocated)
     monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", str(target))
+    # Per-process state that would otherwise leak between tests: "this file has
+    # already been backed up once" and "the last write was refused".
+    schema.reset_session()
+    journal.clear_write_error()
+    assert target != REAL_DATA_DIR        # belt and braces: never the real one
     return target
 
 

@@ -2,10 +2,18 @@
 
 * Puts the app root on sys.path so bare imports (``from ai.generator import
   generate_questions``) work exactly as they do inside the app.
-* ``data_dir`` redirects every persistence path constant into a temp dir so no
-  test can ever touch the real ~/.local/share/quantum-study/.
+* ``data_dir`` points the whole suite at a temp directory so no test can ever
+  touch the real ~/.local/share/quantum-study/.
 * ``fake_claude`` swaps the Anthropic client for an in-memory stub so prompt
   building and response parsing can be exercised with zero network access.
+
+Note on ``data_dir``: since the migration to ``common.datadir`` every path is
+resolved **at call time** from ``QUANTUM_STUDY_DATA_DIR``, so setting the
+environment variable is the whole fixture.  It used to also monkeypatch a
+table of ``persistence.*_FILE`` constants, because each of the ten apps froze
+its data directory into module constants at import time; there are no such
+constants to patch any more, and a test that needs a path asks for it
+(``persistence.history_path()``) instead of reaching for one.
 """
 from __future__ import annotations
 
@@ -22,31 +30,33 @@ if str(APP_ROOT) not in sys.path:
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-_PERSISTENCE_PATHS = {
-    "DATA_DIR": "",
-    "HISTORY_FILE": "paper_history.json",
-    "LIBRARY_FILE": "paper_library.json",
-    "FLAGGED_FILE": "paper_flagged.json",
-}
+#: Every path helper the app writes through.  ``data_dir`` asserts each one
+#: lands inside the temp directory, so a store added later that forgets to go
+#: through common.datadir fails the whole suite instead of quietly writing to
+#: the real study history.
+_PATH_HELPERS = ("history_path", "library_path", "flagged_path",
+                 "settings_path", "mistakes_path", "confidence_path")
 
 
 @pytest.fixture
 def data_dir(tmp_path, monkeypatch):
-    """Point persistence at a temp dir. Fails closed if a constant vanished."""
+    """Point the suite at a temp dir. Fails closed if a path escapes it."""
     import persistence
+    from common import schema
 
     root = tmp_path / "quantum-study"
     monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", str(root))
-    for name, filename in _PERSISTENCE_PATHS.items():
-        if not hasattr(persistence, name):
-            pytest.fail(f"persistence.{name} no longer exists - update tests/conftest.py")
-        monkeypatch.setattr(persistence, name, root / filename if filename else root)
-    # Also redirect any other Path-valued *_FILE constant on the module (a
-    # store added later that the table above does not know about yet) so no
-    # code path reached from a test can write outside the temp dir.
-    for name, value in list(vars(persistence).items()):
-        if name.endswith("_FILE") and isinstance(value, Path) and name not in _PERSISTENCE_PATHS:
-            monkeypatch.setattr(persistence, name, root / value.name)
+
+    # One backup per file per *process*, so without this a later test in the
+    # same process would silently skip the backup its predecessor already made.
+    schema.reset_session()
+
+    for name in _PATH_HELPERS:
+        helper = getattr(persistence, name, None)
+        if helper is None:
+            pytest.fail(f"persistence.{name}() no longer exists - update tests/conftest.py")
+        resolved = helper()
+        assert resolved.parent == root, f"{name}() escaped the temp dir: {resolved}"
     return root
 
 

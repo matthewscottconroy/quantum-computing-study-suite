@@ -13,7 +13,7 @@ def test_save_session_creates_dir_and_writes_schema(data_dir):
     persistence.save_session(stats)
 
     history = data_dir / "paper_history.json"
-    assert persistence.HISTORY_FILE == history
+    assert persistence.history_path() == history
     assert history.exists()
     entries = json.loads(history.read_text())
     assert len(entries) == 1
@@ -33,7 +33,7 @@ def test_save_session_appends_in_order(data_dir):
 
 def test_corrupt_history_is_treated_as_empty(data_dir):
     data_dir.mkdir(parents=True)
-    persistence.HISTORY_FILE.write_text("{not json")
+    persistence.history_path().write_text("{not json")
     assert persistence._load_raw() == []
     persistence.save_session(SessionStats(title="x", total=1, scores=[1]))
     assert len(persistence._load_raw()) == 1
@@ -63,5 +63,5 @@ def test_library_save_load_delete_round_trip(data_dir):
 
 def test_corrupt_library_is_treated_as_empty(data_dir):
     data_dir.mkdir(parents=True)
-    persistence.LIBRARY_FILE.write_text("[1, 2")
+    persistence.library_path().write_text("[1, 2")
     assert persistence.load_library() == []

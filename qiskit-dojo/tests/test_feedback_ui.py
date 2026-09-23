@@ -399,7 +399,19 @@ def test_feedback_rows_do_not_shrink_the_editor_or_output_panes(screen):
 
 
 def test_theme_has_a_visible_focus_ring_for_every_button_variant():
+    """The focus rules now come from the shared base stylesheet, and this app's
+    own rules are appended to it rather than replacing it."""
+    from common.ui import theme as base
     from ui import theme
-    assert f"QPushButton:focus {{ border: 1px solid {theme.ACCENT}" in theme.QSS
+    assert f"QPushButton:focus {{ border: 2px solid {theme.ACCENT}" in theme.QSS
     assert "QPushButton#accent:focus" in theme.QSS
     assert "QPushButton#flat:focus" in theme.QSS
+    assert "QPushButton#pill:focus" in theme.QSS
+    # the shared base is present verbatim, plus this app's extra rules
+    assert theme.QSS.startswith(base.QSS)
+    assert "QPlainTextEdit#code, QPlainTextEdit#output" in theme.QSS
+    assert "QSplitter::handle" in theme.QSS
+    # the palette is the shared one, and the section colours are not
+    assert theme.ACCENT == base.ACCENT and theme.BG == base.BG
+    assert not hasattr(base, "SECTION_COLORS")
+    assert set(theme.SECTION_COLORS) and "Sampler" in theme.SECTION_COLORS

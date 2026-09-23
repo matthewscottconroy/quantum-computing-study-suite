@@ -51,6 +51,33 @@ def test_toggle_twice_removes_the_entry(isolated_data_dir):
     assert not persistence.is_flagged(persistence.flag_id_for(p))
 
 
+def test_a_row_this_app_does_not_understand_survives_a_rewrite(isolated_data_dir):
+    """The flag file is rewritten from the RAW list, so an unknown row stays.
+
+    Five of the ten pre-migration copies rebuilt the file from their own
+    filtered view of it, which deleted every row they could not parse.
+    """
+    isolated_data_dir.mkdir(parents=True, exist_ok=True)
+    path = isolated_data_dir / "trainer_flagged.json"
+    path.write_text(json.dumps([
+        {"id": "keep-me", "label": "L", "category": "C", "app": "some-other-app",
+         "timestamp": 1.0},
+    ]))
+    persistence.toggle_flag(_problem())
+    ids = [e["id"] for e in json.loads(path.read_text())]
+    assert "keep-me" in ids and len(ids) == 2
+
+
+def test_the_flag_file_is_written_atomically_and_version_stamped(isolated_data_dir):
+    """A crash mid-write must not be able to lose every flag."""
+    persistence.toggle_flag(_problem())
+    path = isolated_data_dir / "trainer_flagged.json"
+    assert [p.name for p in isolated_data_dir.glob("*.tmp")] == []
+    meta = json.loads((isolated_data_dir / "trainer_flagged.json.schema.json").read_text())
+    assert meta["kind"] == "flagged" and meta["schema"] == 1
+    assert meta["file"] == path.name
+
+
 def test_toggle_keeps_other_entries(isolated_data_dir):
     a, b = _problem("question A"), _problem("question B", ProblemCategory.NOISE_CHANNEL)
     persistence.toggle_flag(a)
@@ -100,8 +127,19 @@ def test_corrupt_or_malformed_file_is_treated_as_empty(isolated_data_dir):
     path.write_text(json.dumps({"id": "dict-not-list"}))
     assert persistence.load_flagged() == []
 
+    # A row with no id is unusable and skipped; a BARE STRING is the legacy
+    # flag shape three other apps still write, so common.flags reads it as a
+    # flag (coach.py has always counted it as one) instead of discarding it.
     path.write_text(json.dumps(["bare-string", {"no_id": 1}, {"id": "ok", "label": "L"}]))
-    assert [e["id"] for e in persistence.load_flagged()] == ["ok"]
+    assert [e["id"] for e in persistence.load_flagged()] == ["bare-string", "ok"]
+    assert persistence.is_flagged("bare-string") is True
+
+    # ...and the next write upgrades it in place to the contract shape.
+    persistence.unflag("ok")
+    upgraded = json.loads(path.read_text())
+    assert upgraded == [{"id": "bare-string", "label": "bare-string",
+                         "category": "", "app": "circuit-trainer",
+                         "timestamp": 0.0}]
 
     # Recoverable: toggling on top of a corrupt file rewrites a valid list.
     path.write_text("{not json")

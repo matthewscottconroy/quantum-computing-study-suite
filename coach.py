@@ -4,7 +4,9 @@ Turns cross-app history (see dashboard.py for schemas) into a concrete,
 rules-based plan for today.  Deterministic given the data; no network, no API.
 
 Usage:
-    python coach.py                # today's plan (default)
+    python coach.py                # today's plan (default, interleaved)
+    python coach.py --blocked      # ... as blocked drills, one topic at a time
+    python coach.py --exam-date YYYY-MM-DD   # book (or 'clear') the exam date
     python coach.py --diagnostic   # 20-question placement quiz
     python coach.py --badges      # IBM Quantum Learning badge checklist
     python coach.py --review      # unified SRS review queue
@@ -13,6 +15,21 @@ Usage:
     python coach.py --mistakes    # error analysis: mistakes by CAUSE
     python coach.py --calibration # confidence vs accuracy (--confidence)
     python coach.py --item-analysis  # exam-bank question difficulty
+
+The default plan is INTERLEAVED: 3-5 due/weak topics from different apps
+and different subject areas, ordered so consecutive blocks rarely share
+either.  Mixed practice beats blocked practice on delayed tests of retention
+and transfer (Rohrer & Taylor 2007; Kornell & Bjork 2008; Rohrer, Dedrick &
+Stershic 2015) even though it feels worse while you do it -- see the
+"Interleaving" section below.  --blocked restores the one-topic-at-a-time
+plan, and interleaving switches itself off, with a reason, when there is not
+enough distinct material to mix.
+
+--exam-date YYYY-MM-DD books the C1000-179 sitting (--exam-date clear removes
+it).  With a date on file the plan counts down, back-plans which sections to
+cover in which remaining week (official blueprint weight x current weakness),
+spaces the full mocks, and reports the --readiness verdict -- or says plainly
+that the evidence is too thin to give one.
 
 Data dir defaults to dashboard.DATA_DIR (~/.local/share/quantum-study/)
 and can be overridden with the QUANTUM_STUDY_DATA_DIR environment variable.
@@ -58,7 +75,8 @@ Coach state is stored in <data dir>/coach_state.json:
       "diagnostic": {"timestamp": float,
                      "rungs": {"<rung>": {"total": n, "correct": n}},
                      "recommended_rung": "<rung>"},
-      "last_plan_date": "YYYY-MM-DD"
+      "last_plan_date": "YYYY-MM-DD",
+      "exam_date": "YYYY-MM-DD" | null          # booked C1000-179 sitting
     }
 """
 
@@ -69,8 +87,9 @@ import ast
 import json
 import math
 import os
+import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -264,6 +283,7 @@ _STATE_TYPES = {
     "badges": dict,
     "diagnostic": (dict, type(None)),
     "last_plan_date": (str, type(None)),
+    "exam_date": (str, type(None)),
 }
 
 
@@ -275,6 +295,7 @@ def load_state() -> dict:
         "badges": {},
         "diagnostic": None,
         "last_plan_date": None,
+        "exam_date": None,
     }
     try:
         raw = json.loads(STATE_PATH.read_text())
@@ -943,6 +964,659 @@ def weak_rungs(rungs: dict[str, dict]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Interleaving — mixed practice instead of blocked practice
+#
+# Blocked practice (all of one topic, then all of the next) feels fluent and
+# tests worse.  Interleaved practice -- alternating topics inside a single
+# session -- reliably wins on *delayed* tests of retention and transfer:
+# Rohrer & Taylor (2007) and Taylor & Rohrer (2010) on maths problems,
+# Kornell & Bjork (2008) on inductive category learning, Rohrer, Dedrick &
+# Stershic (2015) in a real classroom.  The catch is that it feels harder
+# while you do it and learners rate it as worse, which is exactly why the
+# coach has to prescribe it instead of leaving it to taste.
+#
+# So the default plan is a MIXED session: 3-5 due/weak topics pulled from
+# DIFFERENT apps and DIFFERENT subject areas, ordered so consecutive blocks
+# rarely share either.  `--blocked` restores the one-topic-at-a-time plan for
+# when you deliberately want to drill one thing, and interleaving switches
+# itself off (with a reason) when there is not enough distinct material.
+# ---------------------------------------------------------------------------
+
+INTERLEAVE_MIN_BLOCKS = 3        # fewer blocks than this is not a mix
+INTERLEAVE_MAX_BLOCKS = 5
+INTERLEAVE_MIN_APPS = 2          # ... spread over at least this many apps
+INTERLEAVE_MIN_AREAS = 2         # ... and this many subject areas
+INTERLEAVE_SESSION_MINUTES = 30  # budget split across the blocks
+INTERLEAVE_MIN_BLOCK_MINUTES = 5
+INTERLEAVE_POOL = 12             # weakest categories considered for the mix
+
+INTERLEAVE_RATIONALE = (
+    "Why this is mixed and not one long block: interleaving — switching "
+    "topic inside a session — beats blocked practice on delayed tests of",
+    "retention and transfer (Rohrer & Taylor 2007; Kornell & Bjork 2008; "
+    "Rohrer, Dedrick & Stershic 2015). Mixing forces you to pick the method,",
+    "not just apply the one the block already told you. It feels slower and "
+    "more error-prone while you do it; that is the effect working.",
+)
+
+# Subject area per app, used when a topic name says nothing useful.
+_AREA_BY_APP = {
+    "math-quiz": "math",
+    "quantum-quiz": "qm",
+    "circuit-trainer": "circuits",
+    "qec-trainer": "qec",
+    "vqa-trainer": "vqa",
+    "flashcard-drill": "recall",
+    "qiskit-dojo": "qiskit-api",
+    "exam-sim": "exam",
+    "paper-drill": "papers",
+    "problem-trainer": "problem-solving",
+    "review queue": "review",
+}
+
+# Topic name -> subject area.  Checked in order, first match wins; a
+# single-word key matches a whole word or a longer form of it ("eigen"
+# matches "eigenvalues"), a multi-word key is matched as a phrase.  This is
+# the second axis interleaving alternates on, so that two different apps
+# drilling the same subject do not count as a mix.
+_AREA_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("qec", ("stabilizer", "syndrome", "surface", "decoder", "toric",
+             "steane", "shor code", "repetition code", "error correction",
+             "fault", "threshold", "logical", "css")),
+    ("vqa", ("ansatz", "vqe", "qaoa", "variational", "cost function",
+             "gradient", "parameter shift", "optimizer", "optimiser",
+             "barren")),
+    ("qiskit-api", ("qiskit", "sampler", "estimator", "primitive", "transpil",
+                    "qasm", "backend", "session", "runtime", "pass manager",
+                    "provider", "databin", "visualiz", "visualis",
+                    "histogram", "counts", "create circuits", "run circuits",
+                    "quantum operations", "results analysis")),
+    ("algorithms", ("algorithm", "grover", "shor", "deutsch", "jozsa",
+                    "simon", "qft", "fourier", "phase estimation",
+                    "bernstein", "hhl", "oracle", "amplitude")),
+    ("hardware", ("hardware", "t1", "t2", "coherence", "decoher", "transmon",
+                  "noise", "calibration", "pulse", "crosstalk", "readout",
+                  "topology", "ion trap")),
+    ("circuits", ("circuit", "gate", "pauli", "hadamard", "cnot", "toffoli",
+                  "unitary", "rotation", "entangler", "clifford",
+                  "controlled")),
+    ("qm", ("state", "measure", "entangle", "superposition", "bloch", "born",
+            "density", "postulate", "observable", "hamiltonian", "spin",
+            "interference", "bell", "teleport")),
+    ("math", ("eigen", "matrix", "matrices", "linear algebra", "algebra",
+              "vector", "tensor", "complex", "probability", "calculus",
+              "integral", "derivative", "trigonometr", "inner product",
+              "norm", "hilbert", "dirac", "bra", "ket")),
+)
+
+
+def topic_area(app: str, topic) -> str:
+    """Subject area for an (app, topic) pair; falls back to the app's own."""
+    norm = _norm_name(topic)
+    tokens = norm.split()
+    for area, keywords in _AREA_KEYWORDS:
+        for kw in keywords:
+            if " " in kw:
+                if kw in norm:
+                    return area
+            elif any(t.startswith(kw) for t in tokens):
+                return area
+    return _AREA_BY_APP.get(app, "general")
+
+
+def interleave_candidates(stats: dict[tuple[str, str], dict], *,
+                          exam: Optional[dict] = None,
+                          dojo: Optional[tuple[str, float]] = None,
+                          diag_rungs: Optional[dict] = None,
+                          review_count: int = 0,
+                          exam_week: Optional[dict] = None) -> list[dict]:
+    """Everything that could go in today's session, as interleavable blocks.
+
+    Each candidate is {app, topic, area, priority, pinned, why, action};
+    *priority* is a 0-10 urgency where lower is more urgent (a category's own
+    weighted average, a section's percentage / 10, ...) so that sources stay
+    comparable.  "pinned" candidates -- the review queue and a booked exam's
+    target for this week -- keep their slot even when they collide with an
+    area already in the mix.  Nothing here is capped or ordered: that is
+    build_mixed_session()'s job.
+    """
+    cands: list[dict] = []
+
+    def add(app: str, topic, priority: float, why: str, action: str,
+            pinned: bool = False) -> None:
+        name = str(topic).strip()
+        if not name:
+            return
+        cands.append({"app": app, "topic": name, "area": topic_area(app, name),
+                      "priority": float(priority), "pinned": pinned,
+                      "why": why, "action": action})
+
+    if review_count > 0:
+        add("review queue", "oldest due items", -1.0,
+            f"{review_count} item(s) due",
+            "clear the oldest first: `python coach.py --review`",
+            pinned=True)
+
+    if exam_week:
+        add("exam-sim", exam_week["name"], 0.5,
+            f"exam-plan target for this week "
+            f"({exam_week['weight']}% of the exam, {exam_week['status']})",
+            _SECTION_ACTIONS.get(exam_week["name"], "study this section"),
+            pinned=True)
+
+    for app, cat, avg in weakest_categories(stats, top_n=INTERLEAVE_POOL):
+        if avg < FOCUS_MAX_AVG:
+            add(app, cat, avg, f"weakest, avg {avg:.1f}/10",
+                f"drill '{cat}' in {app}")
+
+    if exam:
+        for name, pct in exam["weakest_sections"]:
+            if pct < FOCUS_MAX_AVG * 10.0:
+                add("exam-sim", name, pct / 10.0,
+                    f"{pct:.0f}% on the last full exam",
+                    f"exam-sim Sprint on '{name}'")
+
+    if dojo:
+        sec, rate = dojo
+        if rate < FOCUS_MAX_AVG * 10.0:
+            add("qiskit-dojo", sec, rate / 10.0,
+                f"{rate:.0f}% kata pass rate (lowest)",
+                f"2 katas in '{sec}'")
+
+    if diag_rungs:
+        for rung in weak_rungs(diag_rungs):
+            total, correct = _rung_counts(diag_rungs.get(rung))
+            add(rung_app(rung), rung,
+                (correct / total * 10.0) if total else 0.0,
+                f"diagnostic {correct:g}/{total:g} on rung '{rung}'",
+                f"one set in {rung_app(rung)}, then read "
+                f"{rung_docs_dir(rung)}")
+
+    for app, cat, days in stale_categories(stats):
+        add(app, cat, max(0.5, 4.0 - days / 30.0),
+            f"untouched {days} days", f"one short {app} set on '{cat}'")
+
+    return cands
+
+
+def _dedupe_candidates(cands: list[dict]) -> list[dict]:
+    """One row per (app, topic) -- the most urgent -- most urgent first.
+
+    A pinned duplicate keeps the pin: an exam-plan target that is also this
+    week's weakest category must not lose its guaranteed slot to the merge.
+    """
+    best: dict[tuple[str, str], dict] = {}
+    for c in cands:
+        key = (c["app"], _norm_name(c["topic"]))
+        current = best.get(key)
+        if current is None or c["priority"] < current["priority"]:
+            best[key] = dict(c, pinned=bool(c.get("pinned"))
+                             or bool(current and current.get("pinned")))
+        elif c.get("pinned"):
+            current["pinned"] = True
+    rows = list(best.values())
+    rows.sort(key=lambda c: (c["priority"], c["app"], c["topic"]))
+    return rows
+
+
+def select_interleaved(cands: list[dict],
+                       max_blocks: int = INTERLEAVE_MAX_BLOCKS) -> list[dict]:
+    """Up to *max_blocks* candidates, spread as widely as the data allows.
+
+    Pinned candidates go in first.  Then pass 1 takes the most urgent
+    candidate whose app AND area are both new, pass 2 relaxes to app OR
+    area, and pass 3 fills any remaining slots by urgency.  Deterministic:
+    ties break on (priority, app, topic).
+    """
+    rows = _dedupe_candidates(cands)
+    chosen: list[dict] = []
+    picked: set[tuple[str, str]] = set()
+    apps: set[str] = set()
+    areas: set[str] = set()
+
+    def take(c: dict) -> None:
+        chosen.append(c)
+        picked.add((c["app"], c["topic"]))
+        apps.add(c["app"])
+        areas.add(c["area"])
+
+    for c in rows:
+        if len(chosen) >= max_blocks:
+            break
+        if c.get("pinned"):
+            take(c)
+
+    for wants_both in (True, False):
+        for c in rows:
+            if len(chosen) >= max_blocks:
+                break
+            if (c["app"], c["topic"]) in picked:
+                continue
+            fresh_app = c["app"] not in apps
+            fresh_area = c["area"] not in areas
+            if (fresh_app and fresh_area) if wants_both \
+                    else (fresh_app or fresh_area):
+                take(c)
+    for c in rows:
+        if len(chosen) >= max_blocks:
+            break
+        if (c["app"], c["topic"]) not in picked:
+            take(c)
+    return chosen
+
+
+def order_interleaved(blocks: list[dict]) -> list[dict]:
+    """Order *blocks* so consecutive ones share neither app nor area where
+    that is possible, most urgent first among the legal choices."""
+    remaining = sorted(blocks,
+                       key=lambda c: (c["priority"], c["app"], c["topic"]))
+    out: list[dict] = []
+    prev_app = prev_area = None
+    while remaining:
+        idx = next((i for i, c in enumerate(remaining)
+                    if c["app"] != prev_app and c["area"] != prev_area), None)
+        if idx is None:
+            idx = next((i for i, c in enumerate(remaining)
+                        if c["app"] != prev_app), None)
+        if idx is None:
+            idx = 0
+        pick = remaining.pop(idx)
+        out.append(pick)
+        prev_app, prev_area = pick["app"], pick["area"]
+    return out
+
+
+def build_mixed_session(cands: list[dict],
+                        minutes: int = INTERLEAVE_SESSION_MINUTES) -> dict:
+    """Today's interleaved session, plus whether it is one at all.
+
+    "enough" is False when the data cannot support a real mix -- too few
+    distinct topics, or all of them in one app or one area -- and "reason"
+    then says which, so the caller can fall back to the blocked plan and
+    explain itself instead of pretending.
+    """
+    blocks = order_interleaved(select_interleaved(cands))
+    apps = sorted({b["app"] for b in blocks})
+    areas = sorted({b["area"] for b in blocks})
+
+    reason = None
+    if len(blocks) < INTERLEAVE_MIN_BLOCKS:
+        reason = (f"only {len(blocks)} distinct due/weak topic(s) on file — "
+                  f"interleaving needs at least {INTERLEAVE_MIN_BLOCKS}")
+    elif len(apps) < INTERLEAVE_MIN_APPS:
+        reason = (f"every due/weak topic is in one app ({apps[0]}) — "
+                  f"there is nothing to alternate with yet")
+    elif len(areas) < INTERLEAVE_MIN_AREAS:
+        reason = (f"every due/weak topic is in one area ({areas[0]}) — "
+                  f"there is nothing to alternate with yet")
+
+    per = (max(INTERLEAVE_MIN_BLOCK_MINUTES,
+               int(round(minutes / len(blocks)))) if blocks else 0)
+    for b in blocks:
+        b["minutes"] = per
+
+    clean = sum(1 for a, b in zip(blocks, blocks[1:])
+                if a["app"] != b["app"] and a["area"] != b["area"])
+    return {"blocks": blocks, "enough": reason is None, "reason": reason,
+            "block_minutes": per, "minutes": per * len(blocks),
+            "apps": apps, "areas": areas,
+            "handovers": max(0, len(blocks) - 1), "clean_handovers": clean}
+
+
+# ---------------------------------------------------------------------------
+# Exam-date mode (--exam-date) — backwards planning from a booked exam
+#
+# Given the date you actually booked, the coach works backwards: which of the
+# eight C1000-179 sections to cover in which remaining week (weighted by the
+# official blueprint weight AND by how weak you currently are there), when to
+# sit each full mock (spaced, with a taper before the exam), and whether
+# --readiness says you are on track.  The verdict is only ever as strong as
+# the evidence: when --readiness cannot score you, this says so rather than
+# inventing a number.
+# ---------------------------------------------------------------------------
+
+EXAM_PLAN_MAX_WEEKS = 12          # schedule at most the final 12 weeks
+EXAM_PLAN_MAX_SLOTS_PER_WEEK = 4  # sections to cover in one week
+EXAM_PLAN_MIN_SLOTS_PER_WEEK = 2
+EXAM_PLAN_BASE_NEED = 0.25        # even a section you ace keeps some time
+EXAM_PLAN_UNMEASURED_GAP = 0.5    # an unmeasured section is treated as 50/50
+EXAM_PLAN_MAX_MOCKS = 5
+EXAM_PLAN_MOCK_GAP_DAYS = 14      # spaced, not crammed
+EXAM_PLAN_LAST_MOCK_LEAD_DAYS = 3 # last full mock this many days out
+EXAM_PLAN_MIN_MOCK_DAYS = 4       # closer than this, no mock is worth it
+EXAM_PLAN_TAPER_DAYS = 2          # no new material in the final days
+EXAM_PLAN_TIGHT_DAYS = 14         # "behind" this close needs saying plainly
+EXAM_DATE_CLEAR_WORDS = ("clear", "none", "off", "remove", "unset")
+
+
+def _today_date() -> date:
+    """Today as a date, honouring the module-level _TODAY stamp."""
+    try:
+        return datetime.strptime(_TODAY, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return datetime.now().date()
+
+
+def parse_exam_date(text) -> Optional[date]:
+    """A date from an ISO YYYY-MM-DD string, or None when it is not one."""
+    if not isinstance(text, str):
+        return None
+    stripped = text.strip()
+    if not stripped:
+        return None
+    try:
+        return datetime.strptime(stripped, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _fmt_day(d: date) -> str:
+    return d.strftime("%a %d %b")
+
+
+def apply_exam_date(state: dict, text) -> tuple[bool, str]:
+    """Set (or clear) state["exam_date"].  Returns (ok, message).
+
+    The caller saves the state and prints the message; on a bad date nothing
+    is changed and ok is False.
+    """
+    raw = (text or "").strip() if isinstance(text, str) else ""
+    if raw.lower() in EXAM_DATE_CLEAR_WORDS:
+        had = state.get("exam_date")
+        state["exam_date"] = None
+        return True, (f"Exam date cleared (was {had})." if had
+                      else "No exam date was set — nothing to clear.")
+    parsed = parse_exam_date(raw)
+    if parsed is None:
+        example = (_today_date() + timedelta(days=60)).strftime("%Y-%m-%d")
+        return False, (
+            f"coach.py: --exam-date: {text!r} is not a date. Use YYYY-MM-DD "
+            f"(for example {example}), or 'clear' to remove the one on file.")
+    iso = parsed.strftime("%Y-%m-%d")
+    state["exam_date"] = iso
+    days = (parsed - _today_date()).days
+    if days > 0:
+        when = f"{days} day(s) from now"
+    elif days == 0:
+        when = "today"
+    else:
+        when = f"{-days} day(s) ago — already past"
+    return True, f"Exam date set to {iso} ({when})."
+
+
+def exam_section_needs(readiness: dict) -> list[dict]:
+    """The eight sections ranked by how much study time they have earned.
+
+    need = official weight x (base + weakness), where weakness is 1 - your
+    measured accuracy, or EXAM_PLAN_UNMEASURED_GAP when the section is
+    unmeasured or too stale to trust.  Heaviest need first.
+    """
+    rows = []
+    for s in readiness["sections"]:
+        if s["measured"] and s["accuracy"] is not None:
+            gap = max(0.0, 1.0 - s["accuracy"])
+            status = f"at {s['accuracy'] * 100:.0f}%"
+            accuracy = s["accuracy"]
+        else:
+            gap = EXAM_PLAN_UNMEASURED_GAP
+            status = "stale evidence" if s["stale"] else "unmeasured"
+            accuracy = None
+        rows.append({"name": s["name"], "weight": s["weight"],
+                     "accuracy": accuracy, "status": status,
+                     "need": s["weight"] * (EXAM_PLAN_BASE_NEED + gap),
+                     "action": s["action"]})
+    rows.sort(key=lambda r: (-r["need"], -r["weight"], r["name"]))
+    return rows
+
+
+def _allocate_slots(rows: list[dict], total_slots: int,
+                    cap: int) -> dict[str, int]:
+    """Split *total_slots* study slots across *rows* in proportion to need.
+
+    Every section gets one slot before any gets a second (largest-remainder
+    from there), and no section gets more than *cap* -- it cannot be covered
+    twice in the same week.
+    """
+    alloc = {r["name"]: 0 for r in rows}
+    if total_slots <= 0 or not rows:
+        return alloc
+    if total_slots >= len(rows):
+        for r in rows:
+            alloc[r["name"]] = 1
+        left = total_slots - len(rows)
+    else:
+        for r in rows[:total_slots]:          # rows are need-ordered
+            alloc[r["name"]] = 1
+        left = 0
+    if left > 0:
+        need_total = sum(r["need"] for r in rows) or 1.0
+        shares = [(r, left * r["need"] / need_total) for r in rows]
+        for r, share in shares:
+            alloc[r["name"]] += int(share)
+        spare = total_slots - sum(alloc.values())
+        order = sorted(shares,
+                       key=lambda t: (-(t[1] - int(t[1])), -t[0]["need"],
+                                      t[0]["name"]))
+        i = 0
+        while spare > 0 and order:
+            alloc[order[i % len(order)][0]["name"]] += 1
+            spare -= 1
+            i += 1
+    spare = 0
+    for name, n in alloc.items():
+        if n > cap:
+            spare += n - cap
+            alloc[name] = cap
+    while spare > 0:
+        moved = False
+        for r in rows:
+            if spare <= 0:
+                break
+            if alloc[r["name"]] < cap:
+                alloc[r["name"]] += 1
+                spare -= 1
+                moved = True
+        if not moved:
+            break
+    return alloc
+
+
+def _weekly_sections(rows: list[dict], alloc: dict[str, int], weeks: int,
+                     per_week: int) -> list[list[dict]]:
+    """Place the allocated slots into weeks, heaviest need first and
+    avoiding the same section in two consecutive weeks where possible."""
+    left = dict(alloc)
+    out: list[list[dict]] = []
+    previous: set[str] = set()
+    for _ in range(weeks):
+        pool = [r for r in rows if left.get(r["name"], 0) > 0]
+        pool.sort(key=lambda r: (r["name"] in previous, -left[r["name"]],
+                                 -r["need"], r["name"]))
+        week = pool[:per_week]
+        for r in week:
+            left[r["name"]] -= 1
+        previous = {r["name"] for r in week}
+        out.append(week)
+    for r in rows:                       # nothing stranded by the greedy pass
+        while left.get(r["name"], 0) > 0:
+            slot = next((wk for wk in out
+                         if len(wk) < per_week
+                         and all(x["name"] != r["name"] for x in wk)), None)
+            if slot is None:
+                break
+            slot.append(r)
+            left[r["name"]] -= 1
+    return out
+
+
+def _mock_dates(today: date, exam: date, window_start: date,
+                confident: bool) -> list[dict]:
+    """Full-mock sittings: spaced EXAM_PLAN_MOCK_GAP_DAYS apart, the last one
+    EXAM_PLAN_LAST_MOCK_LEAD_DAYS before the exam so there is room to review
+    it, plus an immediate one when --readiness cannot score you yet."""
+    days_left = (exam - today).days
+    if days_left < EXAM_PLAN_MIN_MOCK_DAYS:
+        return []
+    needs_evidence = not confident
+    limit = EXAM_PLAN_MAX_MOCKS - (1 if needs_evidence else 0)
+    floor_day = max(today, window_start)
+    dates: list[date] = []
+    d = exam - timedelta(days=EXAM_PLAN_LAST_MOCK_LEAD_DAYS)
+    while d >= floor_day and len(dates) < limit:
+        dates.append(d)
+        d -= timedelta(days=EXAM_PLAN_MOCK_GAP_DAYS)
+    dates.sort()
+    if needs_evidence:
+        first = today + timedelta(days=2)
+        if first < exam and (not dates or (dates[0] - first).days >= 4):
+            dates.insert(0, first)
+        elif not dates:
+            dates.append(min(first, exam - timedelta(days=1)))
+    rows = []
+    for i, d in enumerate(dates):
+        if needs_evidence and i == 0:
+            note = ("evidence mock — --readiness cannot score you until one "
+                    "full exam is on file")
+        elif d == dates[-1]:
+            note = "final rehearsal — full timed mock, then taper"
+        else:
+            note = "full 68-question timed mock"
+        rows.append({"date": d.strftime("%Y-%m-%d"), "day": _fmt_day(d),
+                     "days_out": (exam - d).days, "note": note})
+    return rows
+
+
+def _exam_verdict(readiness: dict, days_left: int, weeks_left: int) -> dict:
+    """On-track / behind, or an honest "cannot say" when the evidence is thin."""
+    if not readiness["confident"]:
+        detail = list(readiness["reasons"][:2])
+        detail.append(
+            f"sit one full {EXAM_PASS_TOTAL}-question mock in exam-sim — that "
+            f"alone is enough for --readiness to produce a number")
+        return {"status": "unknown", "short": "readiness not scoreable yet",
+                "line": "On track? Unknown — the evidence is too thin to "
+                        "score you, so no verdict is offered.",
+                "detail": detail}
+
+    projected = readiness["projected"]
+    low, high = readiness["low"], readiness["high"]
+    pass_mark, questions = readiness["pass_mark"], readiness["questions"]
+    if low >= pass_mark:
+        status, short = "on_track", "on track to pass"
+        line = "On track — the whole 95% band clears the pass mark."
+    elif high < pass_mark:
+        status, short = "behind", "behind the pass line"
+        line = "Behind — even the top of the 95% band misses the pass mark."
+    else:
+        status, short = "borderline", "too close to call"
+        line = "Too close to call — the 95% band straddles the pass mark."
+    detail = [f"projected {projected:.0f}/{questions} (95% band "
+              f"{low:.0f}–{high:.0f}, pass mark {pass_mark}/{questions})"]
+    gap = pass_mark - projected
+    if gap > 0 and weeks_left >= 1:
+        detail.append(f"you need about +{gap:.0f} question(s) in "
+                      f"{weeks_left} week(s) — roughly "
+                      f"{gap / weeks_left:.1f} per week")
+    if status == "behind" and 0 <= days_left < EXAM_PLAN_TIGHT_DAYS:
+        detail.append(f"with {days_left} day(s) left that is a big ask — "
+                      f"moving the date is a legitimate option")
+    return {"status": status, "short": short, "line": line, "detail": detail}
+
+
+def build_exam_plan(state: dict, histories: dict[str, list],
+                    readiness: Optional[dict] = None) -> Optional[dict]:
+    """The backwards-planned schedule for a booked exam, or None when no
+    date is set.  Every date in the result is an ISO string, so the plan
+    stays JSON-serialisable and comparable."""
+    raw = state.get("exam_date")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    today = _today_date()
+    exam = parse_exam_date(raw)
+    if exam is None:
+        return {"valid": False, "raw": raw, "date": None, "days_left": None,
+                "weeks_left": None, "status": "invalid", "weeks": [],
+                "mocks": [], "verdict": None, "needs": [], "this_week": [],
+                "lead_in": None, "per_week": 0,
+                "countdown": (f"Exam date on file is unusable ({raw!r}) — set "
+                              f"one with `python coach.py --exam-date "
+                              f"YYYY-MM-DD`")}
+
+    iso = exam.strftime("%Y-%m-%d")
+    days_left = (exam - today).days
+    if readiness is None:
+        readiness = build_readiness(histories)
+
+    if days_left < 0:
+        return {"valid": True, "raw": raw, "date": iso, "days_left": days_left,
+                "weeks_left": 0, "status": "past", "weeks": [], "mocks": [],
+                "verdict": None, "needs": [], "this_week": [], "lead_in": None,
+                "per_week": 0,
+                "countdown": (f"Exam date {iso} passed {-days_left} day(s) "
+                              f"ago — `python coach.py --exam-date clear` to "
+                              f"remove it, or set the new one.")}
+
+    weeks_left = max(1, -(-days_left // 7))
+    verdict = _exam_verdict(readiness, days_left, weeks_left)
+
+    if days_left == 0:
+        return {"valid": True, "raw": raw, "date": iso, "days_left": 0,
+                "weeks_left": 0, "status": "today", "weeks": [], "mocks": [],
+                "verdict": verdict, "needs": exam_section_needs(readiness),
+                "this_week": [], "lead_in": None, "per_week": 0,
+                "countdown": (f"Exam: C1000-179 is TODAY — no new material. "
+                              f"Skim what you flagged, then go "
+                              f"({verdict['short']}).")}
+
+    needs = exam_section_needs(readiness)
+    plan_weeks = min(weeks_left, EXAM_PLAN_MAX_WEEKS)
+    per_week = min(EXAM_PLAN_MAX_SLOTS_PER_WEEK,
+                   max(EXAM_PLAN_MIN_SLOTS_PER_WEEK,
+                       -(-len(needs) // plan_weeks)))
+    alloc = _allocate_slots(needs, plan_weeks * per_week, plan_weeks)
+    weekly = _weekly_sections(needs, alloc, plan_weeks, per_week)
+
+    weeks = []
+    for i, sections in enumerate(weekly):
+        end = exam - timedelta(days=7 * (plan_weeks - 1 - i))
+        # Weeks run backwards from the exam, so the first one can start
+        # either side of today; when the window reaches back to now it
+        # starts today, so no day of the run-up is left unplanned.
+        start = (today if i == 0 and plan_weeks == weeks_left
+                 else end - timedelta(days=6))
+        weeks.append({
+            "index": i + 1,
+            "start": start.strftime("%Y-%m-%d"),
+            "end": end.strftime("%Y-%m-%d"),
+            "label": f"{_fmt_day(start)} – {_fmt_day(end)}",
+            "sections": [{k: s[k] for k in
+                          ("name", "weight", "accuracy", "status", "action")}
+                         for s in sections],
+        })
+
+    window_start = exam - timedelta(days=7 * plan_weeks - 1)
+    lead_in = None
+    if weeks_left > plan_weeks:
+        lead_in = (f"{weeks_left} weeks out — the schedule below covers the "
+                   f"final {plan_weeks}. Until "
+                   f"{window_start.strftime('%Y-%m-%d')}, follow the daily "
+                   f"plan, keep the streak, and re-sit a full mock every "
+                   f"couple of months to keep the projection honest.")
+
+    unscheduled = [r["name"] for r in needs if alloc.get(r["name"], 0) == 0]
+    countdown = (f"Exam: C1000-179 on {iso} — {days_left} day(s) "
+                 f"({weeks_left} week(s)) to go — {verdict['short']}.")
+    return {"valid": True, "raw": raw, "date": iso, "days_left": days_left,
+            "weeks_left": weeks_left, "status": "upcoming", "weeks": weeks,
+            "mocks": _mock_dates(today, exam, window_start,
+                                 readiness["confident"]),
+            "verdict": verdict, "needs": needs,
+            "this_week": weeks[0]["sections"] if weeks else [],
+            "lead_in": lead_in, "per_week": per_week,
+            "unscheduled": unscheduled, "countdown": countdown}
+
+
+# ---------------------------------------------------------------------------
 # Plan builder (deterministic, rules-based)
 # ---------------------------------------------------------------------------
 
@@ -974,6 +1648,12 @@ def build_plan(histories: dict[str, list], state: dict) -> dict:
         diag_rungs = {}
     weak_rung_list = weak_rungs(diag_rungs) if diag_rungs else []
 
+    # A booked exam date reshapes the whole plan: countdown, this week's
+    # sections, and the mock schedule.  None when no date is on file.
+    exam_plan = build_exam_plan(state, histories)
+    exam_week = (exam_plan.get("this_week") or [None])[0] if exam_plan \
+        else None
+
     items: list[str] = []
 
     # 1. Review queue first — overdue material beats new material.
@@ -992,6 +1672,14 @@ def build_plan(histories: dict[str, list], state: dict) -> dict:
         items.append(
             f"review queue — {len(review)} item(s) due "
             f"({'; '.join(detail)}): run `python coach.py --review`")
+
+    # 1b. A booked exam outranks anything that is not already overdue: cover
+    #     this week's highest-need section while there is still time to.
+    if exam_week:
+        items.append(
+            f"exam-sim — 15 min on '{exam_week['name']}' "
+            f"({exam_week['weight']}% of the exam, {exam_week['status']}) — "
+            f"this week's exam-plan target")
 
     # 2. Weakest categories, grouped per app -- but only ones that are
     #    actually weak: with a single perfect exam on file the "weakest"
@@ -1060,8 +1748,17 @@ def build_plan(histories: dict[str, list], state: dict) -> dict:
             break
         items.append(d)
 
+    # The same signals, mixed instead of blocked (see "Interleaving").  Built
+    # from the full candidate pool rather than from *items*, which is capped
+    # and grouped per app.
+    mixed = build_mixed_session(interleave_candidates(
+        stats, exam=exam, dojo=dojo, diag_rungs=diag_rungs,
+        review_count=len(review), exam_week=exam_week))
+
     return {
         "items": items,
+        "mixed": mixed,
+        "exam_plan": exam_plan,
         "weakest": weakest,
         "stale": stale,
         "exam": exam,
@@ -1145,10 +1842,17 @@ def _flagged_summary(flagged_by_app: dict[str, int]) -> str:
             f"{len(flagged_by_app)} app(s) — {per_app}")
 
 
-def render_plan(plan: dict, state: dict) -> None:
+def render_plan(plan: dict, state: dict, blocked: bool = False) -> None:
     console = _console()
     _heading(console, f"Quantum Study Coach — plan for {_TODAY}")
     print()
+
+    # One-line countdown first when an exam is booked -- it reframes
+    # everything below it.
+    exam_plan = plan.get("exam_plan")
+    if exam_plan and exam_plan.get("countdown"):
+        _line(console, exam_plan["countdown"], "bold cyan")
+        print()
 
     # Situation report
     if plan["weakest"]:
@@ -1198,11 +1902,26 @@ def render_plan(plan: dict, state: dict) -> None:
     if plan.get("signals"):
         _line(console, plan["signals"])
 
-    # The plan itself
+    # The plan itself: interleaved by default, blocked on request or when
+    # there is not enough distinct material to mix.
     print()
-    _line(console, "TODAY'S PLAN", "bold green")
-    for i, item in enumerate(plan["items"], 1):
-        _line(console, f"  {i}. {item}")
+    mixed = plan.get("mixed") or {}
+    if mixed.get("enough") and not blocked:
+        render_mixed_session(mixed, console)
+    else:
+        _line(console, "TODAY'S PLAN — blocked (one topic at a time)",
+              "bold green")
+        for i, item in enumerate(plan["items"], 1):
+            _line(console, f"  {i}. {item}")
+        if blocked:
+            _line(console, "  Blocked because you asked for --blocked; the "
+                           "interleaved mix is the default.", "dim")
+        elif mixed.get("reason"):
+            _line(console, f"  Not interleaved: {mixed['reason']}.", "dim")
+
+    if exam_plan and exam_plan.get("valid") and exam_plan["status"] != "past":
+        print()
+        render_exam_plan(exam_plan, console)
 
     # Streak + badges summary
     print()
@@ -1219,6 +1938,91 @@ def render_plan(plan: dict, state: dict) -> None:
           f"Badges: {earned}/{len(BADGES)} earned, {in_prog} in progress "
           f"(`python coach.py --badges`)")
     print()
+
+
+def render_mixed_session(mixed: dict, console=None) -> None:
+    """Print the interleaved session and why it is interleaved."""
+    _line(console, f"TODAY'S PLAN — interleaved, "
+                   f"{mixed['minutes']} min in {len(mixed['blocks'])} blocks",
+          "bold green")
+    for i, b in enumerate(mixed["blocks"], 1):
+        _line(console, f"  {i}. {b['minutes']} min  {b['app']} — "
+                       f"{b['topic']} [{b['area']}] — {b['why']}")
+        _line(console, f"        -> {b['action']}", "dim")
+    _line(console, f"  Rotate on the clock: when a block's "
+                   f"{mixed['block_minutes']} min are up, switch even if you "
+                   f"are mid-problem. "
+                   f"{mixed['clean_handovers']}/{mixed['handovers']} "
+                   f"handover(s) change both app and area.")
+    for line in INTERLEAVE_RATIONALE:
+        _line(console, f"  {line}", "dim")
+    _line(console, "  Want to drill one thing instead? "
+                   "`python coach.py --blocked`", "dim")
+
+
+def render_exam_plan(xp: dict, console=None, standalone: bool = False) -> None:
+    """Print the countdown, the week-by-week section schedule and the mocks.
+
+    *standalone* adds the rule and the countdown line; inside the daily plan
+    both are already on screen, so only what they do not say is printed.
+    """
+    if console is None and standalone:
+        console = _console()
+    if standalone:
+        _heading(console, "Exam Plan — IBM C1000-179")
+        print()
+        if not xp.get("valid") or xp["status"] != "upcoming":
+            _line(console, xp["countdown"], "bold yellow")
+    if not xp.get("valid") or xp["status"] == "past":
+        return                      # the countdown already said it all
+    if xp["status"] == "today":
+        if xp.get("verdict"):
+            if not standalone:
+                _line(console, f"EXAM PLAN — C1000-179 is today "
+                               f"({xp['date']})", "bold cyan")
+            _line(console, f"  {xp['verdict']['line']}")
+            for d in xp["verdict"]["detail"]:
+                _line(console, f"    - {d}", "dim")
+        return
+
+    _line(console, f"EXAM PLAN — C1000-179 on {xp['date']}: "
+                   f"{xp['days_left']} day(s), {xp['weeks_left']} week(s) to go",
+          "bold cyan")
+    verdict = xp["verdict"]
+    _line(console, f"  {verdict['line']}",
+          "bold green" if verdict["status"] == "on_track"
+          else "bold yellow")
+    for d in verdict["detail"]:
+        _line(console, f"    - {d}", "dim")
+    if xp.get("lead_in"):
+        _line(console, f"  {xp['lead_in']}", "dim")
+
+    _line(console, "  Sections by week (official blueprint weight x your "
+                   "current weakness):")
+    for week in xp["weeks"]:
+        secs = "; ".join(f"{s['name']} ({s['weight']}%, {s['status']})"
+                         for s in week["sections"]) or "consolidation"
+        _line(console, f"    Week {week['index']:>2}  {week['label']}  {secs}")
+    if xp.get("unscheduled"):
+        _line(console,
+              f"    not scheduled (no room left): "
+              f"{', '.join(xp['unscheduled'])} — the daily plan still covers "
+              f"them", "dim")
+
+    if xp["mocks"]:
+        _line(console, "  Full mocks (spaced — a mock you cram is a mock you "
+                       "cannot learn from):")
+        for m in xp["mocks"]:
+            _line(console, f"    {m['date']} ({m['day']}, "
+                           f"{m['days_out']}d out) — {m['note']}")
+        _line(console,
+              f"    Taper: nothing new in the last {EXAM_PLAN_TAPER_DAYS} "
+              f"day(s) — re-read `python coach.py --mistakes` and sleep.",
+              "dim")
+    else:
+        _line(console, f"  No full mock scheduled — under "
+                       f"{EXAM_PLAN_MIN_MOCK_DAYS} days left. Do an exam-sim "
+                       f"Sprint on your weakest section instead, and rest.")
 
 
 def render_review(items: list[dict],
@@ -3197,9 +4001,36 @@ def main(argv: Optional[list[str]] = None) -> None:
     mode.add_argument("--item-analysis", action="store_true",
                       dest="item_analysis",
                       help="which exam-bank questions still carry signal")
+    mode.add_argument("--exam-date", metavar="YYYY-MM-DD", dest="exam_date",
+                      default=None,
+                      help="book your C1000-179 sitting (or 'clear' to "
+                           "remove it): the daily plan then counts down, "
+                           "back-plans the remaining weeks and spaces the "
+                           "full mocks")
+    parser.add_argument("--blocked", action="store_true",
+                        help="default view only: drill one topic at a time "
+                             "instead of today's interleaved mix. Mixing is "
+                             "the default because interleaved practice beats "
+                             "blocked practice on delayed retention and "
+                             "transfer (Rohrer & Taylor 2007; Kornell & "
+                             "Bjork 2008) even though it feels harder while "
+                             "you do it")
     args = parser.parse_args(argv)
 
     state = load_state()
+
+    if args.exam_date is not None:
+        ok, message = apply_exam_date(state, args.exam_date)
+        if not ok:
+            print(message, file=sys.stderr)
+            raise SystemExit(2)
+        save_state(state)
+        print(message)
+        booked = build_exam_plan(state, load_histories())
+        if booked is not None:
+            print()
+            render_exam_plan(booked, standalone=True)
+        return
 
     if args.diagnostic:
         run_diagnostic(state)
@@ -3240,7 +4071,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     plan = build_plan(histories, state)
     state["last_plan_date"] = _TODAY
     save_state(state)
-    render_plan(plan, state)
+    render_plan(plan, state, blocked=args.blocked)
 
 
 if __name__ == "__main__":

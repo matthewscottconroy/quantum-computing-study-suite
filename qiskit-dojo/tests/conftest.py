@@ -18,6 +18,12 @@ APP_ROOT = Path(__file__).resolve().parent.parent
 if str(APP_ROOT) not in sys.path:
     sys.path.insert(0, str(APP_ROOT))
 
+# pytest imports conftest before any test module, so running the import shim
+# here is what lets a test file say ``from common import journal`` whatever
+# order the files are collected in.  It appends, so this app's own modules
+# still shadow the repository root's (``tests``, ``tools``, ``coach``).
+import common_path  # noqa: E402,F401  (puts the repo root on sys.path)
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 _PERSISTENCE_PATHS = {

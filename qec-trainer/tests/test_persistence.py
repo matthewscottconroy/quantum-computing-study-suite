@@ -28,6 +28,7 @@ def _stats(rows: list[tuple[str, str, int, int]]) -> SessionStats:
 
 def test_paths_are_isolated_and_empty(isolated_data_dir):
     assert persistence.HISTORY_FILE.is_relative_to(isolated_data_dir)
+    assert persistence.FLAGGED_FILE.is_relative_to(isolated_data_dir)
     assert persistence._load_raw() == [] and persistence.load_flagged() == set()
 
 
@@ -80,16 +81,71 @@ def test_old_sessions_decay_with_14_day_half_life(isolated_data_dir):
 
 
 def test_flag_toggle_round_trip_and_corrupt_files(isolated_data_dir):
-    assert persistence.toggle_flag("rep_distance") is True
+    assert persistence.toggle_flag("rep_distance", "What is the distance?",
+                                   "Repetition Code") is True
     assert persistence.load_flagged() == {"rep_distance"}
     assert persistence.toggle_flag("stab_def") is True
-    assert json.loads(persistence._FLAGGED_FILE.read_text()) == ["rep_distance", "stab_def"]
+    assert [e["id"] for e in persistence.flagged_entries()] == ["rep_distance", "stab_def"]
     assert persistence.toggle_flag("rep_distance") is False
     assert persistence.load_flagged() == {"stab_def"}
 
-    persistence._FLAGGED_FILE.write_text("garbage")
+    persistence.FLAGGED_FILE.write_text("garbage")
     persistence.HISTORY_FILE.write_text("{nope")
     assert persistence.load_flagged() == set()
     assert persistence._load_raw() == []
     persistence.save_session(_stats([("p", "C", 10, 0)]))
     assert len(persistence._load_raw()) == 1
+
+
+def test_a_flag_carries_the_question_so_coachs_review_queue_can_show_it():
+    """The store used to hold bare ids, so the review queue listed "rep_distance"."""
+    persistence.toggle_flag("rep_distance", "What is the distance of the "
+                            "3-qubit repetition code?", "Repetition Code")
+    entry, = persistence.flagged_entries()
+    assert entry["id"] == "rep_distance"
+    assert entry["label"].startswith("What is the distance")
+    assert entry["category"] == "Repetition Code"
+    assert entry["app"] == "qec-trainer"
+    assert entry["timestamp"] > 0
+
+
+def test_a_legacy_bare_id_flag_file_is_read_and_upgraded_in_place(isolated_data_dir):
+    """Files written by the previous build must keep working, then improve."""
+    isolated_data_dir.mkdir(parents=True, exist_ok=True)
+    persistence.FLAGGED_FILE.write_text(json.dumps(["old_one", "old_two"]))
+
+    assert persistence.load_flagged() == {"old_one", "old_two"}      # read as-is
+    assert persistence.toggle_flag("new_one", "a new question", "Surface Code")
+
+    rows = json.loads(persistence.FLAGGED_FILE.read_text())
+    assert [r["id"] for r in rows] == ["old_one", "old_two", "new_one"]
+    assert rows[0] == {"id": "old_one", "label": "old_one", "category": "",
+                       "app": "qec-trainer", "timestamp": 0.0}
+    assert rows[2]["label"] == "a new question"
+    assert persistence.load_flagged() == {"old_one", "old_two", "new_one"}
+
+
+def test_an_unparseable_flag_row_is_kept_not_deleted(isolated_data_dir):
+    """A rewrite must not delete rows this build does not understand."""
+    isolated_data_dir.mkdir(parents=True, exist_ok=True)
+    persistence.FLAGGED_FILE.write_text(json.dumps(
+        [{"id": "keep", "label": "l", "unknown_key": [1, 2]}, "bare"]))
+    persistence.toggle_flag("added")
+    rows = json.loads(persistence.FLAGGED_FILE.read_text())
+    assert [r["id"] for r in rows] == ["keep", "bare", "added"]
+
+
+def test_history_survives_a_refused_write_and_says_so(isolated_data_dir):
+    """A file written by a newer build is never overwritten by this one."""
+    from common import schema
+
+    persistence.save_session(_stats([("p1", "C", 10, 0)]))
+    before = persistence.HISTORY_FILE.read_text()
+    schema.sidecar_path(persistence.HISTORY_FILE).write_text(json.dumps(
+        {"file": "qec_history.json", "kind": "history", "schema": 42}))
+
+    persistence.clear_write_error()
+    assert persistence.save_session(_stats([("p2", "C", 0, 0)])) is False
+    assert persistence.HISTORY_FILE.read_text() == before
+    assert isinstance(persistence.last_write_error(), schema.SchemaTooNewError)
+    persistence.clear_write_error()

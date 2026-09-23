@@ -1,30 +1,17 @@
-"""Coloured capsule label for subject name and difficulty level."""
+"""Coloured capsule labels — the widget is shared, the colours are ours.
 
-from PyQt6.QtWidgets import QLabel
-from PyQt6.QtCore import Qt
+:class:`common.ui.widgets.PillBadge` is the widget (math-quiz and quantum-quiz
+shipped identical copies).  The two factory helpers below stay here because
+they reach into *this app's* colour vocabulary, which is not shared style.
+"""
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.ui.widgets import PillBadge
+
 from ui import theme
 
-
-class PillBadge(QLabel):
-    def __init__(self, text: str, color: str, parent=None) -> None:
-        super().__init__(text, parent)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._set_color(color)
-
-    def _set_color(self, color: str) -> None:
-        self.setStyleSheet(
-            f"background-color: {color}22;"          # 13% alpha fill
-            f"color: {color};"
-            f"border: 1px solid {color}55;"          # 33% alpha border
-            "border-radius: 10px;"
-            "padding: 2px 10px;"
-            "font-size: 11px;"
-            "font-weight: bold;"
-        )
-
-    def update_text(self, text: str, color: str) -> None:
-        self.setText(text)
-        self._set_color(color)
+__all__ = ["PillBadge", "make_subject_pill", "make_difficulty_pill"]
 
 
 def make_subject_pill(subject: str, parent=None) -> PillBadge:

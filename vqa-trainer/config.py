@@ -1,23 +1,31 @@
-"""App-wide constants."""
-import os
+"""App-wide constants.
+
+The data directory and the file names come from :mod:`common.datadir`, which
+is the one resolver the whole suite (all ten apps, ``coach.py``,
+``dashboard.py``, ``launch.py`` and ``tools/``) honours:
+``QUANTUM_STUDY_DATA_DIR`` if it is set and non-blank, else
+``~/.local/share/quantum-study``.
+
+The constants below are an **import-time snapshot** of that resolution, kept
+because they are this app's long-standing published names.  Everything that
+actually reads or writes resolves the path again at call time (see
+``persistence.py``), so setting ``QUANTUM_STUDY_DATA_DIR`` is enough to move
+the whole app — no monkeypatching of constants required.
+"""
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 from pathlib import Path
+
+from common import datadir
 
 APP_NAME              = "VQA Trainer"
 APP_DIR_NAME          = "vqa-trainer"   # "app" field in the shared journal files
-# Shared suite data directory. QUANTUM_STUDY_DATA_DIR overrides it (the same
-# override coach.py, launch.py and the other apps honour) so tests and sandboxed
-# sessions never touch the real history; the default is unchanged. Read once at
-# import time, like every other app in the suite.
-_DATA_OVERRIDE        = os.environ.get("QUANTUM_STUDY_DATA_DIR", "").strip()
-DATA_DIR              = (
-    Path(_DATA_OVERRIDE).expanduser() if _DATA_OVERRIDE
-    else Path.home() / ".local" / "share" / "quantum-study"
-)
-HISTORY_FILE          = DATA_DIR / "vqa_history.json"
-FLAGGED_FILE          = DATA_DIR / "vqa_flagged.json"
-MISTAKES_FILE         = DATA_DIR / "mistakes.json"      # shared suite mistake journal
-CONFIDENCE_FILE       = DATA_DIR / "confidence.json"    # shared suite calibration log
-SETTINGS_FILE         = DATA_DIR / "vqa_settings.json"  # this app's own preferences
+DATA_DIR              = datadir.data_dir()
+HISTORY_FILE          = datadir.app_file(APP_DIR_NAME, "history")
+FLAGGED_FILE          = datadir.app_file(APP_DIR_NAME, "flagged")
+MISTAKES_FILE         = datadir.mistakes_file()      # shared suite mistake journal
+CONFIDENCE_FILE       = datadir.confidence_file()    # shared suite calibration log
+SETTINGS_FILE         = datadir.app_file(APP_DIR_NAME, "settings")
 API_KEY_FILE          = Path.home() / ".config" / "quantum-study" / "api_key.txt"
 MODEL                 = "claude-sonnet-4-6"
 DEFAULT_PROBLEM_COUNT = 8

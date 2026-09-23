@@ -26,6 +26,7 @@ class SetupScreen(QWidget):
         self._topic_cbs: dict[str, QCheckBox] = {}
         self._build_ui()
         self._refresh_list()
+        self.refresh_warnings()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -42,6 +43,18 @@ class SetupScreen(QWidget):
         sub.setWordWrap(True)
         root.addWidget(title)
         root.addWidget(sub)
+
+        # Shown only when common.schema refused a write because a data file was
+        # stamped by a newer build of the suite.  A refused write is silent
+        # everywhere else by design (nothing may raise into a drill), so this
+        # is the one place it becomes visible.
+        self._warning_lbl = QLabel("")
+        self._warning_lbl.setObjectName("subheading")
+        self._warning_lbl.setWordWrap(True)
+        self._warning_lbl.setStyleSheet(
+            f"color: {theme.WARNING}; font-size: 12px; font-weight: bold;")
+        self._warning_lbl.hide()
+        root.addWidget(self._warning_lbl)
 
         sep = QFrame(); sep.setObjectName("separator")
         root.addWidget(sep)
@@ -206,6 +219,21 @@ class SetupScreen(QWidget):
             persistence.set_confidence_prompt_enabled(self._confidence_cb.isChecked())
         except Exception:
             pass
+
+    def refresh_warnings(self) -> None:
+        """Surface a write this build refused to make, if there was one.
+
+        ``common.schema`` will not overwrite a file whose sidecar says it was
+        written by a newer build — that is how the newer build's fields get
+        deleted.  The write is skipped, recorded, and shown here rather than
+        being lost in silence.
+        """
+        try:
+            error = persistence.last_write_error()
+        except Exception:
+            error = None
+        self._warning_lbl.setText(f"⚠  {error}" if error else "")
+        self._warning_lbl.setVisible(error is not None)
 
     def refresh_flag_filter(self) -> None:
         """Re-apply the list when the flagged-only filter is active (flags may

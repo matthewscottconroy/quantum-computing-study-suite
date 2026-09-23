@@ -21,5 +21,5 @@ SCORE_PARTIAL_THRESHOLD = 4
 APP_NAME = "Math for Quantum"
 WINDOW_MIN_WIDTH = 900
 WINDOW_MIN_HEIGHT = 650
-SCORE_BAR_ANIMATION_MS = 700
-COLLAPSIBLE_ANIMATION_MS = 250
+# Animation durations moved to common.ui.theme (SCORE_BAR_ANIMATION_MS,
+# COLLAPSIBLE_ANIMATION_MS) with the widgets that use them.

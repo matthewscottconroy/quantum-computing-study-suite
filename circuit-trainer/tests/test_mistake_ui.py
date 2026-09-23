@@ -328,7 +328,12 @@ def test_a_broken_data_dir_never_breaks_the_flow(window, isolated_data_dir, monk
     def boom(*a, **k):
         raise OSError("disk on fire")
 
-    monkeypatch.setattr(persistence, "_write_json", boom)
+    # Every write this app makes -- journal, calibration, flags, history,
+    # prefs -- funnels through common.schema.save_versioned, so one patch here
+    # breaks all of them at once.
+    from common import schema
+
+    monkeypatch.setattr(schema, "atomic_write_json", boom)
     _start(win, _problem())
     screen._conf_btns[2].click()
     screen._choice_btns[0].click()                          # must not raise

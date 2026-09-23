@@ -1,6 +1,12 @@
 """Main application window for paper-drill."""
 from __future__ import annotations
 from PyQt6.QtWidgets import QMainWindow, QStackedWidget
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.ui.reference import ReferenceScreen
+from common.ui.widgets import LoadingOverlay
+
 from config import WINDOW_TITLE, WINDOW_MIN_SIZE
 from core.models import SessionStats, QuestionAttempt
 from ui.screens.paper_input_screen import PaperInputScreen
@@ -9,8 +15,6 @@ from ui.screens.feedback_screen import FeedbackScreen
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
 from ui.screens.library_screen import LibraryScreen
-from ui.screens.reference_screen import ReferenceScreen
-from ui.widgets.loading_overlay import LoadingOverlay
 from persistence import (
     save_session, toggle_flag, is_flagged, make_flag_id, make_flag_label,
     log_mistake, set_mistake_cause, resolve_mistake, log_confidence,
@@ -44,7 +48,11 @@ class MainWindow(QMainWindow):
         self._summary   = SummaryScreen()
         self._history   = HistoryScreen()
         self._library   = LibraryScreen()
-        self._reference = ReferenceScreen()
+        # No default_chapter and no category_docs: paper-drill drills whatever
+        # paper you paste, so it has no home rung on the ladder and no topic
+        # map.  The shared screen hides its "Jump to topic" picker when there is
+        # no mapping, and opens on the corpus README.
+        self._reference = ReferenceScreen(title="Reference")
         self._overlay   = LoadingOverlay(self)
 
         for w in (self._input, self._question, self._feedback, self._summary,
@@ -61,6 +69,7 @@ class MainWindow(QMainWindow):
         self._feedback.done_requested.connect(self._on_done)
         self._feedback.flag_requested.connect(self._on_flag)
         self._feedback.mistake_cause_selected.connect(self._on_mistake_cause)
+        self._feedback.errata_reported.connect(self._on_errata_reported)
         self._summary.drill_again.connect(self._drill_again)
         self._summary.back_requested.connect(self._go_input)
         self._history.back_requested.connect(self._go_input)
@@ -78,6 +87,8 @@ class MainWindow(QMainWindow):
         # 0 that says nothing about the learner, so nothing is logged for it).
         self._mistake_item_id: str | None = None
         self._grade_failed = False
+        # Last errata URL opened from the feedback screen (diagnostics only).
+        self._last_errata_url: str | None = None
 
     def _on_drill_requested(self, config) -> None:
         self._config = config
@@ -94,14 +105,14 @@ class MainWindow(QMainWindow):
             # blank with nothing to submit — treat it as a generation failure.
             self._on_gen_failed("Claude returned no questions for this text.")
             return
-        self._overlay.hide()
+        self._overlay.hide_overlay()
         self._questions = questions
         self._stats = SessionStats(title=self._config.paper_title)
         self._question.start(questions, self._config.paper_text)
         self._stack.setCurrentIndex(PAGE_QUESTION)
 
     def _on_gen_failed(self, err: str) -> None:
-        self._overlay.hide()
+        self._overlay.hide_overlay()
         from PyQt6.QtWidgets import QMessageBox
         QMessageBox.warning(self, "Generation Failed", f"Could not generate questions:\n{err}")
 
@@ -154,6 +165,10 @@ class MainWindow(QMainWindow):
 
     def _show_feedback(self, attempt: QuestionAttempt, is_last: bool) -> None:
         self._feedback.show_attempt(attempt, is_last)
+        # The errata report needs the same durable identity the flag and the
+        # journal use, so a maintainer can match a report to a logged mistake.
+        self._feedback.set_errata_item(self._flag_id_for(attempt),
+                                       attempt.question.text)
         try:
             flagged = is_flagged(self._flag_id_for(attempt))
         except Exception:
@@ -239,6 +254,16 @@ class MainWindow(QMainWindow):
             set_mistake_cause(self._mistake_item_id, cause or None, note)
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # Errata
+    # ------------------------------------------------------------------
+
+    def _on_errata_reported(self, url: str) -> None:
+        """Remember the last report so a test (or a future "recent reports"
+        view) can see it.  The screen has already opened the browser; nothing
+        here blocks, writes or fails the drill."""
+        self._last_errata_url = url
 
     # ------------------------------------------------------------------
 

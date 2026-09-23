@@ -1,22 +1,23 @@
-"""Dark theme for exam-sim (mirrors the vqa-trainer theme)."""
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont
+"""Dark theme for exam-sim.
 
-BG         = "#0d1117"
-SURFACE    = "#161b22"
-SURFACE2   = "#21262d"
-BORDER     = "#30363d"
-ACCENT     = "#58a6ff"
-ACCENT2    = "#388bfd"
-TEXT       = "#e6edf3"
-TEXT_MUTED = "#8b949e"
-SUCCESS    = "#3fb950"
-WARNING    = "#d29922"
-ERROR      = "#f85149"
-FLAG       = "#e3b341"
+The palette, the base stylesheet and ``apply()`` are :mod:`common.ui.theme` —
+the twelve colour constants were byte-identical in all ten apps before the
+extraction, so nothing about the look changed.  What stays here is exam-sim's
+own vocabulary: the section colour map, and the handful of widget rules that
+only this app uses (the question navigator's square buttons, the confidence /
+cause chips, the history tables).
+"""
+from __future__ import annotations
 
-MONO = '"JetBrains Mono", "Fira Code", "DejaVu Sans Mono", monospace'
+import common_path  # noqa: F401  (puts the repo root on sys.path)
 
+from common.ui.theme import *          # noqa: F401,F403  (palette + helpers)
+# BASE_QSS keeps the unextended shared stylesheet reachable after QSS below
+# shadows the star-imported one.
+from common.ui.theme import QSS as BASE_QSS  # noqa: F401
+from common.ui.theme import apply as _apply, extend
+
+# Exam section -> badge colour.  This app's words, not shared style.
 SECTION_COLORS = {
     "Create circuits":    "#6e40c9",
     "Quantum operations": "#1f6feb",
@@ -28,42 +29,18 @@ SECTION_COLORS = {
     "OpenQASM":           "#57606a",
 }
 
-QSS = f"""
-QWidget {{
-    background-color: {BG}; color: {TEXT};
-    font-family: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
-    font-size: 14px;
-}}
-QScrollArea, QScrollArea > QWidget > QWidget {{ background-color: {BG}; border: none; }}
-QScrollBar:vertical {{ background: {SURFACE}; width: 8px; border-radius: 4px; }}
-QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 4px; min-height: 24px; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+# Rules the base stylesheet has no reason to carry.  #chip is exam-sim's name
+# for the small pill used by the confidence strip and the mistake-cause row
+# (the base ships the same design under #pill); a checked chip also gains a
+# "✓" glyph in its text, so its state never depends on colour alone.
+_EXTRA = f"""
 QScrollBar:horizontal {{ background: {SURFACE}; height: 8px; border-radius: 4px; }}
 QScrollBar::handle:horizontal {{ background: {BORDER}; border-radius: 4px; min-width: 24px; }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
-QPushButton {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px;
-    padding: 8px 18px; font-size: 13px;
-}}
-QPushButton:hover {{ background-color: {BORDER}; border-color: {ACCENT}; }}
-QPushButton:pressed {{ background-color: {ACCENT2}; color: white; }}
-QPushButton:disabled {{ color: {TEXT_MUTED}; border-color: {SURFACE2}; }}
-QPushButton#accent {{
-    background-color: {ACCENT}; color: {BG};
-    border: none; font-weight: bold; font-size: 14px; padding: 10px 28px;
-}}
-QPushButton#accent:hover {{ background-color: {ACCENT2}; }}
-QPushButton#accent:disabled {{ background-color: {SURFACE2}; color: {TEXT_MUTED}; }}
-QPushButton#flat {{ background: transparent; border: none; color: {ACCENT}; padding: 4px 8px; }}
-QPushButton#flat:hover {{ color: {TEXT}; }}
 QPushButton#nav {{
     padding: 0; min-width: 34px; max-width: 34px; min-height: 30px; max-height: 30px;
     font-size: 12px; border-radius: 4px;
 }}
-/* Small pill button used by the confidence strip and the mistake-cause row.
-   A checked chip also gains a "v" glyph in its text, so its state never
-   depends on colour alone. */
 QPushButton#chip {{
     background-color: {SURFACE2}; color: {TEXT};
     border: 1px solid {BORDER}; border-radius: 11px;
@@ -76,34 +53,19 @@ QPushButton#chip:checked {{
 }}
 /* Visible keyboard focus. Border width grows by 1px and padding shrinks by
    1px, so focusing a control never shifts the layout. */
-QPushButton:focus {{ border: 2px solid {ACCENT}; padding: 7px 17px; }}
 QPushButton#chip:focus {{ border: 2px solid {TEXT}; padding: 2px 9px; }}
 QPushButton#nav:focus {{ border: 2px solid {TEXT}; padding: 0; }}
-QPushButton#accent:focus {{ border: 2px solid {TEXT}; padding: 8px 26px; }}
-QPushButton#flat:focus {{ border: 1px solid {ACCENT}; border-radius: 4px; padding: 3px 7px; }}
-QRadioButton:focus {{ border: 1px solid {ACCENT}; border-radius: 4px; }}
-QComboBox:focus {{ border-color: {ACCENT}; }}
-QTextBrowser {{ background-color: transparent; color: {TEXT}; border: none; font-size: 15px; }}
-QLabel {{ background: transparent; }}
-QLabel#heading {{ font-size: 22px; font-weight: bold; color: {TEXT}; }}
-QLabel#subheading {{ font-size: 15px; color: {TEXT_MUTED}; }}
-QFrame#card {{ background-color: {SURFACE}; border: 1px solid {BORDER}; border-radius: 8px; }}
-QFrame#separator {{ background-color: {BORDER}; max-height: 1px; }}
-QComboBox {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
-}}
-QComboBox::drop-down {{ border: none; }}
-QComboBox QAbstractItemView {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; selection-background-color: {ACCENT2};
-}}
 QRadioButton {{ spacing: 10px; color: {TEXT}; font-size: 14px; }}
 QRadioButton::indicator {{
     width: 16px; height: 16px;
     border: 1px solid {BORDER}; border-radius: 8px; background: {SURFACE2};
 }}
 QRadioButton::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+QLineEdit {{
+    background-color: {SURFACE2}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
+}}
+QLineEdit:focus {{ border-color: {ACCENT}; }}
 QTableWidget {{
     background-color: {SURFACE}; border: 1px solid {BORDER}; border-radius: 6px;
     gridline-color: {BORDER}; font-size: 13px;
@@ -122,18 +84,15 @@ QListWidget {{
 QListWidget::item {{ padding: 6px 8px; border-bottom: 1px solid {SURFACE2}; }}
 QListWidget::item:selected {{ background-color: {ACCENT2}; color: white; }}
 QListWidget::item:hover:!selected {{ background-color: {SURFACE2}; }}
-QLineEdit {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
-}}
-QLineEdit:focus {{ border-color: {ACCENT}; }}
 QSplitter::handle {{ background-color: {BORDER}; }}
 QSplitter::handle:horizontal {{ width: 1px; }}
 """
 
+#: The stylesheet exam-sim actually applies: the shared base plus the rules
+#: above.  Kept as a module constant because the accessibility tests read it.
+QSS = extend(_EXTRA)
 
-def apply(app: QApplication) -> None:
-    app.setStyleSheet(QSS)
-    font = QFont("Inter", 10)
-    font.setStyleHint(QFont.StyleHint.SansSerif)
-    app.setFont(font)
+
+def apply(app) -> None:
+    """Apply the shared theme plus exam-sim's own rules to a QApplication."""
+    _apply(app, QSS)

@@ -1,15 +1,25 @@
 # MANIFEST.in — extra files for the source distribution.
 #
-# setuptools already puts pyproject.toml, README.md, LICENSE and the three
-# py-modules (launch.py, coach.py, dashboard.py) into the sdist.  This file adds
-# the bootstrap and maintenance scripts so `pip download --no-binary :all:` gives
-# something you can actually re-create the environment from.
+# setuptools already puts pyproject.toml, README.md, LICENSE, the three
+# py-modules (launch.py, coach.py, dashboard.py) and the `common` package into
+# the sdist.  This file adds the bootstrap and maintenance scripts so
+# `pip download --no-binary :all:` gives something you can actually re-create
+# the environment from, and the two pieces of `common/` that are documentation
+# rather than code.
 #
 # The ten PyQt6 apps, the docs corpus, lesson-plans, notebooks, labs and projects
 # are deliberately NOT shipped: they are not Python packages (see the note at the
 # top of pyproject.toml), they are large, and they are only useful inside a git
 # checkout.  Get them from
 # https://github.com/matthewscottconroy/quantum-computing-study-suite
+
+# The shared package.  The .py files come from [tool.setuptools] packages, but
+# an sdist should also carry the migration contract (README.md) that says how
+# the ten apps import it and which of the ten diverging copies each decision
+# came from, and the tests that hold it to that contract.
+include common/README.md
+recursive-include common *.py
+include tests/test_common_*.py
 
 include requirements.txt
 include requirements-dev.txt

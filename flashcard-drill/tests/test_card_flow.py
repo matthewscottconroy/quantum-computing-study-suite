@@ -125,9 +125,10 @@ def test_space_reveals_and_focus_stays_on_screen(qapp, card_screen):
 def test_no_drill_button_on_card_screen_can_take_focus(card_screen):
     """The drill flow must stay un-focusable so Space can never click a button.
 
-    The review-feedback controls (confidence strip, cause row) added on top of
-    that flow are deliberately Tab-reachable for accessibility — they are the
-    only focusable buttons allowed, and they hand focus back when activated.
+    The review-feedback controls (confidence strip, cause row, "report a
+    problem with this item") added on top of that flow are deliberately
+    Tab-reachable for accessibility — they are the only focusable buttons
+    allowed, and they hand focus back when activated.
     """
     from PyQt6.QtWidgets import QPushButton
 
@@ -137,7 +138,8 @@ def test_no_drill_button_on_card_screen_can_take_focus(card_screen):
 
     feedback = set(card_screen._confidence_btns.values()) | \
         set(card_screen._cause_btns.values()) | \
-        {card_screen._confidence_off_btn, card_screen._cause_dismiss_btn}
+        {card_screen._confidence_off_btn, card_screen._cause_dismiss_btn,
+         card_screen._errata_btn}
     focusable = {b for b in card_screen.findChildren(QPushButton)
                  if b.focusPolicy() != Qt.FocusPolicy.NoFocus}
     assert focusable == feedback
@@ -190,7 +192,7 @@ def test_flag_button_toggles_and_writes_contract_entries(qapp, card_screen, data
     card_screen._flag_btn.click(); qapp.processEvents()
     assert toggled == [(cid, True)]
     assert "unflag" in card_screen._flag_btn.text()
-    entries = json.loads(storage._FLAGGED_FILE.read_text())
+    entries = json.loads(storage.flagged_path().read_text())
     assert len(entries) == 1
     assert set(entries[0]) == {"id", "label", "category", "app", "timestamp"}
     assert entries[0]["id"] == cid and entries[0]["app"] == "flashcard-drill"
@@ -235,13 +237,13 @@ def test_flagged_only_with_no_flags_never_writes_history(qapp, window, data_dir)
     setup._start_btn.click(); qapp.processEvents()
     assert window._stack.currentIndex() == PAGE_SETUP
     assert setup.notice_text()
-    assert not storage.HISTORY_FILE.exists()
+    assert not storage.history_path().exists()
 
     # … or a drill is started programmatically with an empty deck.
     window._on_drill_started(DrillConfig(categories=[], card_count=5, flagged_only=True))
     qapp.processEvents()
     assert window._stack.currentIndex() == PAGE_SETUP
-    assert not storage.HISTORY_FILE.exists()
+    assert not storage.history_path().exists()
 
     # History must still open cleanly afterwards.
     window._on_history(); qapp.processEvents()
@@ -273,7 +275,7 @@ def test_full_session_via_keyboard_is_saved_and_summarised(qapp, window, data_di
 
     assert window._stack.currentIndex() == PAGE_SUMMARY
     assert window._summary._score_lbl.text() == "60%"
-    sessions = json.loads(storage.HISTORY_FILE.read_text())
+    sessions = json.loads(storage.history_path().read_text())
     assert len(sessions) == 1
     s = sessions[0]
     assert (s["total"], s["got_it"], s["unsure"], s["missed"]) == (5, 3, 1, 1)
@@ -299,4 +301,4 @@ def test_session_complete_with_zero_total_is_not_saved(qapp, window, data_dir):
 
     window._cards.session_complete.emit(SessionStats()); qapp.processEvents()
     assert window._stack.currentIndex() == PAGE_SETUP
-    assert not storage.HISTORY_FILE.exists()
+    assert not storage.history_path().exists()

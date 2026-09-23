@@ -18,6 +18,8 @@ exact numeric (for parameter shift calculations), and open-ended free-form.
 - **Partial credit for numeric answers** — answers within 20× tolerance receive 4–9
   points scaled by proximity; only exact answers (within tolerance) get 10
 - **Hint system** — 1–2 hints per problem
+- **Errata reporting** — "Report a problem with this item" on the result screen opens a
+  prefilled GitHub issue about the problem you are looking at
 - **Grading failure recovery** — skip dialog on Claude API errors
 - **Mistake journal** — a wrong answer becomes *analysis*, not a bookmark: an inline,
   skippable "What went wrong?" row asks *why* you missed it (misread / didn't know /
@@ -109,15 +111,39 @@ the `confidence_prompt` key, or the file, to get it back).
   already recorded by the time the row appears, so pressing **Next Problem** loses
   nothing; clicking a cause chip categorises it, and the note field takes one line of
   "what to remember next time" (flushed automatically when you move on)
+- **⚑ Flag for Review** — a toggle; flagged problems come back via **Flagged only** on
+  the setup screen and through `coach.py`'s review queue
+- **⚑ Report a problem with this item** — see below
 - **Next Problem** or **Finish**
+
+#### Reporting a wrong or ambiguous problem
+
+The repository is public, and the only thing worse than a wrong answer key is a wrong
+answer key nobody told anyone about. **⚑ Report a problem with this item** opens a
+short form — *what is wrong*, *what it should say*, *how bad* — and then a GitHub
+issue that is **already filled in** with the problem's file and id, and the problem
+text exactly as you saw it, choices included.
+
+- The button is tab-reachable and named for a screen reader; the **Open the issue on
+  GitHub** button stays disabled until you have described the defect.
+- Nothing is sent from the app. It builds a URL and hands it to the system browser;
+  you read and submit the issue there.
+- Nothing blocks. If there is no browser (a headless box, a sandbox with no portal),
+  the link goes to your clipboard and the screen says so, so the report is not lost.
+- Cancelling opens nothing, and reporting never disturbs the journal row, the flag or
+  the **Next Problem** button.
+
+The form and the URL come from `common/errata.py` and `common/ui/errata_dialog.py`, so
+every app in the suite files the same shaped issue.
 
 ### Reference Screen
 
 **Browse Reference** on the setup screen opens the in-app docs browser for the
-repository's shared `docs/` corpus — the same browser every app in the suite ships;
-no API key needed. The docs folder is resolved relative to the app
-(`vqa-trainer/ui/screens/reference_screen.py` → `<repo>/docs`), so run the app from
-inside a checkout.
+repository's shared `docs/` corpus — literally the same browser every app in the
+suite ships (`common/ui/reference.py`); no API key needed. The docs folder is resolved
+at call time — beside the `common` package (`<repo>/docs`), else upwards from the
+working directory or the launched script — so run the app from inside a checkout, or
+set **`QUANTUM_STUDY_DOCS_DIR`** to point it at a corpus of your own.
 
 - **Chapter list** (left) — every `docs/**/*.md` file grouped by chapter and numbered in
   ladder order (`6.4  QAOA: Quantum Approximate Optimization Algorithm`). The screen opens on
@@ -262,6 +288,9 @@ This means:
 ```
 vqa-trainer/
 ├── main.py
+├── common_path.py               the import shim: puts <repo> on sys.path so the
+│                                app can `from common import …` (a verbatim copy
+│                                of common/app_shim.py — do not edit)
 ├── config.py                    MODEL, DATA_DIR, defaults
 ├── core/
 │   └── models.py                Problem, TrainerConfig, Attempt, SessionStats,
@@ -286,17 +315,56 @@ vqa-trainer/
 │   ├── screens/
 │   │   ├── setup_screen.py      Category/difficulty/count
 │   │   ├── problem_screen.py    MC radio / numeric input / free-form box
-│   │   ├── result_screen.py     Verdict, feedback, model answer
+│   │   ├── result_screen.py     Verdict, feedback, model answer, errata button
 │   │   ├── summary_screen.py    Session stats
 │   │   ├── history_screen.py    Past sessions table
-│   │   └── reference_screen.py  In-app docs browser (../docs/**/*.md, jump to topic)
+│   │   └── reference_screen.py  two constants + a 12-line subclass of
+│   │                            common.ui.reference.ReferenceScreen
 │   └── widgets/
-│       ├── loading_overlay.py
 │       ├── confidence_strip.py  1–4 rating strip, shown before submitting
 │       └── mistake_row.py       "What went wrong?" cause chips + note field
-└── persistence.py               history, flags, mistake journal, calibration,
-                                 settings — all path constants monkeypatchable
+├── persistence.py               adapter over common.journal / common.flags /
+│                                common.schema — this app's call signatures,
+│                                the suite's implementation
+└── journal_sync.py              superseded by common.locking; kept on disk only
+                                 because tests/test_journal_concurrency.py still
+                                 asserts all ten copies are byte-identical.
+                                 Nothing in this app imports it any more.
 ```
+
+### What lives in `common/` now
+
+`ui/theme.py` was 122 lines, `ui/screens/reference_screen.py` was 992, and
+`persistence.py` carried its own copy of the journal, the flag store, the advisory
+lock and the atomic writer. All of that is now one implementation in the repository's
+[`common/`](../common/README.md) package, imported through `common_path.py`:
+
+| This app's module | What it is now | From `common` |
+|---|---|---|
+| `ui/theme.py` | the category colours + three widget rules | `common.ui.theme` (palette, base stylesheet, `extend`, `apply`) |
+| `ui/screens/reference_screen.py` | `_APP_CHAPTER_DIR` + `CATEGORY_DOC` + a subclass | `common.ui.reference` |
+| `ui/widgets/loading_overlay.py` | **deleted** | `common.ui.widgets.LoadingOverlay` (animated; `hide_overlay()` also stops the timer) |
+| `persistence.py` journal half | thin adapters that supply `app="vqa-trainer"` | `common.journal` |
+| `persistence.py` flag half | `load_flagged()` / `toggle_flag()` | `common.flags` |
+| path constants | resolved at call time | `common.datadir` |
+| every write | versioned, backed up | `common.schema` |
+| `journal_sync.py` | unused | `common.locking` |
+
+Four behaviours changed with the move, all of them documented in
+`common/README.md` as the winner of a ten-way divergence:
+
+1. **The growth cap only trims this app's rows.** The old code sorted the *merged*
+   `mistakes.json` by timestamp and kept the newest 2000 — which deleted **other
+   apps'** rows during our write. Eight of the ten apps had this bug.
+2. **`CAUSE_LABELS["didnt_know"]` is ASCII `"Didn't know"`.** This app was the only
+   one with a typographic apostrophe.
+3. **A confidence rating outside 1–4 records nothing** instead of being clamped to 1.
+   A clamped rating is a rating the learner never gave.
+4. **The note keeps its line breaks** and is capped at 500 characters; the one-line
+   fields (question, your answer, correct answer) are still whitespace-collapsed and
+   capped at 200. (The note box in the UI is a 200-character single line either way.)
+
+The flag file also changes shape — see **Data Persistence** below.
 
 ---
 
@@ -323,8 +391,10 @@ vqa-trainer/
 
 `DATA_DIR` — and therefore every file below it — is overridden by the
 **`QUANTUM_STUDY_DATA_DIR`** environment variable, the same override `coach.py`,
-`launch.py` and the rest of the suite honour. It is read once at import time, a blank
-value is ignored, and `~` is expanded:
+`launch.py` and the rest of the suite honour. It is resolved by `common.datadir`
+**at call time**, so setting the variable at any point moves the whole app; a blank
+value is ignored, and `~` is expanded. (The constants in `config.py` are an
+import-time snapshot of the same resolution, kept because tooling reads them.)
 
 ```bash
 QUANTUM_STUDY_DATA_DIR=/tmp/scratch-study python main.py   # touches nothing real
@@ -338,15 +408,64 @@ All files live under `DATA_DIR` (`~/.local/share/quantum-study` by default; see
 `QUANTUM_STUDY_DATA_DIR` above). Every write goes through a temp file in the same
 directory followed by `os.replace`, so an interrupted write can never truncate a file,
 and every read tolerates a missing or corrupt file by starting fresh instead of
-crashing.
+crashing. The two shared files are written under an `flock` held for the whole
+read-modify-write, and rows owned by another app are put back exactly as they were
+read — unknown keys included.
 
 | File | Scope | Contents |
 |---|---|---|
 | `vqa_history.json` | this app | Sessions: problem count, correct count, accuracy, per-attempt detail *(schema unchanged)* |
-| `vqa_flagged.json` | this app | Flagged problem ids *(schema unchanged)* |
+| `vqa_flagged.json` | this app | Flagged problems *(shape changed — see below)* |
 | `mistakes.json` | **whole suite** | Mistake journal — one row per wrong answer |
 | `confidence.json` | **whole suite** | Confidence calibration — one row per rated answer |
 | `vqa_settings.json` | this app | UI preferences (currently `confidence_prompt`) |
+
+### Schema versions, migration and backups
+
+Every one of those files now carries two companions:
+
+| File | What it is |
+|---|---|
+| `<name>.schema.json` | the version sidecar: `{"file", "kind", "schema", "written_by", "updated"}` |
+| `<name>.bak`, `.bak.1`, `.bak.2` | three rotating generations, one taken per run before its first write |
+| `<name>.lock` | an empty file `flock`ed across a read-modify-write on a shared journal |
+
+Why a **sidecar** rather than a `{"schema": 1, "rows": […]}` wrapper: `coach.py` and
+`dashboard.py` both do `return data if isinstance(data, list) else []`, so a wrapper
+object would make the whole mistake journal read as *empty* in both of them. The data
+files keep the exact shape they have always had; the marker sits beside them, where
+those readers never look.
+
+What it buys:
+
+- **An older file migrates forward on read**, in memory. Reading is never destructive —
+  open a v1 file with a v3 build, change nothing, and it is still a v1 file afterwards.
+  A file with no sidecar at all is a pre-versioning file, which is a v1 file.
+- **A newer file is refused, not overwritten.** If `mistakes.json` was written by a
+  build that understands v4 and this one only understands v1, the write is declined
+  rather than silently dropping the newer build's fields. It does not raise into your
+  session: `persistence.last_write_error()` reports it.
+- **One bad write is recoverable.** `common.schema.restore_backup(path)` puts the
+  previous generation back.
+
+### `vqa_flagged.json` — shape change
+
+This app used to write a bare list of ids, `["bp_definition", "qaoa_structure"]`. It
+now writes the suite's contract shape, which seven of the ten apps already used and
+which `coach.py`'s review queue prefers:
+
+```json
+[{"id": "qaoa_mixer_role", "label": "qaoa_mixer_role", "category": "",
+  "app": "vqa-trainer", "timestamp": 1790179820.65}]
+```
+
+`coach.py` parses both, and an existing bare-id file is read as-is and upgraded in
+place the first time you flag or unflag something — upgraded rows get `timestamp: 0.0`
+rather than *now*, so a ten-month-old flag does not jump to the top of the review
+queue on the day the file happens to be rewritten. Two further fixes come with it: the
+file is written atomically (a plain `write_text` truncated first, so a crash mid-write
+lost every flag), and the rewrite is based on the raw file, so a row this build does
+not fully understand is not deleted.
 
 ### `mistakes.json`
 
@@ -390,24 +509,36 @@ of the same item are kept as separate rows: the repeat count *is* the signal.
 before submitting and paired with the grade afterwards. A low correct-rate at level 4
 is the confidently-wrong signal.
 
-**Growth caps.** The journal keeps the newest `MAX_MISTAKES = 2000` rows and the
-calibration log the newest `MAX_CONFIDENCE = 5000`; older rows are dropped on write, so
-neither shared file can grow without bound.
+**Growth caps.** The journal keeps this app's newest `MAX_MISTAKES = 2000` rows and
+the calibration log its newest `MAX_CONFIDENCE = 5000`; **only this app's** oldest rows
+are ever dropped. Both files are shared, and trimming them by a global timestamp order
+— which this app used to do — deletes other apps' history during our own write.
 
-### Pure helpers (`persistence.py`)
+### `persistence.py`
 
-Unit-testable without Qt, and every path is a module-level constant tests can
-monkeypatch:
+Unit-testable without Qt. Every signature below is unchanged by the migration to
+`common/` — they are adapters that supply `app="vqa-trainer"` and forward:
 
 ```python
 make_mistake_entry(...) -> dict      load_mistakes() -> list[dict]
 log_mistake(...) -> dict             set_mistake_cause(id, cause, note) -> dict | None
 resolve_mistakes(id) -> int          mistake_cause_counts(app=None) -> dict[str, int]
 make_confidence_entry(...) -> dict   load_confidence() -> list[dict]
-log_confidence(...) -> dict          confidence_breakdown() -> dict[int, tuple[int, int]]
+log_confidence(...) -> dict | None   confidence_breakdown() -> dict[int, tuple[int, int]]
+load_flagged() -> set[str]           toggle_flag(problem_id) -> bool
+save_session(stats)                  avg_scores_by_category() / problem_score_weights()
 load_settings() / save_settings()    confidence_prompt_enabled() / set_confidence_prompt_enabled()
-normalise_cause(cause) -> str | None
+normalise_cause(cause) -> str | None last_write_error() -> SchemaError | None
 ```
+
+Paths are resolved when they are used, not frozen at import:
+
+```python
+history_path()  flagged_path()  settings_path()  mistakes_path()  confidence_path()
+```
+
+so `QUANTUM_STUDY_DATA_DIR` alone redirects the app — no test needs to monkeypatch a
+constant.
 
 ---
 
@@ -465,17 +596,23 @@ every problem file, so no registration step is needed.
 cd vqa-trainer && python -m pytest
 ```
 
-`tests/conftest.py` redirects every path constant in `config.py` and `persistence.py`
-into a `tmp_path` directory (and sets `QUANTUM_STUDY_DATA_DIR` to match), so the suite
-can never touch the real `~/.local/share/quantum-study`.
+`tests/conftest.py` sets `QUANTUM_STUDY_DATA_DIR` to a `tmp_path` directory (and
+redirects the path constants in `config.py` and `persistence.py` to match), so the
+suite can never touch the real `~/.local/share/quantum-study`.
 
 | File | Covers |
 |---|---|
 | `test_bank.py` | Problem bank: counts, ids, categories, well-formed entries |
 | `test_grading.py` | MC/numeric auto-graders, problem-set builder, Claude prompt (no API) |
-| `test_persistence.py` | History and flag round-trips, decay weighting, corrupt files |
+| `test_persistence.py` | History and flag round-trips, the legacy bare-id upgrade, decay weighting, corrupt files |
 | `test_config_env.py` | `QUANTUM_STUDY_DATA_DIR` relocates every path (fresh interpreter) |
 | `test_journal.py` | Mistake journal / calibration / settings helpers — pure, no Qt |
-| `test_journal_ui.py` | Headless drive: rate → answer wrongly → journal a cause → re-answer correctly → resolved |
+| `test_journal_ui.py` | Headless drive: rate → answer wrongly → journal a cause → flag → re-answer correctly → resolved |
+| `test_schema_versioning.py` | Sidecars, forward migration, a newer file refused, rotating backups |
+| `test_errata.py` | "Report a problem with this item": the URL, the dialog, the browser call, the no-browser fallback |
 | `test_app_launch.py` | `MainWindow` constructs offscreen with no API key |
 | `test_reference.py` | In-app docs browser |
+
+The suite-wide behaviour this app now shares lives in the repository root suite
+(`tests/test_common_*.py`), including the ten-process concurrency test that has this
+app's `persistence.py` writing `mistakes.json` alongside the other nine.

@@ -7,6 +7,10 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QMainWindow, QStackedWidget, QMessageBox, QFileDialog
 from PyQt6.QtCore import Qt
 
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.ui.widgets import LoadingOverlay
+
 from core.models import QuizConfig, Question, Evaluation
 from core.session import QuizSession
 from qiskit_contexts import QiskitContext
@@ -19,7 +23,6 @@ from ui.screens.feedback_screen import FeedbackScreen
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
 from ui.screens.reference_screen import ReferenceScreen
-from ui.widgets.loading_overlay import LoadingOverlay
 from config import APP_NAME, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT
 
 
@@ -165,8 +168,25 @@ class MainWindow(QMainWindow):
             pass
         self._feedback_screen.load_evaluation(evaluation)
         self._feedback_screen.set_flagged(self._current_question_flagged())
+        self._set_errata_target()
         self._record_mistake_and_confidence(answer, evaluation)
         self._show_page(PAGE_FEEDBACK)
+
+    def _set_errata_target(self) -> None:
+        """Arm "report a problem" with the question now on the feedback screen.
+
+        Best-effort and never fatal: a broken data directory must not cost the
+        learner their feedback screen.
+        """
+        question = self._current_question
+        if question is None:
+            self._feedback_screen.clear_errata_item()
+            return
+        try:
+            item_id = self._journal_item_id(question)
+        except Exception:
+            item_id = ""
+        self._feedback_screen.set_errata_item(item_id, question.text)
 
     # ── Mistake journal & confidence calibration ──────────────────────────────
 
@@ -308,12 +328,12 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             # Do not fail silently: a read-only / missing data dir would
             # otherwise make the button appear dead.
-            from persistence import _FLAGGED_FILE
+            from persistence import flagged_file
             self._feedback_screen.set_flagged(self._current_question_flagged())
             QMessageBox.warning(
                 self,
                 "Could not update review flag",
-                f"Could not write {_FLAGGED_FILE}:\n{exc}",
+                f"Could not write {flagged_file()}:\n{exc}",
             )
             return
         self._feedback_screen.set_flagged(new_state)
@@ -434,7 +454,7 @@ class MainWindow(QMainWindow):
 
     def _check_for_draft(self) -> None:
         try:
-            from persistence import has_draft, clear_draft, _DRAFT_FILE
+            from persistence import has_draft, clear_draft, draft_file
             if not has_draft():
                 return
             reply = QMessageBox.question(
@@ -452,7 +472,7 @@ class MainWindow(QMainWindow):
                 )
                 if path:
                     import shutil
-                    shutil.copy2(str(_DRAFT_FILE), path)
+                    shutil.copy2(str(draft_file()), path)
             clear_draft()
         except Exception:
             pass

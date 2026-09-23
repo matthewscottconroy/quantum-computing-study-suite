@@ -78,7 +78,7 @@ def test_flag_toggle_writes_a_question_specific_entry(win, data_dir):
     assert win._current_question_flagged() is False
 
     win._on_flag_toggled()
-    entries = json.loads(persistence._FLAGGED_FILE.read_text())
+    entries = json.loads(persistence.flagged_file().read_text())
     assert len(entries) == 1
     e = entries[0]
     assert set(e) == FLAG_KEYS
@@ -95,13 +95,13 @@ def test_flag_toggle_writes_a_question_specific_entry(win, data_dir):
     win._current_question = q2
     assert win._current_question_flagged() is False
     win._on_flag_toggled()
-    ids = [x["id"] for x in json.loads(persistence._FLAGGED_FILE.read_text())]
+    ids = [x["id"] for x in json.loads(persistence.flagged_file().read_text())]
     assert len(ids) == 2 and ids[0] != ids[1]
 
     # … and toggling the first again removes only the first.
     win._current_question = q1
     win._on_flag_toggled()
-    assert [x["id"] for x in json.loads(persistence._FLAGGED_FILE.read_text())] == [ids[1]]
+    assert [x["id"] for x in json.loads(persistence.flagged_file().read_text())] == [ids[1]]
     assert not fb.is_flagged() and fb._flag_btn.text() == "⚑ Flag for review"
 
     # The feedback screen's own button drives the same path.
@@ -137,5 +137,5 @@ def test_flag_toggle_without_a_question_is_a_noop(win, data_dir):
 
     win._current_question = None
     win._on_flag_toggled()
-    assert not persistence._FLAGGED_FILE.exists()
+    assert not persistence.flagged_file().exists()
     assert win._current_question_flagged() is False

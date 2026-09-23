@@ -13,7 +13,7 @@ import time
 import pytest
 
 import persistence
-from core.models import AnswerFormat, Attempt, Problem, ProblemCategory
+from core.models import AnswerFormat, Attempt, Problem, ProblemCategory, SessionStats
 
 MISTAKE_FIELDS = {
     "id", "app", "category", "question", "your_answer", "correct_answer",
@@ -232,24 +232,148 @@ def test_writes_are_atomic_and_leave_no_temp_files(isolated_data_dir):
     persistence.set_confidence_prompt_enabled(True)
     leftovers = [p.name for p in isolated_data_dir.iterdir() if p.suffix == ".tmp"]
     assert leftovers == []
-    # The ".lock" sidecars belong to journal_sync: empty files flock()ed for the
-    # length of each read-modify-write so a second app cannot clobber rows we
-    # just appended to the shared journals.
+    # Three kinds of companion file, none of which any existing reader opens:
+    #   ".lock"          an empty file flock()ed for the length of each
+    #                    read-modify-write, so a second app cannot clobber rows
+    #                    we just appended to the shared journals;
+    #   ".schema.json"   the version marker -- a SIDECAR, because
+    #                    coach._load_list and dashboard._read_journal both
+    #                    require the data file's top level to be a plain list;
+    #   ".bak"           the state this process found the file in (written
+    #                    before the first write of the session, three
+    #                    generations kept).
     assert sorted(p.name for p in isolated_data_dir.iterdir()) == [
-        "confidence.json", "confidence.json.lock",
-        "mistakes.json", "mistakes.json.lock", "trainer_prefs.json"]
+        "confidence.json", "confidence.json.lock", "confidence.json.schema.json",
+        "mistakes.json", "mistakes.json.lock", "mistakes.json.schema.json",
+        "trainer_prefs.json", "trainer_prefs.json.schema.json"]
     assert (isolated_data_dir / "mistakes.json.lock").read_bytes() == b""
+    meta = json.loads((isolated_data_dir / "mistakes.json.schema.json").read_text())
+    assert meta["file"] == "mistakes.json" and meta["kind"] == "mistakes"
+    assert meta["schema"] == 1 and meta["written_by"].startswith("common/")
+
+
+# ── Schema versioning, migration and backups ─────────────────────────────────
+
+def test_an_unmarked_file_is_read_as_v1_and_stamped_on_the_next_write(isolated_data_dir):
+    """Every file written before versioning existed IS a v1 file."""
+    isolated_data_dir.mkdir(parents=True, exist_ok=True)
+    legacy = [{"id": "old", "app": "circuit-trainer", "category": "Gates",
+               "question": "q", "your_answer": "a", "correct_answer": "b",
+               "cause": None, "note": "", "timestamp": 1.0, "resolved": False}]
+    (isolated_data_dir / "mistakes.json").write_text(json.dumps(legacy))
+    assert not (isolated_data_dir / "mistakes.json.schema.json").exists()
+
+    assert [e["id"] for e in persistence.load_mistakes()] == ["old"]      # read, not rewritten
+    assert not (isolated_data_dir / "mistakes.json.schema.json").exists()
+
+    persistence.log_mistake_for_attempt(Attempt(_problem(), "0", False, 0, "fb"))
+    meta = json.loads((isolated_data_dir / "mistakes.json.schema.json").read_text())
+    assert meta["schema"] == 1
+    assert [e["id"] for e in persistence.load_mistakes()][0] == "old"     # nothing lost
+
+
+def test_a_file_from_a_newer_build_is_refused_not_corrupted(isolated_data_dir):
+    """A v99 file must come back untouched, and the app must not crash."""
+    isolated_data_dir.mkdir(parents=True, exist_ok=True)
+    path = isolated_data_dir / "mistakes.json"
+    future_row = {"id": "from-the-future", "app": "circuit-trainer",
+                  "brand_new_field": 42}
+    path.write_text(json.dumps([future_row]))
+    (isolated_data_dir / "mistakes.json.schema.json").write_text(json.dumps(
+        {"file": "mistakes.json", "kind": "mistakes", "schema": 99}))
+
+    before = path.read_text()
+    persistence.log_mistake_for_attempt(Attempt(_problem(), "0", False, 0, "fb"))
+    assert path.read_text() == before, "a newer file was overwritten"
+    assert persistence.last_write_error() is not None
+    assert "v99" in str(persistence.last_write_error())
+
+    # ...and reading it still works: reading is never destructive.
+    assert json.loads(path.read_text()) == [future_row]
+    persistence.clear_write_error()
+    assert persistence.last_write_error() is None
+
+
+def test_every_file_this_app_writes_carries_a_version_marker(isolated_data_dir):
+    p = _problem()
+    persistence.toggle_flag(p)
+    persistence.log_mistake_for_attempt(Attempt(p, "0", False, 0, "fb"))
+    persistence.log_confidence("i", "c", 2, True)
+    persistence.set_confidence_prompt_enabled(False)
+    persistence.save_session(SessionStats())
+
+    for name, kind in [("mistakes.json", "mistakes"),
+                       ("confidence.json", "confidence"),
+                       ("trainer_flagged.json", "flagged"),
+                       ("trainer_history.json", "history"),
+                       ("trainer_prefs.json", "settings")]:
+        sidecar = isolated_data_dir / f"{name}.schema.json"
+        assert sidecar.exists(), f"no version marker beside {name}"
+        meta = json.loads(sidecar.read_text())
+        assert (meta["file"], meta["kind"], meta["schema"]) == (name, kind, 1)
+
+
+def test_a_rotating_backup_keeps_the_state_each_session_started_from(isolated_data_dir):
+    """One backup per file per process -- of the state worth getting back to."""
+    from common import schema
+
+    persistence.log_mistake_for_attempt(Attempt(_problem("one"), "0", False, 0, "fb"))
+    path = isolated_data_dir / "mistakes.json"
+    assert not (isolated_data_dir / "mistakes.json.bak").exists()   # nothing to back up yet
+    after_first = json.loads(path.read_text())
+
+    schema.reset_session()                       # pretend a new session starts
+    persistence.log_mistake_for_attempt(Attempt(_problem("two"), "0", False, 0, "fb"))
+    assert json.loads((isolated_data_dir / "mistakes.json.bak").read_text()) == after_first
+    assert len(persistence.load_mistakes()) == 2
+
+    schema.reset_session()
+    persistence.log_mistake_for_attempt(Attempt(_problem("three"), "0", False, 0, "fb"))
+    assert len(json.loads((isolated_data_dir / "mistakes.json.bak.1").read_text())) == 1
+    assert len(json.loads((isolated_data_dir / "mistakes.json.bak").read_text())) == 2
+
+    # And the backup is restorable through the app, without leaving the repo.
+    assert persistence.restore_backup(path) is True
+    assert len(persistence.load_mistakes()) == 2
 
 
 def test_files_are_capped_at_the_documented_maximums(isolated_data_dir, monkeypatch):
-    monkeypatch.setattr(persistence, "_MAX_MISTAKES", 3)
-    monkeypatch.setattr(persistence, "_MAX_CONFIDENCE", 3)
+    from common import journal
+
+    assert (journal.MISTAKES_MAX, journal.CONFIDENCE_MAX) == (2000, 5000)
+    monkeypatch.setattr(journal, "MISTAKES_MAX", 3)
+    monkeypatch.setattr(journal, "CONFIDENCE_MAX", 3)
     for i in range(6):
         persistence.append_mistake(
             persistence.make_mistake_entry(_problem(f"q{i}"), str(i), "c"))
         persistence.log_confidence(f"i{i}", "c", 1, True)
     assert [e["your_answer"] for e in persistence.load_mistakes()] == ["3", "4", "5"]
     assert [e["id"] for e in persistence.load_confidence()] == ["i3", "i4", "i5"]
+
+
+def test_the_cap_only_ever_trims_this_apps_own_rows(isolated_data_dir, monkeypatch):
+    """A shared file: only our own rows are ever ours to drop.
+
+    The pre-migration code capped the *merged* list and then merged the foreign
+    rows back in, so nothing was lost -- but the cap did not hold (measured:
+    cap 4 with five foreign rows left seven rows on disk) and our own history
+    was trimmed to make room for rows that returned immediately.
+    """
+    from common import journal
+
+    monkeypatch.setattr(journal, "MISTAKES_MAX", 3)
+    isolated_data_dir.mkdir(parents=True, exist_ok=True)
+    theirs = [{"id": f"t{i}", "app": "quantum-tutor", "timestamp": 0.0}
+              for i in range(2)]
+    (isolated_data_dir / "mistakes.json").write_text(json.dumps(theirs))
+
+    for i in range(4):
+        persistence.append_mistake(
+            persistence.make_mistake_entry(_problem(f"q{i}"), str(i), "c"))
+
+    rows = json.loads((isolated_data_dir / "mistakes.json").read_text())
+    assert [r["id"] for r in rows if r["app"] == "quantum-tutor"] == ["t0", "t1"]
+    assert [r["your_answer"] for r in rows if r["app"] == "circuit-trainer"] == ["3"]
 
 
 def test_confidence_prompt_pref_round_trips(isolated_data_dir):
@@ -276,13 +400,16 @@ def test_existing_history_and_flag_files_are_untouched(isolated_data_dir):
     assert not (isolated_data_dir / "trainer_history.json").exists()
 
 
-# ── QUANTUM_STUDY_DATA_DIR (read at import time — use a fresh interpreter) ────
+# ── QUANTUM_STUDY_DATA_DIR (resolved per call — checked in a fresh interpreter) ─
 
 _APP_ROOT = pathlib.Path(persistence.__file__).resolve().parent
 _PRINT_PATHS = (
     "import json, persistence; print(json.dumps([str(persistence.mistakes_file()), "
     "str(persistence.confidence_file()), str(persistence.prefs_file())]))"
 )
+
+# The override is resolved on every call now, not frozen at import time -- but
+# a fresh interpreter is still the honest check that nothing caches it.
 
 
 def _paths_in_fresh_interpreter(env: dict) -> list[str]:

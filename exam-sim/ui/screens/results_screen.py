@@ -10,6 +10,7 @@ from core.models import ExamAttempt, ExamResult
 from config import SECTIONS, section_weight, pass_mark_for
 import persistence
 from ui import theme
+from ui.errata import ReportButton
 from ui.feedback import CauseRow
 from ui.format import question_html
 
@@ -20,6 +21,7 @@ class ResultsScreen(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._cause_rows: list[CauseRow] = []
+        self._report_btns: list[ReportButton] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -149,6 +151,7 @@ class ResultsScreen(QWidget):
             if w:
                 w.deleteLater()
         self._cause_rows = []
+        self._report_btns = []
         missed = result.missed
         if not missed:
             lbl = QLabel("✓ Nothing missed — a clean run.")
@@ -184,6 +187,18 @@ class ResultsScreen(QWidget):
                 lambda cause, note, a=attempt: self._on_cause(a, cause, note))
             lay.addWidget(row)
             self._cause_rows.append(row)
+            # "Report a problem with this item": the bank is public and a
+            # wrong key or an ambiguous option should reach an issue, not a
+            # note to self. Optional, keyboard reachable, opens nothing until
+            # the learner asks it to.
+            report_row = QHBoxLayout()
+            report_row.setContentsMargins(0, 0, 0, 0)
+            report_row.addStretch()
+            report = ReportButton()
+            report.set_question(q, attempt.chosen_index)
+            report_row.addWidget(report)
+            lay.addLayout(report_row)
+            self._report_btns.append(report)
             self._review_layout.addWidget(card)
         self._review_layout.addStretch()
 

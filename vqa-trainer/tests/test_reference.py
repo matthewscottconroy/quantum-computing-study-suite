@@ -68,10 +68,22 @@ def app_first_rel(rs) -> str:
 
 # ── discovery ────────────────────────────────────────────────────────────────
 
-def test_docs_root_is_the_repo_docs_folder(rs):
+def test_docs_root_is_the_repo_docs_folder(rs, ref):
     assert rs.docs_root() == APP_ROOT.parent / "docs"
-    assert rs.ReferenceScreen.docs_root() == rs.docs_root()
+    # common.ui.reference resolves the root per screen (the constructor can
+    # override it), so this is an instance method now, not a static one.
+    assert ref.docs_root() == rs.docs_root()
     assert rs.docs_root().is_dir()
+
+
+def test_the_docs_root_env_override_points_the_screen_elsewhere(rs, monkeypatch, tmp_path):
+    """QUANTUM_STUDY_DOCS_DIR replaces the old _DOCS_ROOT monkeypatch."""
+    root = tmp_path / "elsewhere"
+    root.mkdir()
+    (root / "README.md").write_text("# Elsewhere\n", encoding="utf-8")
+    monkeypatch.setenv(rs.DOCS_ENV_VAR, str(root))
+    assert rs.docs_root() == root
+    assert [e.rel for e in rs.scan_docs()] == ["README.md"]
 
 
 def test_scan_docs_lists_every_markdown_file_in_ladder_order(rs):
@@ -468,7 +480,7 @@ def test_load_all_rescans_when_the_docs_tree_changes(qapp, rs, monkeypatch, tmp_
     chapter.mkdir(parents=True)
     (root / "README.md").write_text("# Overview\n", encoding="utf-8")
     (chapter / "01_a.md").write_text("# A\n\nbody a\n", encoding="utf-8")
-    monkeypatch.setattr(rs, "_DOCS_ROOT", root)
+    monkeypatch.setenv(rs.DOCS_ENV_VAR, str(root))
     screen = rs.ReferenceScreen()
     try:
         screen.load_all()
@@ -494,7 +506,7 @@ def test_load_all_rescans_when_the_docs_tree_changes(qapp, rs, monkeypatch, tmp_
 
 
 def test_missing_docs_root_degrades_gracefully(qapp, rs, monkeypatch, tmp_path):
-    monkeypatch.setattr(rs, "_DOCS_ROOT", tmp_path / "no-docs-here")
+    monkeypatch.setenv(rs.DOCS_ENV_VAR, str(tmp_path / "no-docs-here"))
     screen = rs.ReferenceScreen()
     try:
         screen.load_all()

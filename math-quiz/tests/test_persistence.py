@@ -5,6 +5,8 @@ import json
 
 import pytest
 
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 import persistence
 from core.models import Evaluation, Question, QuestionRecord, SessionStats
 
@@ -22,10 +24,15 @@ def _stats(*records: tuple[str, str, int]) -> SessionStats:
 
 
 def test_paths_are_redirected_into_temp_dir(data_dir):
-    assert persistence._DATA_DIR == data_dir
-    assert persistence._HISTORY_FILE.is_relative_to(data_dir)
-    assert persistence._DRAFT_FILE.is_relative_to(data_dir)
-    assert not data_dir.exists()
+    """Every path is resolved from QUANTUM_STUDY_DATA_DIR at call time."""
+    assert persistence.data_dir() == data_dir
+    assert persistence.history_file() == data_dir / "math_history.json"
+    assert persistence.draft_file() == data_dir / "math_draft.json"
+    assert persistence.flagged_file() == data_dir / "math_flagged.json"
+    assert persistence.settings_file() == data_dir / "math_settings.json"
+    assert persistence.mistakes_file() == data_dir / "mistakes.json"
+    assert persistence.confidence_file() == data_dir / "confidence.json"
+    assert not data_dir.exists()          # reading creates nothing
 
 
 def test_empty_history_yields_empty_results():
@@ -38,7 +45,7 @@ def test_empty_history_yields_empty_results():
 
 def test_save_session_round_trip():
     persistence.save_session(_stats(("Number Theory", "primes", 8), ("Fourier Analysis", "DFT", 4)))
-    history = json.loads(persistence._HISTORY_FILE.read_text())
+    history = json.loads(persistence.history_file().read_text())
     assert len(history) == 1
     s = history[0]
     assert s["answered"] == 2 and s["average_score"] == 6.0
@@ -56,7 +63,7 @@ def test_draft_round_trip_and_cleared_by_save_session():
     stats = _stats(("Linear Algebra", "SVD", 9))
     persistence.save_draft(stats)
     assert persistence.has_draft() is True
-    draft = json.loads(persistence._DRAFT_FILE.read_text())
+    draft = json.loads(persistence.draft_file().read_text())
     assert draft["answered"] == 1
     assert draft["questions"][0]["question"] == "Q about SVD"
     assert draft["questions"][0]["answer"] == "my answer"
@@ -89,7 +96,7 @@ def test_question_score_weights_formula():
 
 def test_corrupt_history_is_ignored(data_dir):
     data_dir.mkdir(parents=True)
-    persistence._HISTORY_FILE.write_text("not json at all")
+    persistence.history_file().write_text("not json at all")
     assert persistence._load_raw() == []
     assert persistence.avg_scores_by_subject() == {}
     persistence.save_session(_stats(("A", "b", 5)))     # overwrites the corrupt file
@@ -115,8 +122,8 @@ def _question(subject="Linear Algebra", topic="spectral theorem", text=None) -> 
 
 
 def test_flagged_file_is_redirected_and_named_for_the_app(data_dir):
-    assert persistence._FLAGGED_FILE.is_relative_to(data_dir)
-    assert persistence._FLAGGED_FILE.name == "math_flagged.json"
+    assert persistence.flagged_file().is_relative_to(data_dir)
+    assert persistence.flagged_file().name == "math_flagged.json"
     assert persistence.load_flagged() == []
     assert persistence.flagged_ids() == set()
     assert persistence.is_flagged(_question()) is False
@@ -126,7 +133,7 @@ def test_toggle_flag_writes_suite_schema():
     q = _question(text="Let V be an inner product space. " + "Prove things. " * 20)
     before = time.time()
     assert persistence.toggle_flag(q) is True
-    raw = json.loads(persistence._FLAGGED_FILE.read_text(encoding="utf-8"))
+    raw = json.loads(persistence.flagged_file().read_text(encoding="utf-8"))
     assert isinstance(raw, list) and len(raw) == 1
     e = raw[0]
     assert set(e) == {"id", "label", "category", "app", "timestamp"}
@@ -158,7 +165,7 @@ def test_toggle_twice_removes_and_third_time_reflags():
     q = _question()
     assert persistence.toggle_flag(q) is True
     assert persistence.toggle_flag(q) is False
-    assert json.loads(persistence._FLAGGED_FILE.read_text(encoding="utf-8")) == []
+    assert json.loads(persistence.flagged_file().read_text(encoding="utf-8")) == []
     assert persistence.is_flagged(q) is False
     assert persistence.toggle_flag(q) is True
     assert len(persistence.load_flagged()) == 1
@@ -182,7 +189,7 @@ def test_toggle_flag_rejects_dict_without_id():
         persistence.toggle_flag({"label": "no id"})
     with pytest.raises(ValueError):
         persistence.toggle_flag({"id": "   "})
-    assert not persistence._FLAGGED_FILE.exists()
+    assert not persistence.flagged_file().exists()
 
 
 def test_unflag_return_values():
@@ -199,40 +206,102 @@ def test_unflag_return_values():
 def test_corrupt_and_non_list_flag_files_load_as_empty(data_dir):
     data_dir.mkdir(parents=True)
     q = _question()
-    persistence._FLAGGED_FILE.write_text("{not a list", encoding="utf-8")
+    persistence.flagged_file().write_text("{not a list", encoding="utf-8")
     assert persistence.load_flagged() == []
     assert persistence.toggle_flag(q) is True                 # recreates the file
     assert [e["id"] for e in persistence.load_flagged()] == [persistence.flag_id_for(q)]
-    persistence._FLAGGED_FILE.write_text('{"a": 1}', encoding="utf-8")
+    persistence.flagged_file().write_text('{"a": 1}', encoding="utf-8")
     assert persistence.load_flagged() == []
     # Malformed entries inside an otherwise valid list are skipped.
+    # Rows with no usable id are dropped; a bare string is the suite's legacy
+    # flag shape (flagged_cards.json, qec_flagged.json) and common.flags reads
+    # it as an id and upgrades it in place, which coach.py already parses.
     persistence.save_flagged([{"garbage": True}, "str", {"id": "", "label": "x"},
+                              {"id": "ok::t#0", "label": "kept"}])
+    assert [e["id"] for e in persistence.load_flagged()] == ["str", "ok::t#0"]
+    upgraded = persistence.load_flagged()[0]
+    assert upgraded == {"id": "str", "label": "str", "category": "",
+                        "app": "math-quiz", "timestamp": 0.0}
+    persistence.save_flagged([{"garbage": True}, {"id": "", "label": "x"},
                               {"id": "ok::t#0", "label": "kept"}])
     assert [e["id"] for e in persistence.load_flagged()] == ["ok::t#0"]
 
 
-def test_flag_and_history_files_are_utf8_and_written_atomically(data_dir, monkeypatch):
+def test_flag_and_history_files_round_trip_non_ascii_and_are_written_atomically(
+        data_dir, monkeypatch):
     q = _question(subject="Calculus & Real Analysis", topic="ε-δ definitions",
                   text="Let f: ℝ → ℝ. " + "x" * 100)
     persistence.toggle_flag(q)
-    raw = persistence._FLAGGED_FILE.read_bytes()
-    assert "ε-δ" in raw.decode("utf-8")           # written as UTF-8, not escaped
+    # common.jsonio writes with json.dumps' default ensure_ascii, so non-ASCII
+    # is \u-escaped on disk rather than written raw.  What has to hold is that
+    # it round-trips exactly, on every locale (see the subprocess test below).
+    assert json.loads(persistence.flagged_file().read_text(encoding="utf-8"))[0]["id"] \
+        == persistence.flag_id_for(q)
     assert persistence.load_flagged()[0]["id"].startswith("Calculus & Real Analysis::ε-δ definitions#")
     persistence.save_session(_stats(("Calculus & Real Analysis", "ε-δ definitions", 7)))
     assert persistence.avg_scores_by_topic() == {"Calculus & Real Analysis::ε-δ definitions": pytest.approx(7.0)}
-    # No temp files left behind after successful writes.
-    assert sorted(p.name for p in data_dir.iterdir()) == ["math_flagged.json", "math_history.json"]
+    # No temp files left behind after successful writes.  The data files are
+    # accompanied by their schema sidecars (common.schema) and the flag file's
+    # advisory lock; nothing else.
+    assert sorted(p.name for p in data_dir.iterdir()) == [
+        "math_flagged.json", "math_flagged.json.lock",
+        "math_flagged.json.schema.json",
+        "math_history.json", "math_history.json.schema.json",
+    ]
+    assert not list(data_dir.glob("*.tmp"))
 
     # A failing write must leave the existing file intact and clean up its temp file.
-    good = persistence._FLAGGED_FILE.read_bytes()
+    good = persistence.flagged_file().read_bytes()
 
     def boom(*_a, **_k):
         raise OSError("disk full")
-    monkeypatch.setattr(persistence.os, "replace", boom)
+    monkeypatch.setattr(os, "replace", boom)
     with pytest.raises(OSError):
         persistence.toggle_flag(_question(text="another"))
-    assert persistence._FLAGGED_FILE.read_bytes() == good
+    assert persistence.flagged_file().read_bytes() == good
     assert not list(data_dir.glob("*.tmp"))
+
+
+def test_every_file_this_app_writes_is_versioned_and_backed_up(data_dir):
+    """common.schema: a sidecar per file, and one rotating backup per session."""
+    from common import schema
+
+    q = _question()
+    persistence.toggle_flag(q)
+    persistence.save_session(_stats(("Linear Algebra", "SVD", 8)))
+    persistence.save_draft(_stats(("Linear Algebra", "SVD", 8)))
+    persistence.set_confidence_prompt_enabled(False)
+    persistence.log_mistake(q, "wrong", "right")
+    persistence.log_confidence(q, 3, False)
+
+    for path, kind in (
+        (persistence.flagged_file(), "flagged"),
+        (persistence.history_file(), "history"),
+        (persistence.draft_file(), persistence.DRAFT_KIND),
+        (persistence.settings_file(), "settings"),
+        (persistence.mistakes_file(), "mistakes"),
+        (persistence.confidence_file(), "confidence"),
+    ):
+        meta = schema.read_meta(path)
+        assert meta["kind"] == kind, path.name
+        assert meta["schema"] == 1 and meta["file"] == path.name
+        assert schema.stored_version(path, kind) == 1
+
+    # A file written by a newer build is refused, not overwritten.
+    schema.write_meta(persistence.history_file(), "history", version=99)
+    with pytest.raises(schema.SchemaTooNewError):
+        persistence.save_session(_stats(("Linear Algebra", "SVD", 1)))
+    assert len(persistence._load_raw()) == 1          # untouched
+    schema.write_meta(persistence.history_file(), "history", version=1)
+
+    # Rotating backup: the second session's first write preserves what was there.
+    before = persistence.history_file().read_bytes()
+    schema.reset_session()
+    persistence.save_session(_stats(("Linear Algebra", "SVD", 3)))
+    backup = persistence.history_file().with_name("math_history.json.bak")
+    assert backup.read_bytes() == before
+    assert schema.restore_backup(persistence.history_file()) is True
+    assert len(persistence._load_raw()) == 1
 
 
 def test_flag_round_trip_under_non_utf8_locale(data_dir, tmp_path):
@@ -244,6 +313,7 @@ def test_flag_round_trip_under_non_utf8_locale(data_dir, tmp_path):
         import persistence
         from core.models import Question
         print("ENC", locale.getpreferredencoding(False))
+        FLAGGED = persistence.flagged_file()
         q = Question(subject="Calculus & Real Analysis", topic="ε-δ definitions",
                      difficulty="beginner", question_type="calculation",
                      text="Let f: ℝ → ℝ. " + "x" * 100)
@@ -253,7 +323,7 @@ def test_flag_round_trip_under_non_utf8_locale(data_dir, tmp_path):
         assert entries[0]["id"].startswith("Calculus & Real Analysis::ε-δ definitions#"), entries
         assert entries[0]["label"].endswith("\\u2026"), entries
         assert persistence.toggle_flag(q) is False
-        assert json.loads(persistence._FLAGGED_FILE.read_text(encoding="utf-8")) == []
+        assert json.loads(FLAGGED.read_text(encoding="utf-8")) == []
         print("OK")
     '''), encoding="utf-8")
     env = {**os.environ, "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0",

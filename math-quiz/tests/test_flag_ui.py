@@ -72,14 +72,14 @@ def test_flag_button_click_round_trips_through_persistence(window, qapp):
     window._feedback._flag_btn.click()
     qapp.processEvents()
     assert window._feedback.is_flagged() is True
-    raw = json.loads(persistence._FLAGGED_FILE.read_text(encoding="utf-8"))
+    raw = json.loads(persistence.flagged_file().read_text(encoding="utf-8"))
     assert [e["id"] for e in raw] == [persistence.flag_id_for(q)]
     assert raw[0]["app"] == "math-quiz" and raw[0]["category"] == "Linear Algebra"
 
     window._feedback._flag_btn.click()
     qapp.processEvents()
     assert window._feedback.is_flagged() is False
-    assert json.loads(persistence._FLAGGED_FILE.read_text(encoding="utf-8")) == []
+    assert json.loads(persistence.flagged_file().read_text(encoding="utf-8")) == []
 
     # A different question on the same topic has independent state.
     other = _question(text="A different question on the same topic.")
@@ -102,7 +102,7 @@ def test_flag_failure_is_surfaced_not_swallowed(window, qapp, monkeypatch):
     qapp.processEvents()
     assert window._feedback.is_flagged() is True                 # state kept, not flipped
     assert window.statusBar().currentMessage() == "Could not update flag: read-only data dir"
-    assert not persistence._FLAGGED_FILE.exists()
+    assert not persistence.flagged_file().exists()
 
     window._current_question = None
     window._on_flag()                                            # no question: no-op, no raise
@@ -139,7 +139,7 @@ def test_history_flagged_list_orders_skips_malformed_and_unflags(qapp):
     h._unflag_btn.click()
     qapp.processEvents()
     assert h.flagged_ids() == [newest["id"], oldest["id"]]
-    on_disk = json.loads(persistence._FLAGGED_FILE.read_text(encoding="utf-8"))
+    on_disk = json.loads(persistence.flagged_file().read_text(encoding="utf-8"))
     assert [e["id"] for e in on_disk] == [oldest["id"], newest["id"]]   # file keeps insertion order
     assert h._flag_count_lbl.text() == "2 flagged"
 
@@ -152,7 +152,7 @@ def test_history_flagged_list_orders_skips_malformed_and_unflags(qapp):
     assert h._flag_list.isHidden() and not h._flag_empty_lbl.isHidden()
     assert h._flag_count_lbl.text() == ""
     assert not h._unflag_btn.isEnabled()
-    assert json.loads(persistence._FLAGGED_FILE.read_text(encoding="utf-8")) == []
+    assert json.loads(persistence.flagged_file().read_text(encoding="utf-8")) == []
 
 
 def test_history_flagged_list_tolerates_bad_timestamps_and_missing_labels(qapp):

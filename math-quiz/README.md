@@ -113,16 +113,29 @@ flagged-for-review list.
   subject and date). Select one and click **Unflag selected** to remove it.
 - **What went wrong?** appears on the feedback screen whenever the grade is below
   4/10. The mistake is already journalled by then (with `cause: null`), so the row is
-  pure upside: one tap adds the cause, the text field adds a one-line note, and
+  pure upside: one tap adds the cause, the text field adds a note, and
   **Next Question** is never blocked. Nothing here is modal.
+- **⚠ Report a problem with this item** (feedback screen, beside the flag) opens a
+  short form — what is wrong, what it should say, how bad — and then a **prefilled
+  GitHub issue** in your browser, carrying the item id and the question text exactly
+  as you saw it. The app sends nothing: it builds a URL and hands it to the desktop,
+  and nothing is filed until you submit it there. The button is Tab-reachable, never
+  blocks the drill, and on a machine with no browser the link goes to your clipboard
+  and the status bar says so.
 
 ### Reference
 
-**Reference** on the setup screen opens an in-app reader for the repository's `docs/`
-chapters (resolved relative to the app, `../docs`). The left pane lists every chapter
-file grouped by rung; the chapter drop-down and title filter narrow the list. Relative
-links between chapters navigate inside the reader; external links and **Open in external
-viewer** hand off to the desktop. **← Back** returns to setup and keeps your place.
+**Reference** on the setup screen opens the suite's shared in-app reader for the
+repository's `docs/` chapters (found relative to the package, then the working
+directory; `QUANTUM_STUDY_DOCS_DIR` overrides it). The left pane lists every chapter
+file grouped by rung; the chapter drop-down and the search box narrow the list, and
+the search box matches document *text*, not just titles. **Jump to topic** opens the
+chapter that covers a quiz subject — that map is `SUBJECT_DOCS` in
+`ui/screens/reference_screen.py`, one entry per subject in `core/topics.py`. The
+reader opens on `01_mathematical_foundations`, the rung this app drills, and
+**Show solutions** hides worked answers so you can try first. Relative links between
+chapters navigate inside the reader; external links and **Open externally** hand off
+to the desktop. **← Back** returns to setup and keeps your place.
 
 ---
 
@@ -151,6 +164,8 @@ viewer** hand off to the desktop. **← Back** returns to setup and keeps your p
 ```
 math-quiz/
 ├── main.py
+├── common_path.py               The shared-package import shim (a verbatim copy of
+│                                `common/app_shim.py` — do not edit it here)
 ├── config.py                    Constants: model, token limits, score thresholds, UI
 ├── core/
 │   ├── models.py                QuizConfig, Question, Evaluation, QuestionRecord, SessionStats
@@ -166,18 +181,58 @@ math-quiz/
 │   ├── screens/
 │   │   ├── setup_screen.py      Subject/difficulty/type configuration + study aids
 │   │   ├── question_screen.py   Question display, answer entry, confidence strip
-│   │   ├── feedback_screen.py   Score, verdict, collapsible panels, flag + mistake row
+│   │   ├── feedback_screen.py   Score, verdict, collapsible panels, flag, mistake
+│   │   │                        row, "Report a problem with this item"
 │   │   ├── summary_screen.py    Session chart (matplotlib)
 │   │   ├── history_screen.py    Lifetime stats + flagged-for-review list
-│   │   └── reference_screen.py  In-app docs/ Markdown browser
+│   │   └── reference_screen.py  DEFAULT_CHAPTER + SUBJECT_DOCS over the shared reader
+│   ├── theme.py                 Subject/difficulty colours + this app's extra QSS
 │   └── widgets/
-│       ├── collapsible_panel.py Animated expand/collapse
-│       ├── loading_overlay.py   Spinner overlay
 │       ├── chip_button.py       Checkable pill (confidence + mistake-cause chips)
-│       ├── pill_badge.py        Verdict badge
-│       └── score_bar.py         Animated score bar
-└── persistence.py               JSON history, flags, mistake journal, confidence, settings
+│       └── pill_badge.py        Subject/difficulty pill factories over common's badge
+└── persistence.py               Adapter over common/: history, draft, flags, the
+                                 mistake journal, confidence and settings
 ```
+
+### What comes from `common/`
+
+This app carries no copy of the code the ten apps share. The shim
+`common_path.py` puts the repository root on `sys.path`, and every module that
+needs the shared package imports it first:
+
+```python
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common import journal
+from common.ui import theme
+```
+
+| Was | Now |
+|---|---|
+| `persistence.py`'s own data-dir resolver, journal, flag store and atomic writer | `common.datadir`, `common.journal`, `common.flags`, `common.jsonio`, `common.locking` |
+| `journal_sync.py` (one of ten byte-identical copies) | `common.locking` — no module in this app imports it any more |
+| `ui/theme.py`'s twelve palette constants and base stylesheet | `common.ui.theme` (`import *`, plus this app's colour maps and extra rules) |
+| `ui/widgets/loading_overlay.py`, `score_bar.py`, `collapsible_panel.py`, the `PillBadge` class | `common.ui.widgets` |
+| `ui/screens/reference_screen.py` — 497 lines of docs reader | `common.ui.reference.ReferenceScreen`, subclassed with two constants |
+
+`ui/widgets/chip_button.py` stays: the checkable confidence/cause chip is this
+app's own control, not one of the shared four. `flag_id_for()` and
+`mistake_id_for()` stay too — a question Claude generated has no identity except
+a hash of its text, and both hashes are load-bearing for files already on disk.
+
+Every public name in `persistence.py` still behaves as it did, with four
+differences the shared package reconciled across all ten apps:
+
+- **A repeated mistake is a new row, not an update of the old one.** Three slips
+  on one item are three rows, because repetition is exactly what
+  `coach.py --mistakes` counts.
+- **An unrecognised `cause` is stored as `null` rather than raising**, and an
+  unusable confidence rating records nothing rather than raising or being
+  clamped into a rating you never gave.
+- **A note keeps its line breaks and is capped at 500 characters** (the one-line
+  fields are still capped at 200).
+- **The growth cap trims only this app's oldest rows** — never another app's, on
+  a file this app does not own.
 
 ---
 
@@ -228,6 +283,10 @@ builder detects these and adds specific instructions:
 | `SCORE_CORRECT_THRESHOLD` | 7 | Score ≥ this → "Correct" |
 | `SCORE_PARTIAL_THRESHOLD` | 4 | Score ≥ this → "Partially correct" |
 
+The animation durations that used to live here (`SCORE_BAR_ANIMATION_MS`,
+`COLLAPSIBLE_ANIMATION_MS`) moved to `common.ui.theme` with the widgets that use
+them, and are overridable per widget.
+
 ---
 
 ## Data Persistence
@@ -238,7 +297,26 @@ list with one `{question_id, subject, topic, score, elapsed_seconds, timestamp}`
 graded question. Your answers, Claude's feedback and the model answers are not kept in
 the history: they exist only in the in-progress draft (`math_draft.json`, deleted once
 the session is saved) and in the JSON / Markdown exports from the summary screen.
-All three files are written as UTF-8, atomically (temp file + rename).
+
+Every file this app writes goes through `common.schema`, which adds two things and
+changes no on-disk format:
+
+- **A version sidecar.** `math_history.json` gains `math_history.json.schema.json`,
+  holding `{"file", "kind", "schema", "written_by", "updated"}`. It is a *sidecar*
+  rather than a key in the data because `coach.py` and `dashboard.py` require the
+  top level of these files to be a plain JSON list — a `{"schema": 1, "rows": […]}`
+  wrapper would make all of them read the file as empty. An older file is migrated
+  forward in memory when it is read and rewritten only when something writes it;
+  a file written by a **newer** build is refused rather than overwritten with this
+  build's narrower view of it.
+- **A rotating backup.** Before the first write of a session to a file, the current
+  contents are copied to `<name>.bak`, ageing `<name>.bak` → `.bak.1` → `.bak.2`.
+  Three generations, one backup per run, best-effort — a full disk never blocks the
+  write it protects. `common.schema.restore_backup(path)` puts one back.
+
+Writes are atomic throughout (temp file + `os.replace`), and the two shared files are
+written under an advisory lock (`<name>.lock`) so several apps open at once cannot
+drop each other's rows.
 
 Flagged questions live next to it in `math_flagged.json`, a JSON list using the
 suite-wide flag schema (shared by every app and read by `coach.py --review`):
@@ -282,12 +360,14 @@ Every app in the suite appends to this one file, so the journal is suite-wide:
 - `category` — the subject.
 - `cause` — `misread`, `didnt_know`, `knew_but_slipped`, `confused`, `out_of_time`,
   `other`, or `null` (logged but not yet categorised).
-- `question`, `your_answer`, `correct_answer` and `note` are collapsed to one line and
-  truncated to 200 characters.
+- `question`, `your_answer` and `correct_answer` are collapsed to one line and
+  truncated to 200 characters. `note` is prose you typed, so it keeps its line breaks
+  and is truncated at 500.
 - A wrong answer is written **immediately** with `cause: null`, so skipping the
-  "what went wrong?" row never loses the mistake. Choosing a cause updates that same
-  entry. Missing the same item again while it is still open updates it rather than
-  duplicating it.
+  "what went wrong?" row never loses the mistake. Choosing a cause updates the newest
+  entry for that item. Missing the same item again **appends a new row**: three slips
+  on one question are three rows, because the repetition is the signal
+  `coach.py --mistakes` reports.
 - `resolved` flips to `true` when the same item (matched on `app` + `id`) is later
   graded ≥ `SCORE_CORRECT_THRESHOLD`. Missing it again after that opens a fresh entry.
 
@@ -318,10 +398,12 @@ the unknown unknowns.
 touched. It remembers the **Don't ask** opt-out so the strip is never shown again
 until it is re-enabled from the setup screen.
 
-Both new files tolerate a missing or corrupt file (they start fresh rather than
-crashing) and are written as UTF-8 atomically (temp file + `os.replace`). Each is
-capped at its newest 5 000 rows — the cap is on the whole shared file, not per app,
-so the journal cannot grow without bound however many apps append to it.
+Both shared files tolerate a missing or corrupt file (they start fresh rather than
+crashing) and are written atomically under a lock. Growth is capped **per app** —
+2 000 mistake rows and 5 000 calibration rows of our own — and only this app's oldest
+rows are ever dropped. Trimming the newest *N* rows of the whole shared file, which
+the pre-`common/` code did, deleted other apps' history during a write to a file this
+app does not own.
 
 Set `QUANTUM_STUDY_DATA_DIR` to relocate every file above (history, draft, flagged,
 mistakes, confidence, settings); the default directory is unchanged.
@@ -345,3 +427,13 @@ never shifts or elides its label). Chip text stays `#e6edf3` in both states — 
 unselected fill and 9.4:1 on the accent-tinted selected fill, against a 4.5:1
 requirement (there is a unit test for this in
 `tests/test_mistakes_confidence.py`).
+
+**⚠ Report a problem with this item** is a plain button in the feedback screen's
+bottom bar, so Tab reaches it between **Flag for review** and **Next Question**
+and the shared focus rule draws a 2 px accent ring without shifting the layout.
+It carries the accessible name "Report a problem with this question". The dialog
+it opens is a standard modal — Esc cancels it, and its accept button stays
+disabled until there is a description to read, so an empty report cannot be
+filed. Nothing in the drill waits on it: "Next Question" is live throughout, and
+if the desktop has no browser the issue link goes to the clipboard and the
+status bar says where it went rather than the report disappearing.

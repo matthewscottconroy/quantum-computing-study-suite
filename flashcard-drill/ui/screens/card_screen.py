@@ -21,6 +21,13 @@ Two optional review features hang off the same flow, both persisted through
   the next card, Escape or Dismiss closes it; nothing is ever blocked and no
   modal appears.  Rating the card "Got it" later resolves the entry.
 
+A third control sits with the revealed answer: **"Report a problem with this
+item"** (:class:`ui.widgets.errata_button.CardErrataButton`), which opens a
+prefilled GitHub issue about the card in the system browser.  It is
+Tab-reachable, its dialog is opened rather than ``exec()``'d so the drill is
+never frozen, and on a machine with no browser it puts the URL on the clipboard
+and says so in its own label instead of doing nothing.
+
 The SM-2 schedule update is untouched by all of this: a journalled mistake is
 analysis, never a second lapse.
 """
@@ -31,9 +38,11 @@ from PyQt6.QtWidgets import (
     QPushButton, QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+from config import APP as APP_NAME
 from core.models import Flashcard, DrillConfig, Rating, CardResult, SessionStats
 from core.deck import build_deck
 from ui import theme
+from ui.widgets.errata_button import CardErrataButton
 from ui.widgets.timer_widget import TimerWidget
 
 _FLAG_ON  = "⚑ Flagged — click to unflag"
@@ -168,13 +177,18 @@ class CardScreen(QWidget):
         self._rating_widget.hide()
         root.addWidget(self._rating_widget)
 
-        # Flag button row
+        # Flag + errata row (shown with the answer)
         self._flag_row = QHBoxLayout()
         self._flag_btn = QPushButton(_FLAG_OFF)
         self._flag_btn.setObjectName("flat")
         self._flag_btn.clicked.connect(self._on_flag)
+        # "Report a problem with this item": Tab-reachable, non-blocking, and
+        # it hands focus back to the screen when its dialog closes.
+        self._errata_btn = CardErrataButton(app=APP_NAME)
+        self._errata_btn.closed.connect(self.setFocus)
         self._flag_row.addStretch()
         self._flag_row.addWidget(self._flag_btn)
+        self._flag_row.addWidget(self._errata_btn)
         self._flag_row.addStretch()
         self._flag_container = QWidget()
         self._flag_container.setLayout(self._flag_row)
@@ -210,7 +224,7 @@ class CardScreen(QWidget):
         self._confidence_btns: dict[int, QPushButton] = {}
         for value, label, meaning in _CONFIDENCE_CHOICES:
             btn = QPushButton(f"{_OFF_GLYPH} {value} {label}")
-            btn.setObjectName("conf_btn")
+            btn.setObjectName("pill")       # the shared confidence/cause pill
             btn.setCheckable(True)
             btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             btn.setAccessibleName(f"Confidence {value} of 4: {label}")
@@ -326,7 +340,7 @@ class CardScreen(QWidget):
         self._cause_btns: dict[str, QPushButton] = {}
         for i, cause in enumerate(CAUSES):
             btn = QPushButton(f"{_OFF_GLYPH} {CAUSE_LABELS[cause]}")
-            btn.setObjectName("cause_btn")
+            btn.setObjectName("pill")       # the shared confidence/cause pill
             btn.setCheckable(True)
             btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             btn.setAccessibleName(f"Cause: {CAUSE_LABELS[cause]}")
@@ -522,6 +536,10 @@ class CardScreen(QWidget):
         self._rating_widget.show()
         self._flag_container.show()
         self._flag_btn.setText(_FLAG_ON if self._is_flagged() else _FLAG_OFF)
+        card = self._deck[self._idx]
+        # The report carries the card exactly as it was just read, both sides.
+        self._errata_btn.set_item(
+            card.id, f"Front: {card.front}\n\nBack: {card.back}")
         self.setFocus()
 
     def _is_flagged(self) -> bool:

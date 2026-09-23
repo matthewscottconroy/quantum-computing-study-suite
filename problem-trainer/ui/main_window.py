@@ -224,4 +224,5 @@ class MainWindow(QMainWindow):
     def _go_setup(self) -> None:
         self._setup.refresh_flag_filter()
         self._setup.refresh_settings()   # the "Don't ask" button may have fired
+        self._setup.refresh_warnings()   # a write refused during the session
         self._stack.setCurrentIndex(PAGE_SETUP)

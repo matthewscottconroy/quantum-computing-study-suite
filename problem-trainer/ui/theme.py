@@ -1,19 +1,26 @@
-"""Dark theme — same palette as other quantum-study apps."""
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont
+"""Dark theme — the suite palette from :mod:`common.ui.theme`, plus this app's
+own vocabulary.
 
-BG         = "#0d1117"
-SURFACE    = "#161b22"
-SURFACE2   = "#21262d"
-BORDER     = "#30363d"
-ACCENT     = "#58a6ff"
-ACCENT2    = "#388bfd"
-TEXT       = "#e6edf3"
-TEXT_MUTED = "#8b949e"
-SUCCESS    = "#3fb950"
-WARNING    = "#d29922"
-ERROR      = "#f85149"
-PARTIAL    = "#e3b341"
+The twelve palette constants and the bulk of the stylesheet were byte-identical
+in all ten apps and now live in ``common.ui.theme``; ``from ... import *``
+re-exports them so ``theme.ACCENT``, ``theme.SURFACE`` &c. still resolve here
+exactly as before.  What stays is what is genuinely this app's: the topic
+colour map, the flag-button labels, and the handful of widget rules the shared
+base does not carry (the item list, the step progress bar, the splitter and the
+``#flag`` toggle).
+"""
+from __future__ import annotations
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.ui.theme import *          # noqa: F401,F403  (the shared palette)
+# Named explicitly as well as via the star import: the f-strings below and the
+# app's own widgets use these, and a type checker cannot follow a star import.
+from common.ui.theme import (
+    ACCENT, ACCENT2, BORDER, ERROR, MONO, PARTIAL, QSS as BASE_QSS, SUCCESS,
+    SURFACE, SURFACE2, TEXT, TEXT_MUTED, WARNING, alpha, apply as _apply,
+    extend,
+)
 
 TOPIC_COLORS = {
     "Linear Algebra & QM Math": "#6e40c9",
@@ -30,53 +37,11 @@ TOPIC_COLORS = {
 FLAG_ON_TEXT  = "⚑ Flagged for review"
 FLAG_OFF_TEXT = "⚑ Flag for review"
 
-QSS = f"""
-QWidget {{
-    background-color: {BG}; color: {TEXT};
-    font-family: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
-    font-size: 14px;
-}}
-QScrollArea, QScrollArea > QWidget > QWidget {{ background-color: {BG}; border: none; }}
-QScrollBar:vertical {{ background: {SURFACE}; width: 8px; border-radius: 4px; }}
-QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 4px; min-height: 24px; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-QPushButton {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px;
-    padding: 8px 18px; font-size: 13px;
-}}
-QPushButton:hover {{ background-color: {BORDER}; border-color: {ACCENT}; }}
-QPushButton:pressed {{ background-color: {ACCENT2}; color: white; }}
-QPushButton:disabled {{ color: {TEXT_MUTED}; border-color: {SURFACE2}; }}
-QPushButton#accent {{
-    background-color: {ACCENT}; color: {BG};
-    border: none; font-weight: bold; font-size: 14px; padding: 10px 28px;
-}}
-QPushButton#accent:hover {{ background-color: {ACCENT2}; }}
-QPushButton#accent:disabled {{ background-color: {SURFACE2}; color: {TEXT_MUTED}; }}
-QPushButton#flat {{ background: transparent; border: none; color: {ACCENT}; padding: 4px 8px; }}
-QPushButton#flat:hover {{ color: {TEXT}; }}
-QPlainTextEdit, QTextEdit, QLineEdit {{
-    background-color: {SURFACE}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px;
-    padding: 8px; font-size: 14px; selection-background-color: {ACCENT2};
-}}
-QPlainTextEdit:focus, QTextEdit:focus, QLineEdit:focus {{ border-color: {ACCENT}; }}
-QTextBrowser {{ background-color: transparent; color: {TEXT}; border: none; font-size: 15px; }}
-QLabel {{ background: transparent; }}
-QLabel#heading {{ font-size: 22px; font-weight: bold; color: {TEXT}; }}
-QLabel#subheading {{ font-size: 15px; color: {TEXT_MUTED}; }}
-QFrame#card {{ background-color: {SURFACE}; border: 1px solid {BORDER}; border-radius: 8px; }}
-QFrame#separator {{ background-color: {BORDER}; max-height: 1px; }}
-QCheckBox {{ spacing: 8px; color: {TEXT}; }}
-QCheckBox::indicator {{ width: 16px; height: 16px; border: 1px solid {BORDER}; border-radius: 3px; background: {SURFACE2}; }}
-QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
-QRadioButton {{ spacing: 8px; color: {TEXT}; }}
-QRadioButton::indicator {{
-    width: 16px; height: 16px;
-    border: 1px solid {BORDER}; border-radius: 8px; background: {SURFACE2};
-}}
-QRadioButton::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+# Rules the shared base does not carry, because only some apps have these
+# widgets: the Setup item list, the derivation step progress bar, the Reference
+# splitter, and the "⚑ Flag for review" toggle.  The base's QPlainTextEdit /
+# QLineEdit padding is also restored to this app's roomier answer-box sizing.
+_EXTRA = f"""
 QListWidget {{
     background-color: {SURFACE}; color: {TEXT};
     border: 1px solid {BORDER}; border-radius: 6px; padding: 4px;
@@ -89,26 +54,31 @@ QProgressBar {{
     height: 8px; text-align: center; color: transparent;
 }}
 QProgressBar::chunk {{ background: {ACCENT}; border-radius: 4px; }}
-QComboBox {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
+QRadioButton {{ spacing: 8px; color: {TEXT}; }}
+QRadioButton::indicator {{
+    width: 16px; height: 16px;
+    border: 1px solid {BORDER}; border-radius: 8px; background: {SURFACE2};
 }}
+QRadioButton::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
 QComboBox:hover {{ border-color: {ACCENT}; }}
-QComboBox::drop-down {{ border: none; }}
-QComboBox QAbstractItemView {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; selection-background-color: {ACCENT2};
-}}
 QSplitter::handle {{ background: {BORDER}; }}
 QSplitter::handle:horizontal {{ width: 1px; }}
-QPushButton#flag {{ background: transparent; border: 1px solid {BORDER}; color: {TEXT_MUTED}; padding: 6px 12px; }}
+QPlainTextEdit, QTextEdit, QLineEdit {{ padding: 8px; font-size: 14px; }}
+QLineEdit:focus {{ border: 2px solid {ACCENT}; padding: 7px; }}
+QPushButton#flag {{
+    background: transparent; border: 1px solid {BORDER};
+    color: {TEXT_MUTED}; padding: 6px 12px;
+}}
 QPushButton#flag:hover {{ border-color: {WARNING}; color: {WARNING}; }}
 QPushButton#flag:checked {{ border-color: {WARNING}; color: {WARNING}; font-weight: bold; }}
+QPushButton#flag:focus {{ border: 2px solid {ACCENT}; padding: 5px 11px; }}
 """
 
+#: The full stylesheet this app applies (base + the rules above).  Kept under
+#: the old name so anything that read ``theme.QSS`` still gets what is applied.
+QSS = extend(_EXTRA)
 
-def apply(app: QApplication) -> None:
-    app.setStyleSheet(QSS)
-    font = QFont("Inter", 10)
-    font.setStyleHint(QFont.StyleHint.SansSerif)
-    app.setFont(font)
+
+def apply(app) -> None:
+    """Apply the suite theme plus this app's extra rules to a QApplication."""
+    _apply(app, QSS)

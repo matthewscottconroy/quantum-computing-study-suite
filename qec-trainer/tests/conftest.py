@@ -1,4 +1,4 @@
-"""Test bootstrap for qec-trainer: app root on sys.path, headless Qt, temp persistence."""
+"""Test bootstrap for qec-trainer: app root on sys.path, headless Qt, temp data dir."""
 from __future__ import annotations
 
 import os
@@ -16,23 +16,22 @@ import pytest  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def isolated_data_dir(tmp_path, monkeypatch):
-    """Redirect every persistence path constant into a throwaway directory."""
-    import persistence
+    """Point the whole suite at a throwaway data directory.
+
+    One environment variable is the whole fixture now.  ``common.datadir``
+    resolves every path **at call time**, so nothing has to be reloaded and no
+    private module constant has to be patched — which is exactly what the
+    previous six ``monkeypatch.setattr`` lines existed to work around.
+    """
+    from common import schema
 
     data_dir = tmp_path / "quantum-study"
     monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", str(data_dir))
-    monkeypatch.setattr(persistence, "DATA_DIR", data_dir)
-    monkeypatch.setattr(persistence, "HISTORY_FILE", data_dir / "qec_history.json")
-    if hasattr(persistence, "_FLAGGED_FILE"):
-        monkeypatch.setattr(persistence, "_FLAGGED_FILE", data_dir / "qec_flagged.json")
-    # Shared mistake-journal / confidence files and this app's settings blob.
-    for attr, name in (("FLAGGED_FILE", "qec_flagged.json"),
-                       ("MISTAKES_FILE", "mistakes.json"),
-                       ("CONFIDENCE_FILE", "confidence.json"),
-                       ("SETTINGS_FILE", "qec_settings.json")):
-        if hasattr(persistence, attr):
-            monkeypatch.setattr(persistence, attr, data_dir / name)
-    return data_dir
+    # Backups are "once per file per process"; each test gets fresh paths, but
+    # clear the ledger anyway so a test that reuses a path still gets one.
+    schema.reset_session()
+    yield data_dir
+    schema.reset_session()
 
 
 @pytest.fixture(scope="session")

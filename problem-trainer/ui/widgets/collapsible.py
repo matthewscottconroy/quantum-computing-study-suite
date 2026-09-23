@@ -1,4 +1,23 @@
-"""Collapsible section widget — header button toggles a content area."""
+"""Collapsible section widget — header button toggles a content area.
+
+Deliberately **not** :class:`common.ui.widgets.CollapsiblePanel`.  That widget
+was extracted from math-quiz / quantum-quiz / circuit-trainer; this one was
+never one of its copies and differs where it matters:
+
+* it takes an ``accent`` colour (green for a step solved cleanly, amber for one
+  that needed the model step, warning-amber for a revealed model solution) and
+  a ``set_title``, which the feedback header rewrites to "Feedback — 7/10"
+  after each grade;
+* it puts the body in a plain framed layout, so a word-wrapped label reflows to
+  the panel's width.  ``CollapsiblePanel`` animates a ``QScrollArea`` to
+  ``content.sizeHint().height()``, and a wrapped ``QLabel``'s size hint is its
+  *unwrapped* single-line height — a multi-paragraph grader feedback would open
+  to one line.  Adapting around that would mean overriding the animation, i.e.
+  forking it, so the shared widget is left to the three apps it came from.
+
+Everything else this app shows in a disclosure panel (the loading overlay, the
+palette) does come from ``common``.
+"""
 from __future__ import annotations
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QFrame
 from PyQt6.QtCore import Qt

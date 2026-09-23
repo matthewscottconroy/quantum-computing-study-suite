@@ -1,8 +1,26 @@
-"""Persistence for problem-trainer sessions and review flags.
+"""Persistence for problem-trainer sessions, review flags and the study journal.
 
-Both files live in the shared suite data directory,
+Every file lives in the shared suite data directory,
 ~/.local/share/quantum-study/ by default; setting QUANTUM_STUDY_DATA_DIR
-relocates them (see config.DATA_DIR).
+relocates them.  The directory is resolved **at call time** by
+:mod:`common.datadir`, so the override can be changed in a running process and
+a test needs nothing but ``monkeypatch.setenv``.
+
+This module is now a thin app-shaped layer over the shared package:
+
+* :mod:`common.journal` owns ``mistakes.json`` / ``confidence.json`` — the
+  cross-process lock, foreign-row preservation, the growth caps and the atomic
+  write.
+* :mod:`common.flags` owns ``problems_flagged.json``.
+* :mod:`common.schema` owns the version sidecar, forward migration, the
+  refusal to overwrite a file written by a newer build, and the rotating
+  backup.  Every file written here goes through it.
+* :mod:`common.datadir` owns the file names and the directory.
+
+What stays here is what is genuinely this app's: the session-history schema
+below, the normalisation of a stored row into this app's view of it, and one
+deliberate behavioural adapter (``log_mistake`` refreshes an open entry instead
+of appending a second row — see its docstring).
 
 Schema (consumed by the suite coach — do not change):
 ~/.local/share/quantum-study/problems_history.json:
@@ -36,82 +54,156 @@ entry carries an "app" field, so writes here never disturb another app's rows):
 ~/.local/share/quantum-study/mistakes.json    — the mistake journal
 ~/.local/share/quantum-study/confidence.json  — confidence calibration
 plus this app's own small preference file, problems_settings.json.  Their
-schemas are documented above each section below.  All writes go through
-_atomic_write_json (temp file + os.replace), and every reader tolerates a
-missing or corrupt file by starting fresh.
+schemas are documented above each section below.  Every write is atomic (temp
+file + os.replace) and version-stamped, every read-modify-write is taken under
+an advisory lock, and every reader tolerates a missing or corrupt file by
+starting fresh.
+
+Schema versions and backups
+---------------------------
+Each file gets a sidecar — ``problems_history.json.schema.json`` &c. — holding
+``{"file", "kind", "schema", "written_by", "updated"}``.  The marker is a
+*sidecar* rather than a key in the data because ``coach.py`` and
+``dashboard.py`` require the top level of these files to be a plain JSON list;
+see common/README.md.  An older file is migrated forward in memory on read; a
+file written by a **newer** build is refused rather than overwritten, and the
+refusal is recorded in :func:`last_write_error` instead of raising into a
+drill.  Before the first write of each process the previous contents are
+copied to ``<name>.bak``, ageing ``.bak`` -> ``.bak.1`` -> ``.bak.2``.
 """
 from __future__ import annotations
-import json
-import os
+
 import time
 from pathlib import Path
-import journal_sync
-from config import (
-    HISTORY_FILE, DATA_DIR, FLAGGED_FILE,
-    MISTAKES_FILE, CONFIDENCE_FILE, SETTINGS_FILE,
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common import datadir, flags, journal, schema
+from common.jsonio import read_json_dict
+from common.locking import lock
+# Re-exported, not used: ``persistence.HISTORY_FILE`` &c. are this app's
+# published surface (tests and tools read them) and are frozen at import time.
+# Everything below resolves its path through the helpers in the next section,
+# so a QUANTUM_STUDY_DATA_DIR set after import is still honoured.
+from config import (  # noqa: F401
+    APP_KEY, CONFIDENCE_FILE, DATA_DIR, FLAGGED_FILE, HISTORY_FILE,
+    MISTAKES_FILE, SETTINGS_FILE,
 )
 from core.models import SessionStats
 
-APP_NAME_KEY = "problem-trainer"     # value of the "app" field in flag entries
+APP_NAME_KEY = APP_KEY               # value of the "app" field in flag entries
 
 # Growth caps for the two shared analytics files.  They are append-only logs
-# written by ten apps, so they are trimmed to the newest N entries on write
-# (oldest first is dropped); the caps are generous enough that a normal study
-# history is never touched.
-MAX_MISTAKES   = 2000
-MAX_CONFIDENCE = 5000
+# written by ten apps; each app keeps at most this many of *its own* rows, so
+# no app can ever trim another's history out of a file it does not own.
+MAX_MISTAKES   = journal.MISTAKES_MAX
+MAX_CONFIDENCE = journal.CONFIDENCE_MAX
 
-MISTAKE_CAUSES = (
-    "misread", "didnt_know", "knew_but_slipped", "confused", "out_of_time", "other",
-)
-TEXT_FIELD_MAX = 200                 # question / your_answer / correct_answer cap
+MISTAKE_CAUSES = journal.MISTAKE_CAUSES
+MISTAKE_KEYS   = journal.MISTAKE_KEYS
+TEXT_FIELD_MAX = journal.TEXT_MAX    # question / your_answer / correct_answer cap
 
 
-def _atomic_write_json(path: Path, payload) -> None:
-    """Write JSON to `path` via a temp file + os.replace (never a partial file)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2))
-    os.replace(tmp, path)
+# ---------------------------------------------------------------------------
+# Paths — resolved now, never frozen at import time
+# ---------------------------------------------------------------------------
+
+def data_dir() -> Path:
+    """The suite data directory, resolved now."""
+    return datadir.data_dir()
 
 
-def _load_json_list(path: Path) -> list:
-    """The JSON list stored at `path`; [] when missing, corrupt or not a list."""
+def history_path() -> Path:
+    return datadir.app_file(APP_NAME_KEY, "history")
+
+
+def flagged_path() -> Path:
+    return datadir.app_file(APP_NAME_KEY, "flagged")
+
+
+def settings_path() -> Path:
+    return datadir.app_file(APP_NAME_KEY, "settings")
+
+
+def mistakes_path() -> Path:
+    return datadir.mistakes_file()
+
+
+def confidence_path() -> Path:
+    return datadir.confidence_file()
+
+
+# ---------------------------------------------------------------------------
+# Refused writes
+# ---------------------------------------------------------------------------
+
+_WRITE_ERROR: schema.SchemaError | None = None
+
+
+def last_write_error() -> schema.SchemaError | None:
+    """The most recent write this build refused to make, or None.
+
+    :mod:`common.schema` will not overwrite a file stamped with a schema
+    version newer than this build understands — that is how a newer build's
+    fields get silently deleted.  Nothing here raises into a drill; the
+    refusal is recorded so the UI can say "your journal was written by a newer
+    version of the suite and is not being updated" instead of losing writes in
+    silence.
+    """
+    return _WRITE_ERROR or journal.last_write_error()
+
+
+def clear_write_error() -> None:
+    """Forget the last refused write (after the UI has shown it)."""
+    global _WRITE_ERROR
+    _WRITE_ERROR = None
+    journal.clear_write_error()
+
+
+def _record_refusal(path: Path, kind: str) -> None:
+    global _WRITE_ERROR
     try:
-        if not path.exists():
-            return []
-        data = json.loads(path.read_text())
-    except Exception:
-        return []
-    return data if isinstance(data, list) else []
+        schema.check_writable(path, kind)
+    except schema.SchemaTooNewError as exc:
+        _WRITE_ERROR = exc
 
 
-def _clip(value, limit: int = TEXT_FIELD_MAX) -> str:
-    """Coerce to str and clip to `limit` characters (ellipsis marks the cut)."""
-    text = "" if value is None else str(value)
-    return text if len(text) <= limit else text[: limit - 1] + "\u2026"
-
-
-def _load_raw() -> list[dict]:
-    if not HISTORY_FILE.exists():
-        return []
+def _writable(path: Path, kind: str) -> bool:
+    """True when *path* may be written; records the refusal when it may not."""
     try:
-        data = json.loads(HISTORY_FILE.read_text())
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
+        schema.check_writable(path, kind)
+    except schema.SchemaTooNewError as exc:
+        global _WRITE_ERROR
+        _WRITE_ERROR = exc
+        return False
+    return True
 
 
-def load_history() -> list[dict]:
-    return _load_raw()
+def _save_versioned(path: Path, payload, kind: str) -> bool:
+    """``schema.save_versioned`` that reports a refusal instead of raising."""
+    global _WRITE_ERROR
+    try:
+        schema.save_versioned(path, payload, kind)
+    except schema.SchemaTooNewError as exc:
+        _WRITE_ERROR = exc
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Session history  —  <data dir>/problems_history.json
+# ---------------------------------------------------------------------------
+
+def load_history() -> list:
+    """Every stored session, oldest first; [] when missing or corrupt."""
+    return schema.load_versioned(history_path(), "history")
 
 
 def save_session(stats: SessionStats) -> None:
+    """Append one finished session.  An empty session is not recorded."""
     if stats.total == 0:
         return
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    sessions = _load_raw()
-    sessions.append({
+    entry = {
         "timestamp": time.time(),
         "total":     stats.total,
         "avg_score": round(stats.avg_score, 2),
@@ -123,90 +215,83 @@ def save_session(stats: SessionStats) -> None:
             }
             for a in stats.attempts
         ],
-    })
-    _atomic_write_json(HISTORY_FILE, sessions)
+    }
+    path = history_path()
+    # Locked: launch.py invites several windows of one app, and an unlocked
+    # read-modify-write drops the session the other window just finished.
+    with lock(path, create=True):
+        sessions = load_history()        # read inside the lock: never stale
+        sessions.append(entry)
+        _save_versioned(path, sessions, "history")
 
 
 # ---------------------------------------------------------------------------
-# Review flags
+# Review flags  —  <data dir>/problems_flagged.json  (common.flags)
 # ---------------------------------------------------------------------------
-
-def _normalize_flag(entry) -> dict | None:
-    """Coerce one stored entry to the contract schema; None if unusable."""
-    if isinstance(entry, str) and entry.strip():
-        return {"id": entry.strip(), "label": entry.strip(), "category": "",
-                "app": APP_NAME_KEY, "timestamp": 0.0}
-    if isinstance(entry, dict):
-        ident = entry.get("id") or entry.get("problem_id")
-        if not ident:
-            return None
-        ts = entry.get("timestamp", 0.0)
-        return {
-            "id":        str(ident),
-            "label":     str(entry.get("label") or ident),
-            "category":  str(entry.get("category") or ""),
-            "app":       str(entry.get("app") or APP_NAME_KEY),
-            "timestamp": float(ts) if isinstance(ts, (int, float)) else 0.0,
-        }
-    return None
-
 
 def load_flagged() -> list[dict]:
-    """All flag entries (oldest first), each normalized to the contract schema."""
-    if not FLAGGED_FILE.exists():
-        return []
-    try:
-        data = json.loads(FLAGGED_FILE.read_text())
-    except Exception:
-        return []
-    if not isinstance(data, list):
-        return []
-    out: list[dict] = []
-    for e in data:
-        n = _normalize_flag(e)
-        if n is not None:
-            out.append(n)
-    return out
+    """All flag entries (oldest first), each normalised to the contract schema."""
+    return flags.load_flagged(flagged_path(), APP_NAME_KEY)
 
 
-def save_flagged(entries: list[dict]) -> None:
-    _atomic_write_json(FLAGGED_FILE, entries)
+def save_flagged(entries: list[dict]) -> bool:
+    """Rewrite the flag file atomically.  False when the write was refused."""
+    path = flagged_path()
+    ok = flags.save_flagged(path, entries, APP_NAME_KEY)
+    if not ok:
+        _record_refusal(path, "flagged")
+    return ok
 
 
 def flagged_ids() -> set[str]:
-    return {e["id"] for e in load_flagged()}
+    return flags.flagged_ids(flagged_path(), APP_NAME_KEY)
 
 
 def is_flagged(item_id: str) -> bool:
+    """True when *item_id* is in the flag file, in any shape it may be stored.
+
+    Asked of the normalised view rather than ``common.flags.is_flagged``: that
+    helper matches raw rows on the ``"id"`` key only, so a pre-contract
+    ``{"problem_id": …}`` row — which ``load_flagged`` does understand — would
+    read as not flagged.  See the note on :func:`_upgrade_legacy_rows`.
+    """
     return item_id in flagged_ids()
+
+
+def _upgrade_legacy_rows(path: Path, item_id: str) -> None:
+    """Rewrite the flag file in the contract shape when *item_id* needs it.
+
+    ``common.flags`` reads a pre-contract ``{"problem_id": …}`` row but its
+    toggle/unflag matcher only looks at the ``"id"`` key, so such a row can be
+    listed and never removed.  Rewriting the file through ``save_flagged``
+    normalises every row (which is how legacy files upgrade themselves anyway)
+    and the shared toggle then sees it.  Reported upstream; this costs one
+    extra read when — and only when — the two views disagree.
+    """
+    if is_flagged(item_id) and not flags.is_flagged(path, item_id, APP_NAME_KEY):
+        save_flagged(load_flagged())
 
 
 def toggle_flag(item_id: str, label: str = "", category: str = "") -> bool:
     """Flag `item_id` for review, or unflag it if already flagged.
 
-    Returns the new state (True = now flagged).
+    Returns the new state (True = now flagged).  A file this build must not
+    overwrite is left alone and the current state is reported unchanged.
     """
-    entries = load_flagged()
-    remaining = [e for e in entries if e["id"] != item_id]
-    if len(remaining) != len(entries):
-        save_flagged(remaining)
+    path = flagged_path()
+    if not _writable(path, "flagged"):
+        return is_flagged(item_id)
+    _upgrade_legacy_rows(path, item_id)
+    return flags.toggle_flag(path, item_id, label, category, app=APP_NAME_KEY)
+
+
+def unflag(item_id: str) -> bool:
+    """Remove one flag.  True when something was removed."""
+    path = flagged_path()
+    if not _writable(path, "flagged"):
         return False
-    entries.append({
-        "id":        item_id,
-        "label":     label or item_id,
-        "category":  category,
-        "app":       APP_NAME_KEY,
-        "timestamp": time.time(),
-    })
-    save_flagged(entries)
-    return True
-
-
-def unflag(item_id: str) -> None:
-    entries = load_flagged()
-    remaining = [e for e in entries if e["id"] != item_id]
-    if len(remaining) != len(entries):
-        save_flagged(remaining)
+    _upgrade_legacy_rows(path, item_id)
+    return flags.unflag(path, item_id, app=APP_NAME_KEY)
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +307,7 @@ def unflag(item_id: str) -> None:
 #     "your_answer": str,     # <= 200 chars
 #     "correct_answer": str,  # <= 200 chars
 #     "cause": str|None,      # one of MISTAKE_CAUSES, or None = not categorised
-#     "note": str,
+#     "note": str,            # <= 200 chars, line breaks kept
 #     "timestamp": float,     # epoch
 #     "resolved": bool        # True once the same item is answered correctly
 #   },
@@ -231,15 +316,9 @@ def unflag(item_id: str) -> None:
 # A wrong answer is only a bookmark; the cause is the payload — "nine
 # little-endian slips this month" is the signal worth acting on.
 
-MISTAKE_KEYS = ("id", "app", "category", "question", "your_answer",
-                "correct_answer", "cause", "note", "timestamp", "resolved")
-
-
 def normalize_cause(cause) -> str | None:
     """A valid cause string, or None (unknown/blank causes become None)."""
-    if isinstance(cause, str) and cause in MISTAKE_CAUSES:
-        return cause
-    return None
+    return journal.normalise_cause(cause)
 
 
 def make_mistake_entry(item_id: str, category: str = "", question: str = "",
@@ -248,23 +327,21 @@ def make_mistake_entry(item_id: str, category: str = "", question: str = "",
                        timestamp: float | None = None,
                        resolved: bool = False,
                        app: str = APP_NAME_KEY) -> dict:
-    """One mistake-journal entry in contract order, with every field coerced."""
-    return {
-        "id":             str(item_id),
-        "app":            str(app),
-        "category":       str(category or ""),
-        "question":       _clip(question),
-        "your_answer":    _clip(your_answer),
-        "correct_answer": _clip(correct_answer),
-        "cause":          normalize_cause(cause),
-        "note":           _clip(note),
-        "timestamp":      float(timestamp if timestamp is not None else time.time()),
-        "resolved":       bool(resolved),
-    }
+    """One mistake-journal entry in contract order, with every field coerced.
+
+    The three one-line fields are whitespace-collapsed and capped at 200
+    characters; the note keeps its line breaks (it is prose the user typed) and
+    is capped at the same 200 the note box enforces.
+    """
+    return journal.make_mistake_entry(
+        item_id, app, category=category, question=question,
+        your_answer=your_answer, correct_answer=correct_answer, cause=cause,
+        note=journal.clip_note(note, TEXT_FIELD_MAX), timestamp=timestamp,
+        resolved=resolved)
 
 
 def _normalize_mistake(entry) -> dict | None:
-    """Coerce a stored entry to the contract schema; None if unusable."""
+    """Coerce a stored entry to this app's view of it; None if unusable."""
     if not isinstance(entry, dict):
         return None
     ident = entry.get("id")
@@ -279,40 +356,38 @@ def _normalize_mistake(entry) -> dict | None:
         correct_answer=entry.get("correct_answer", ""),
         cause=entry.get("cause"),
         note=entry.get("note", ""),
-        timestamp=float(ts) if isinstance(ts, (int, float)) else 0.0,
+        timestamp=float(ts) if isinstance(ts, (int, float)) and not isinstance(ts, bool) else 0.0,
         resolved=bool(entry.get("resolved", False)),
         app=entry.get("app") or APP_NAME_KEY,
     )
 
 
 def load_mistakes() -> list[dict]:
-    """Every mistake entry (all apps), oldest first, normalized to the schema."""
+    """Every mistake entry (all apps), oldest first, normalised to the schema."""
     out: list[dict] = []
-    for raw in _load_json_list(MISTAKES_FILE):
+    for raw in journal.load_mistakes():
         norm = _normalize_mistake(raw)
         if norm is not None:
             out.append(norm)
     return out
 
 
-def save_mistakes(entries: list[dict]) -> None:
-    """Rewrite the journal atomically, keeping only the newest MAX_MISTAKES.
+def save_mistakes(entries: list[dict]) -> bool:
+    """Rewrite the journal.  False when the write was refused.
 
-    mistakes.json is shared with the other nine apps, which has two
-    consequences this function has to honour:
+    Locked, atomic and version-stamped by :func:`common.journal.save_mistakes`,
+    which also puts back every row this app does not own **exactly as it was
+    read** — :func:`load_mistakes` normalises foreign rows through this app's
+    schema, so writing them back from *entries* would silently drop any key
+    another app added.
 
-    * the whole read-merge-write runs under journal_sync.lock() — unlocked, the
-      list in *entries* goes stale the moment another app appends to the file
-      and this write would silently drop that app's new rows;
-    * only OUR rows come from *entries*.  :func:`load_mistakes` normalises every
-      row it reads through this app's schema, so a foreign row in *entries* has
-      already lost any key this app does not know about; the copy on disk is
-      written back instead, byte for byte.
+    ``trim_own`` drops **only this app's** oldest rows.  Eight of the ten apps
+    used to cap growth with ``sorted(merged, key=timestamp)[-MAX:]``, which
+    deletes other apps' rows during a write to a file they do not own.
     """
-    with journal_sync.lock(MISTAKES_FILE, create=True):
-        rows = journal_sync.merge_foreign(_load_json_list(MISTAKES_FILE),
-                                          list(entries), APP_NAME_KEY)
-        _atomic_write_json(MISTAKES_FILE, rows[-MAX_MISTAKES:])
+    return journal.save_mistakes(
+        journal.trim_own(list(entries), APP_NAME_KEY, MAX_MISTAKES),
+        APP_NAME_KEY)
 
 
 def app_mistakes(app: str = APP_NAME_KEY) -> list[dict]:
@@ -330,64 +405,56 @@ def log_mistake(item_id: str, category: str = "", question: str = "",
                 cause: str | None = None, note: str = "") -> dict:
     """Record (or refresh) an unresolved mistake for app+item_id.
 
-    An existing *unresolved* entry for the same app+id is updated in place so
-    a second wrong attempt at the same part does not pile up duplicates; a
-    previously resolved entry is reopened.  Returns the stored entry.
+    An existing entry for the same app+id is **updated in place** so a second
+    wrong attempt at the same part does not pile up duplicates; a previously
+    resolved entry is reopened.  Returns the stored entry.
+
+    This is the one place this app deliberately keeps its own behaviour rather
+    than :func:`common.journal.log_mistake`, which appends.  Appending is right
+    for a drill that shows an item once, and it is what the eight quiz-shaped
+    apps want.  Here a part is *revised*: the feedback view offers "Resubmit
+    revision" with no limit, and a derivation step can be re-attempted, so
+    appending would turn one part worked through four drafts into four rows
+    and multiply the count ``coach --mistakes`` reports by however many times
+    the learner iterated.  It also keeps the cause and note the learner
+    already typed attached to the item rather than stranded on an older row,
+    which is what the feedback view reads back through :func:`find_mistake`.
+
+    Everything underneath — the lock, the re-read inside it, foreign-row
+    preservation, the cap, the atomic write and the version stamp — is
+    :mod:`common.journal`'s; only the merge decision is here.
     """
-    with journal_sync.lock(MISTAKES_FILE, create=True):
-        return _log_mistake_locked(item_id, category, question, your_answer,
+    with lock(mistakes_path(), create=True):
+        entries = load_mistakes()        # read inside the lock: never stale
+        entry = make_mistake_entry(item_id, category, question, your_answer,
                                    correct_answer, cause, note)
-
-
-def _log_mistake_locked(item_id: str, category: str, question: str,
-                        your_answer: str, correct_answer: str,
-                        cause: str | None, note: str) -> dict:
-    entries = load_mistakes()        # read inside the lock: never stale
-    entry = make_mistake_entry(item_id, category, question, your_answer,
-                               correct_answer, cause, note)
-    hits = [i for i, e in enumerate(entries)
-            if e["app"] == APP_NAME_KEY and e["id"] == item_id]
-    if hits:
-        i = hits[-1]                       # newest entry for this item
-        # Keep a cause/note the user already supplied unless a new one came in.
-        entry["cause"] = normalize_cause(cause) or entries[i]["cause"]
-        entry["note"] = _clip(note) or entries[i]["note"]
-        entries[i] = entry
-    else:
-        entries.append(entry)
-    save_mistakes(entries)
+        hits = [i for i, e in enumerate(entries)
+                if e["app"] == APP_NAME_KEY and e["id"] == item_id]
+        if hits:
+            i = hits[-1]                       # newest entry for this item
+            # Keep a cause/note the user already supplied unless a new one came in.
+            entry["cause"] = normalize_cause(cause) or entries[i]["cause"]
+            entry["note"] = journal.clip_note(note, TEXT_FIELD_MAX) or entries[i]["note"]
+            entries[i] = entry
+        else:
+            entries.append(entry)
+        save_mistakes(entries)
     return entry
 
 
-def set_mistake_cause(item_id: str, cause: str | None, note: str | None = None) -> dict | None:
-    """Categorise the stored mistake for app+item_id. Returns the entry or None."""
-    with journal_sync.lock(MISTAKES_FILE):
-        entries = load_mistakes()    # read inside the lock: never stale
-        target = None
-        for e in entries:
-            if e["app"] == APP_NAME_KEY and e["id"] == item_id:
-                target = e
-        if target is None:
-            return None
-        target["cause"] = normalize_cause(cause)
-        if note is not None:
-            target["note"] = _clip(note)
-        save_mistakes(entries)
-        return target
+def set_mistake_cause(item_id: str, cause: str | None,
+                      note: str | None = None) -> dict | None:
+    """Categorise the stored mistake for app+item_id. Returns the entry or None.
+
+    ``note=None`` leaves an existing note alone; ``note=""`` clears it.
+    """
+    clipped = None if note is None else journal.clip_note(note, TEXT_FIELD_MAX)
+    return journal.set_mistake_cause(item_id, cause, clipped, app=APP_NAME_KEY)
 
 
 def resolve_mistake(item_id: str) -> bool:
     """Mark this app's entries for `item_id` resolved. True if anything changed."""
-    with journal_sync.lock(MISTAKES_FILE):
-        entries = load_mistakes()    # read inside the lock: never stale
-        changed = False
-        for e in entries:
-            if e["app"] == APP_NAME_KEY and e["id"] == item_id and not e["resolved"]:
-                e["resolved"] = True
-                changed = True
-        if changed:
-            save_mistakes(entries)
-        return changed
+    return journal.resolve_mistakes(item_id, APP_NAME_KEY) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -402,72 +469,65 @@ def resolve_mistake(item_id: str) -> bool:
 # made *before* the answer is graded with the outcome surfaces the confidently
 # wrong topics — the unknown unknowns a plain score never shows.
 
-CONFIDENCE_KEYS = ("id", "app", "category", "confidence", "correct", "timestamp")
-
-CONFIDENCE_LABELS = {
-    1: "Guessing",
-    2: "Unsure",
-    3: "Fairly sure",
-    4: "Certain",
-}
+CONFIDENCE_KEYS   = journal.CONFIDENCE_KEYS
+CONFIDENCE_LABELS = journal.CONFIDENCE_LABELS
 
 
-def make_confidence_entry(item_id: str, category: str, confidence: int,
+def make_confidence_entry(item_id: str, category: str, confidence: object,
                           correct: bool, timestamp: float | None = None,
                           app: str = APP_NAME_KEY) -> dict:
     """One calibration row in contract order; confidence is clamped to 1–4."""
-    try:
-        level = int(confidence)
-    except (TypeError, ValueError):
-        level = 1
-    level = max(1, min(4, level))
-    return {
-        "id":         str(item_id),
-        "app":        str(app),
-        "category":   str(category or ""),
-        "confidence": level,
-        "correct":    bool(correct),
-        "timestamp":  float(timestamp if timestamp is not None else time.time()),
-    }
+    return journal.make_confidence_entry(item_id, app, category, confidence,
+                                         correct, timestamp)
 
 
 def load_confidence() -> list[dict]:
     """Every calibration row (all apps), oldest first; bad rows are dropped."""
     out: list[dict] = []
-    for raw in _load_json_list(CONFIDENCE_FILE):
+    for raw in journal.load_confidence():
         if not isinstance(raw, dict) or not raw.get("id"):
             continue
-        if not isinstance(raw.get("confidence"), (int, float)):
+        value = raw.get("confidence")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             continue
         ts = raw.get("timestamp", 0.0)
         out.append(make_confidence_entry(
             item_id=raw["id"],
             category=raw.get("category", ""),
-            confidence=raw["confidence"],
+            confidence=value,
             correct=bool(raw.get("correct", False)),
-            timestamp=float(ts) if isinstance(ts, (int, float)) else 0.0,
+            timestamp=float(ts) if isinstance(ts, (int, float)) and not isinstance(ts, bool) else 0.0,
             app=raw.get("app") or APP_NAME_KEY,
         ))
     return out
 
 
-def save_confidence(entries: list[dict]) -> None:
-    """Rewrite calibration atomically, keeping the newest MAX_CONFIDENCE rows.
+def save_confidence(entries: list[dict]) -> bool:
+    """Rewrite calibration.  Locked and foreign-row preserving, like
+    :func:`save_mistakes`, and trimming only this app's own oldest rows."""
+    return journal.save_confidence(
+        journal.trim_own(list(entries), APP_NAME_KEY, MAX_CONFIDENCE),
+        APP_NAME_KEY)
 
-    Locked and foreign-row preserving, exactly like :func:`save_mistakes`.
+
+def log_confidence(item_id: str, category: str, confidence: object,
+                   correct: bool) -> dict | None:
+    """Append one pre-answer confidence rating paired with its outcome.
+
+    A rating outside 1–4 — including None, meaning "the strip was skipped" —
+    records nothing and returns None.  (The pure builder still clamps, so a row
+    that exists is always schema-valid; clamping *here* would invent a rating
+    the learner never gave and then report on it.)
+
+    Composed from :mod:`common.journal` rather than calling its
+    ``log_confidence`` directly only so the append goes through this module's
+    :func:`save_confidence`, and therefore honours :data:`MAX_CONFIDENCE`.
     """
-    with journal_sync.lock(CONFIDENCE_FILE, create=True):
-        rows = journal_sync.merge_foreign(_load_json_list(CONFIDENCE_FILE),
-                                          list(entries), APP_NAME_KEY)
-        _atomic_write_json(CONFIDENCE_FILE, rows[-MAX_CONFIDENCE:])
-
-
-def log_confidence(item_id: str, category: str, confidence: int,
-                   correct: bool) -> dict:
-    """Append one pre-answer confidence rating paired with its outcome."""
+    if journal.coerce_confidence(confidence) is None:
+        return None
     entry = make_confidence_entry(item_id, category, confidence, correct)
-    with journal_sync.lock(CONFIDENCE_FILE, create=True):
-        entries = load_confidence()  # read inside the lock: never stale
+    with lock(confidence_path(), create=True):
+        entries = load_confidence()      # read inside the lock: never stale
         entries.append(entry)
         save_confidence(entries)
     return entry
@@ -475,13 +535,8 @@ def log_confidence(item_id: str, category: str, confidence: int,
 
 def confidence_summary(app: str = APP_NAME_KEY) -> dict[int, tuple[int, int]]:
     """{confidence level: (correct, total)} for this app — calibration at a glance."""
-    out: dict[int, tuple[int, int]] = {}
-    for e in load_confidence():
-        if e["app"] != app:
-            continue
-        hit, total = out.get(e["confidence"], (0, 0))
-        out[e["confidence"]] = (hit + (1 if e["correct"] else 0), total + 1)
-    return out
+    return {level: (bucket["correct"], bucket["total"])
+            for level, bucket in journal.calibration_summary(app).items()}
 
 
 # ---------------------------------------------------------------------------
@@ -496,18 +551,15 @@ DEFAULT_SETTINGS = {"confidence_prompt": True}
 def load_settings() -> dict:
     """Stored settings merged over the defaults; defaults if missing/corrupt."""
     settings = dict(DEFAULT_SETTINGS)
-    try:
-        if SETTINGS_FILE.exists():
-            data = json.loads(SETTINGS_FILE.read_text())
-            if isinstance(data, dict):
-                settings.update(data)
-    except Exception:
-        pass
+    stored = schema.load_versioned(settings_path(), "settings",
+                                   reader=read_json_dict)
+    if isinstance(stored, dict):
+        settings.update(stored)
     return settings
 
 
-def save_settings(settings: dict) -> None:
-    _atomic_write_json(SETTINGS_FILE, dict(settings))
+def save_settings(settings: dict) -> bool:
+    return _save_versioned(settings_path(), dict(settings), "settings")
 
 
 def confidence_prompt_enabled() -> bool:
@@ -516,6 +568,8 @@ def confidence_prompt_enabled() -> bool:
 
 
 def set_confidence_prompt_enabled(enabled: bool) -> None:
-    settings = load_settings()
-    settings["confidence_prompt"] = bool(enabled)
-    save_settings(settings)
+    path = settings_path()
+    with lock(path, create=True):
+        settings = load_settings()       # read inside the lock: never stale
+        settings["confidence_prompt"] = bool(enabled)
+        save_settings(settings)

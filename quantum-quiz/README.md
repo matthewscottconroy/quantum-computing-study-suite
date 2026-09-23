@@ -35,10 +35,16 @@ by Claude with per-point feedback and a model answer.
 - **Confidence calibration** — an optional 1–4 confidence strip *before* you submit, paired
   with the grade in `confidence.json`; the History screen turns it into "certain and wrong"
   counts per subject — the unknown unknowns that sink exam scores
+- **Errata reporting** — **⚠ Report a problem with this item** on the feedback screen opens
+  a *prefilled* GitHub issue for a question that is wrong, ambiguous or out of date, with
+  the item id and exact text already filled in. Nothing is sent from the app
 - **Reference browser** — the whole `docs/**/*.md` corpus rendered inside the app, grouped by
-  chapter, with search, chapter filter, and clickable cross-references between chapters
+  chapter, with full-text search, chapter filter, a **Show solutions** toggle, and clickable
+  cross-references between chapters
 - **Collapsible model answer** — hidden by default and animated open on click
 - **Score bar** — animated 0–10 progress bar colour-coded by verdict
+- **Versioned, backed-up data** — every file the app writes carries a schema sidecar, is
+  written atomically under a lock, and keeps three generations of rotating backup
 
 ---
 
@@ -135,6 +141,15 @@ continue (**Yes** / **No** keeps the question so you can resubmit).
   Out of time / Other** categorises it, and the note field (Enter to save) adds one line of
   context. Clicking the chosen cause again clears it. Nothing here blocks **Next
   Question**, and a failed write is reported inline in the row, never as a dialog.
+- **⚠ Report a problem with this item** — the question was generated, so when it is
+  wrong, ambiguous or cites a retired Qiskit API there is otherwise no route from
+  "this is wrong" to a fix. One click opens a small form (what is wrong / what it should
+  say / how bad), and **Open the issue on GitHub** launches a *prefilled* issue in your
+  browser with the question id and its exact text already filled into the repository's
+  **Content error** form. Nothing is sent from the app and nothing is filed until you
+  submit it on GitHub. The button is tab-reachable, the form cannot be submitted empty,
+  and if no browser can be launched the link is copied to your clipboard instead — the
+  report is never silently lost.
 - Click **Next Question →** (in Viva mode this may first show a follow-up probe)
 
 ### Summary Screen
@@ -164,10 +179,14 @@ continue (**Yes** / **No** keeps the question so you can resubmit).
 Opened with the **Reference** button on the setup screen. It is the in-app docs browser
 shared across the study suite:
 
-- Lists every Markdown file under the repository `docs/` folder (resolved relative to the
-  app, `quantum-quiz/ui/screens/` → `../../../docs`), grouped by chapter and numbered
-  `chapter.section` in ladder order
-- **Chapter filter** and **title search** in the top bar
+- Lists every Markdown file under the repository `docs/` folder, grouped by chapter and
+  numbered `chapter.section` in ladder order. The corpus is found beside the `common/`
+  package, then upwards from the working directory; `QUANTUM_STUDY_DOCS_DIR` overrides it.
+  The tree is re-scanned when files change while the app is running
+- **Chapter filter** and **search** in the top bar — the search reads document *bodies*, not
+  just titles, and shows a hit count per file
+- **Show solutions** — untick to replace `<details>` solution blocks with a placeholder so
+  you can try an exercise before reading the answer
 - Renders the selected file with Qt's Markdown engine; `$$ … $$` display math is shown as a
   monospace block (a formula inside a block quote stays inside the quote) and
   `<details><summary>Solution</summary>` blocks become a bold **▸ Solution** label so
@@ -177,6 +196,9 @@ shared across the study suite:
   suffix — become links that navigate inside the browser; `#fragment` links jump to the
   heading; `http(s)` links and **Open externally** use the system default application
 - **← Back** returns to the setup screen; the selected document is kept for next time
+- The screen itself is `common.ui.reference.ReferenceScreen`, shared with the other nine
+  apps. What quantum-quiz adds is `SUBJECT_CHAPTER` and `show_subject()`, which deep-link a
+  curriculum subject to the chapter that covers it
 
 ---
 
@@ -240,7 +262,11 @@ With Viva mode off, the app behaves exactly as before.
   in the dark palette; the answer box uses `tabChangesFocus`, so Tab now moves out of it to
   the confidence strip and the buttons below instead of inserting a tab character
 - Every new control has an **accessible name** (screen readers announce e.g. "Confidence 3
-  of 4: fairly sure", "Cause of mistake: knew but slipped")
+  of 4: fairly sure", "Cause of mistake: knew but slipped", "Report a problem with this
+  question")
+- Nothing new is modal or blocking: the mistake journal row, the confidence strip and the
+  errata button are all skippable, a failed write is reported inline rather than as a
+  dialog, and the errata form is only ever opened by an explicit click
 - **No meaning is carried by colour alone**: a selected chip gains a ✓ glyph as well as the
   accent fill, journal status lines start with ✓ or ✗ and say what happened in words, and
   the "confidently wrong" line is labelled as well as coloured
@@ -272,23 +298,66 @@ quantum-quiz/
 │   ├── evaluation_worker.py     QThread: grade answer → emit Evaluation
 │   └── viva_worker.py           QThread: viva follow-up probe from the user's answer
 ├── ui/
+│   ├── theme.py                 This app's subject/difficulty colours + chip, list,
+│   │                            table, splitter and tooltip rules, over common.ui.theme
 │   ├── main_window.py           Screen controller (QStackedWidget, 6 pages)
 │   ├── screens/
 │   │   ├── setup_screen.py      Subject/type/difficulty/count configuration
 │   │   ├── question_screen.py   Question display, hint button, answer text box
-│   │   ├── feedback_screen.py   Score bar, verdict, collapsible model answer, flag toggle
+│   │   ├── feedback_screen.py   Score bar, verdict, collapsible model answer, flag
+│   │   │                        toggle, mistake journal row, errata button
 │   │   ├── summary_screen.py    Session statistics + matplotlib chart + export
 │   │   ├── history_screen.py    Lifetime stats/charts + flagged-for-review list
-│   │   └── reference_screen.py  In-app docs browser (renders ../docs/**/*.md)
+│   │   └── reference_screen.py  SUBJECT_CHAPTER + show_subject() over the shared
+│   │                            docs browser (common.ui.reference)
 │   └── widgets/
 │       ├── circuit_viewer.py    Displays circuit PNG from Qiskit render
-│       ├── collapsible_panel.py Animated expand/collapse (QPropertyAnimation)
-│       ├── loading_overlay.py   Full-screen translucent spinner
-│       ├── pill_badge.py        Coloured rounded-rect label
-│       └── score_bar.py         Animated progress bar (SCORE_BAR_ANIMATION_MS)
-└── persistence.py               JSON session history, draft, flagged list, mistake
-                                 journal, confidence log, and app settings
+│       └── pill_badge.py        make_subject_pill / make_difficulty_pill over the
+│                                shared PillBadge
+├── common_path.py               The import shim (verbatim copy of common/app_shim.py)
+├── journal_sync.py              DEAD — superseded by common.locking; still shipped only
+│                                because tests/test_journal_concurrency.py asserts the ten
+│                                copies are byte-identical.  Delete it (and that assertion)
+│                                once every app has migrated.  Nothing here imports it
+└── persistence.py               Session history, draft and settings (this app's own
+                                 files, written through common.schema) + thin adapters
+                                 onto common.journal and common.flags
 ```
+
+### What comes from `common/`
+
+This app owns its curriculum, its prompts, its session model and its screens. Everything
+that was the *same* in all ten apps of the suite now lives in the repository-root
+`common/` package, and this app imports it:
+
+| From `common/` | Used for |
+|---|---|
+| `common.datadir` | where every data file lives; `QUANTUM_STUDY_DATA_DIR`, resolved at call time |
+| `common.journal` | `mistakes.json` / `confidence.json` — locked, atomic, other apps' rows preserved |
+| `common.flags` | `quiz_flagged.json` — locked, atomic, legacy shapes read |
+| `common.schema` | version sidecars, forward migration, rotating backups |
+| `common.errata` | the prefilled GitHub issue URL (pure; opens nothing) |
+| `common.ui.theme` | the twelve palette constants, the base stylesheet, focus rings |
+| `common.ui.widgets` | `LoadingOverlay`, `CollapsiblePanel`, `PillBadge`, `ScoreBar` |
+| `common.ui.reference` | the whole docs browser |
+| `common.ui.errata_dialog` | the "report a problem" button and form |
+
+The apps are not packages and several define the same top-level module names, so the
+repository root is not importable from inside an app directory. `common_path.py` — a
+verbatim copy of `common/app_shim.py` — **appends** the repository root to `sys.path`
+(appends, so an app module can never be shadowed by a root one), and every module here
+that imports from `common` imports it first:
+
+```python
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common import journal
+from common.ui import theme
+```
+
+That works identically for `cd quantum-quiz && python main.py`, for
+`cd quantum-quiz && python -m pytest`, and from an installed wheel (where the shim finds
+no checkout and is a no-op).
 
 ### Threading note (Qiskit on the main thread)
 
@@ -338,10 +407,30 @@ Claude is prompted to return a JSON object with `score`, `feedback`, `model_answ
 All files live in `~/.local/share/quantum-study/` (the shared suite location read by
 `dashboard.py` and `coach.py`). Set `QUANTUM_STUDY_DATA_DIR` to redirect all six of them
 (history, draft, flagged, mistakes, confidence, settings) to another directory — useful for
-tests. Every file tolerates being missing or corrupt: the app starts fresh rather than
-crashing. The three newer files (`mistakes.json`, `confidence.json`, `quiz_settings.json`)
-are written **atomically** — a temp file in the same directory followed by `os.replace` —
-so an interrupted write cannot truncate months of journal.
+tests; the variable is read **at call time**, so setting it is all a test or a wrapper
+script has to do. Every file tolerates being missing or corrupt: the app starts fresh
+rather than crashing.
+
+**Every** file this app writes now goes through `common.schema`, which means:
+
+- **Atomic.** A temp file in the same directory followed by `os.replace`, so an
+  interrupted write cannot truncate months of study.
+- **Locked.** The two shared journals and the flag file are rewritten under an advisory
+  `flock` on a `<file>.lock` sidecar, re-reading inside the lock — so a second app, or a
+  second window of this one, cannot clobber rows that were just appended.
+- **Versioned.** Each file gains a sidecar `<name>.schema.json` holding
+  `{"file", "kind", "schema", "written_by", "updated"}`. An older file is migrated
+  forward *in memory* on read, and stamped on the next write; a file written by a **newer**
+  build of the suite is *refused* rather than overwritten with this build's narrower view
+  of it. The marker is a sidecar and **not** a key inside the data because
+  `coach.py` and `dashboard.py` require the top level of these files to be a plain JSON
+  list — wrapping them would make the journal read as empty everywhere.
+- **Backed up.** Before the first write of each run, the previous contents are copied to
+  `<name>.bak`, ageing `<name>.bak` → `.bak.1` → `.bak.2`. Three generations, one backup
+  per run, best-effort.
+
+The data files themselves are **unchanged**: `quiz_history.json` is still the same array
+of sessions it always was, and `coach.py` / `dashboard.py` parse it exactly as before.
 
 ### Session history — `quiz_history.json`
 
@@ -386,9 +475,12 @@ flagged question:
 
 `id` is `subject::topic::<first 10 hex digits of sha1(question text)>` — question-specific,
 so two different questions on the same topic keep separate flags; `label` is the question
-text truncated to 100 characters; `category` is the subject. Flagging is a toggle: flagging
-an already-flagged `id` removes it. Entries the app does not recognise are preserved when
-the file is rewritten. `coach.py --review` merges this file into its review queue.
+text collapsed to one line and truncated to 80 characters (the suite-wide
+`common.flags.LABEL_MAX`; it was 100 before the store was shared); `category` is the
+subject. Flagging is a toggle: flagging an already-flagged `id` removes it. The store is
+`common.flags`: the rewrite is atomic and under the lock, and every row that carries an
+identity — including the bare-id list form three other apps still write — is normalised
+to the shape above and kept. `coach.py --review` merges this file into its review queue.
 
 ### Mistake journal — `mistakes.json`
 
@@ -412,15 +504,21 @@ Suite-wide contract; a wrong answer becomes *analysis*, not just another bookmar
 - `id` — 16 hex digits of `sha1(subject + whitespace-normalised question text)`, so the same
   question generated again in a later session maps to the same entry
 - `category` — the subject; `question` / `your_answer` / `correct_answer` are whitespace-
-  collapsed and truncated to 200 characters (the note to 280)
+  collapsed and truncated to 200 characters. The **note keeps its line breaks** (it is
+  prose you typed; reflowing it would destroy deliberate structure) and is capped at 500
 - `cause` — `misread` | `didnt_know` | `knew_but_slipped` | `confused` | `out_of_time` |
   `other`, or `null` for "logged but not categorised yet". The counts per cause are the
   point of the file: *nine little-endian slips this month* is the signal, not nine bookmarks
 - `resolved` — set to `true` when the same `app` + `id` is next answered at score ≥ 4. The
   cause and note are kept, so the history of *why* survives the fix
+- A **repeat** miss of the same question is a new row, not an edit of the old one: three
+  slips on one item are three rows, which is exactly the count `coach --mistakes` and the
+  dashboard report. Choosing a cause targets the newest *open* row; answering the item
+  well resolves every open row for it
 - Entries written by other apps (and fields this app does not know) are preserved verbatim
   whenever the file is rewritten; only rows matching `app: "quantum-quiz"` plus the `id` are
-  touched. Past **2000** entries the oldest are dropped
+  touched. Past **2000** of *this app's* entries the oldest of **ours** are dropped — the
+  cap can never trim another app's history out of a file we share
 
 ### Confidence calibration — `confidence.json`
 
@@ -439,11 +537,24 @@ Suite-wide contract; a wrong answer becomes *analysis*, not just another bookmar
 `correct` is whether the grade reached the *Correct* verdict (score ≥
 `SCORE_CORRECT_THRESHOLD`, i.e. 7) — note the mistake journal uses the *Incorrect* boundary
 (< 4) instead, matching the verdict badge in each case. A row is appended only when a rating
-was actually given; past **5000** rows the oldest are dropped. Rating 3–4 paired with
+was actually given — a rating outside 1–4 records nothing rather than being clamped into
+range, because a rating you never gave must not end up in your calibration curve. Past
+**5000** of this app's rows the oldest of ours are dropped. Rating 3–4 paired with
 `correct: false` is what the History screen reports as **confidently wrong**.
 
 ### App settings — `quiz_settings.json`
 
 This app's own (not suite-wide) preferences. Currently one key:
 `{"confidence_prompt_enabled": false}` records **Don't ask again** on the confidence strip.
-Delete the key (or the file) to be asked again.
+Delete the key (or the file) to be asked again. The read-modify-write is taken under the
+lock, so two windows of this app cannot each flip one key and lose the other's change.
+
+### Reporting a wrong question
+
+There is no file for this: **⚠ Report a problem with this item** on the feedback screen
+builds a GitHub issue URL (`common.errata`, which is pure and offline) and hands it to the
+system browser. The URL targets the repository's `.github/ISSUE_TEMPLATE/content_error.yml`
+form and prefills its `file`, `quote`, `why_wrong`, `correction` and `severity` fields, so
+the report arrives as a filled-in form rather than a blob of prose. It is capped at 6000
+characters — long fields are trimmed longest-first, so the title and the item id always
+survive. With no browser available the link goes to the clipboard instead.

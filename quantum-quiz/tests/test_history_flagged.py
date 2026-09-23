@@ -11,12 +11,12 @@ from core.models import Evaluation, Question, QuestionRecord, SessionStats
 
 
 def _seed_flags(entries: list) -> None:
-    persistence._FLAGGED_FILE.parent.mkdir(parents=True, exist_ok=True)
-    persistence._FLAGGED_FILE.write_text(json.dumps(entries))
+    persistence.flagged_file().parent.mkdir(parents=True, exist_ok=True)
+    persistence.flagged_file().write_text(json.dumps(entries))
 
 
 def _flag_file() -> list:
-    return json.loads(persistence._FLAGGED_FILE.read_text())
+    return json.loads(persistence.flagged_file().read_text())
 
 
 def _stats(*records: tuple[str, str, int]) -> SessionStats:
@@ -70,16 +70,18 @@ def test_flagged_list_handles_missing_corrupt_and_malformed_files(screen, data_d
     assert screen.flagged_labels() == [] and screen._flag_count_lbl.text() == ""
 
     data_dir.mkdir(parents=True, exist_ok=True)
-    persistence._FLAGGED_FILE.write_text("not json")
+    persistence.flagged_file().write_text("not json")
     screen.refresh()
     assert screen.flagged_labels() == []
 
     _seed_flags([{"id": "only::id"}, {"label": "no id"}, "junk", 7,
                  {"id": "x::y::z", "label": "Labelled", "timestamp": "not-a-number"}])
     screen.refresh()
-    # entries without an id are not shown; an id without a label falls back to the id
-    assert screen.flagged_labels() == ["Labelled", "only::id"]
-    assert screen._flag_count_lbl.text() == "2 flagged"
+    # Rows with no identity are not shown; an id with no label falls back to the
+    # id; a bare string is the legacy flag shape three other apps still write,
+    # so common.flags reads it as an id rather than throwing it away.
+    assert screen.flagged_labels() == ["Labelled", "junk", "only::id"]
+    assert screen._flag_count_lbl.text() == "3 flagged"
 
 
 def test_stat_cards_and_charts_reflect_saved_sessions(screen, qapp):

@@ -1,21 +1,24 @@
-"""Dark theme palette and QSS stylesheet."""
+"""math-quiz's slice of the shared dark theme.
 
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont
+The twelve palette constants, the base stylesheet and ``alpha()`` now live in
+:mod:`common.ui.theme` — they were byte-identical in all ten apps.  What stays
+here is this app's own *vocabulary* (one colour per mathematical subject, one
+per difficulty level) and the handful of widget rules only this app draws:
+lists, tables, splitters, tooltips and the status bar.
 
-# ── Palette ───────────────────────────────────────────────────────────────────
-BG         = "#0d1117"
-SURFACE    = "#161b22"
-SURFACE2   = "#21262d"
-BORDER     = "#30363d"
-ACCENT     = "#58a6ff"
-ACCENT2    = "#388bfd"
-TEXT       = "#e6edf3"
-TEXT_MUTED = "#8b949e"
-SUCCESS    = "#3fb950"
-WARNING    = "#d29922"
-ERROR      = "#f85149"
-PARTIAL    = "#e3b341"
+``from common.ui.theme import *`` re-exports the palette, so every existing
+``theme.SURFACE2`` / ``theme.ACCENT`` reference in the app is unchanged.
+"""
+
+from __future__ import annotations
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.ui.theme import *          # noqa: F401,F403  (palette, QSS, alpha)
+from common.ui.theme import (
+    ACCENT2, BORDER, SURFACE, SURFACE2, TEXT, TEXT_MUTED,
+    apply as _apply, extend,
+)
 
 DIFFICULTY_COLORS = {
     "beginner":     "#1f6feb",
@@ -54,147 +57,12 @@ def subject_color(subject: str) -> str:
     return _FALLBACK_PALETTE[idx]
 
 
-QSS = f"""
-QWidget {{
-    background-color: {BG};
-    color: {TEXT};
-    font-family: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
-    font-size: 14px;
-}}
-QScrollArea, QScrollArea > QWidget > QWidget {{
-    background-color: {BG};
-    border: none;
-}}
-QScrollBar:vertical {{
-    background: {SURFACE};
-    width: 8px;
-    border-radius: 4px;
-}}
-QScrollBar::handle:vertical {{
-    background: {BORDER};
-    border-radius: 4px;
-    min-height: 24px;
-}}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-QPushButton {{
-    background-color: {SURFACE2};
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 8px 18px;
-    font-size: 13px;
-}}
-QPushButton:hover {{
-    background-color: {BORDER};
-    border-color: {ACCENT};
-}}
-QPushButton:pressed {{
-    background-color: {ACCENT2};
-    color: white;
-}}
-QPushButton:disabled {{
-    color: {TEXT_MUTED};
-    border-color: {SURFACE2};
-}}
-QPushButton#accent {{
-    background-color: {ACCENT};
-    color: {BG};
-    border: none;
-    font-weight: bold;
-    font-size: 14px;
-    padding: 10px 28px;
-}}
-QPushButton#accent:hover {{ background-color: {ACCENT2}; }}
-QPushButton#accent:disabled {{
-    background-color: {SURFACE2};
-    color: {TEXT_MUTED};
-}}
-QPushButton#flat {{
-    background: transparent;
-    border: none;
-    color: {ACCENT};
-    padding: 4px 8px;
-}}
-QPushButton#flat:hover {{ color: {TEXT}; }}
-QPlainTextEdit, QTextEdit {{
-    background-color: {SURFACE};
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 8px;
-    font-size: 14px;
-    selection-background-color: {ACCENT2};
-}}
-QPlainTextEdit:focus, QTextEdit:focus {{ border-color: {ACCENT}; }}
-QTextBrowser {{
-    background-color: transparent;
-    color: {TEXT};
-    border: none;
-    font-size: 15px;
-}}
-QLabel {{ background: transparent; }}
-QLabel#heading {{
-    font-size: 22px;
-    font-weight: bold;
-    color: {TEXT};
-}}
-QLabel#subheading {{
-    font-size: 15px;
-    color: {TEXT_MUTED};
-}}
+#: Rules the base stylesheet does not carry: this app is the one with a
+#: history table, a flagged-questions list and a status bar.
+_EXTRA = f"""
 QLabel#muted {{
     color: {TEXT_MUTED};
     font-size: 12px;
-}}
-QFrame#card {{
-    background-color: {SURFACE};
-    border: 1px solid {BORDER};
-    border-radius: 8px;
-}}
-QFrame#separator {{
-    background-color: {BORDER};
-    max-height: 1px;
-}}
-QComboBox {{
-    background-color: {SURFACE2};
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 6px 10px;
-}}
-QComboBox::drop-down {{ border: none; }}
-QComboBox QAbstractItemView {{
-    background-color: {SURFACE2};
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    selection-background-color: {ACCENT2};
-}}
-QSpinBox {{
-    background-color: {SURFACE2};
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 6px 10px;
-}}
-QSpinBox::up-button, QSpinBox::down-button {{
-    background: {SURFACE2};
-    border: none;
-    width: 18px;
-}}
-QCheckBox {{
-    spacing: 8px;
-    color: {TEXT};
-}}
-QCheckBox::indicator {{
-    width: 16px;
-    height: 16px;
-    border: 1px solid {BORDER};
-    border-radius: 3px;
-    background: {SURFACE2};
-}}
-QCheckBox::indicator:checked {{
-    background: {ACCENT};
-    border-color: {ACCENT};
 }}
 QListWidget {{
     background-color: {SURFACE};
@@ -248,9 +116,10 @@ QStatusBar::item {{
 }}
 """
 
+#: The app's full stylesheet: the shared base plus the rules above.
+QSS = extend(_EXTRA)
 
-def apply(app: QApplication) -> None:
-    app.setStyleSheet(QSS)
-    font = QFont("Inter", 10)
-    font.setStyleHint(QFont.StyleHint.SansSerif)
-    app.setFont(font)
+
+def apply(app) -> None:
+    """Apply the shared theme plus math-quiz's own rules to a ``QApplication``."""
+    _apply(app, QSS)

@@ -49,6 +49,21 @@ def rs():
     return reference_screen
 
 
+def test_the_screen_is_the_shared_one_parameterised(qapp, rs):
+    """No fork: the app supplies two constants and inherits everything else."""
+    from common.ui import reference as shared
+
+    assert issubclass(rs.ReferenceScreen, shared.ReferenceScreen)
+    assert rs.docs_root is shared.docs_root
+    assert rs.prepare_markdown is shared.prepare_markdown
+    screen = rs.ReferenceScreen()
+    try:
+        assert screen._default_chapter == rs._APP_CHAPTER_DIR
+        assert screen.category_docs == rs.CATEGORY_DOC
+    finally:
+        screen.close()
+
+
 @pytest.fixture
 def ref(qapp, rs):
     screen = rs.ReferenceScreen()
@@ -68,10 +83,25 @@ def app_first_rel(rs) -> str:
 
 # ── discovery ────────────────────────────────────────────────────────────────
 
-def test_docs_root_is_the_repo_docs_folder(rs):
+def test_docs_root_is_the_repo_docs_folder(qapp, rs):
+    """Resolved at call time now, not frozen into a module constant at import."""
     assert rs.docs_root() == APP_ROOT.parent / "docs"
-    assert rs.ReferenceScreen.docs_root() == rs.docs_root()
     assert rs.docs_root().is_dir()
+    screen = rs.ReferenceScreen()
+    try:
+        assert screen.docs_root() == rs.docs_root()
+    finally:
+        screen.close()
+
+
+def test_the_docs_root_can_be_pointed_elsewhere(qapp, rs, monkeypatch, tmp_path):
+    """QUANTUM_STUDY_DOCS_DIR wins, and is re-read on every call."""
+    elsewhere = tmp_path / "corpus"
+    (elsewhere / rs._APP_CHAPTER_DIR).mkdir(parents=True)
+    (elsewhere / rs._APP_CHAPTER_DIR / "01_a.md").write_text("# A\n", encoding="utf-8")
+    monkeypatch.setenv(rs.DOCS_ENV_VAR, str(elsewhere))
+    assert rs.docs_root() == elsewhere
+    assert [e.rel for e in rs.scan_docs()] == [f"{rs._APP_CHAPTER_DIR}/01_a.md"]
 
 
 def test_scan_docs_lists_every_markdown_file_in_ladder_order(rs):
@@ -468,7 +498,7 @@ def test_load_all_rescans_when_the_docs_tree_changes(qapp, rs, monkeypatch, tmp_
     chapter.mkdir(parents=True)
     (root / "README.md").write_text("# Overview\n", encoding="utf-8")
     (chapter / "01_a.md").write_text("# A\n\nbody a\n", encoding="utf-8")
-    monkeypatch.setattr(rs, "_DOCS_ROOT", root)
+    monkeypatch.setenv(rs.DOCS_ENV_VAR, str(root))
     screen = rs.ReferenceScreen()
     try:
         screen.load_all()
@@ -494,7 +524,7 @@ def test_load_all_rescans_when_the_docs_tree_changes(qapp, rs, monkeypatch, tmp_
 
 
 def test_missing_docs_root_degrades_gracefully(qapp, rs, monkeypatch, tmp_path):
-    monkeypatch.setattr(rs, "_DOCS_ROOT", tmp_path / "no-docs-here")
+    monkeypatch.setenv(rs.DOCS_ENV_VAR, str(tmp_path / "no-docs-here"))
     screen = rs.ReferenceScreen()
     try:
         screen.load_all()

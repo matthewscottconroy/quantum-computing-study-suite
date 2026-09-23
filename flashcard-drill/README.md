@@ -7,6 +7,12 @@ an optional per-card countdown timer, flag-for-review, a **mistake journal** and
 **confidence calibration**, an in-app Reference browser for the shared docs corpus, and full
 session history.
 
+Its journal, flag store, data-directory resolution, theme and Reference screen come from
+the suite's shared [`common/`](../common/README.md) package, so a fix made once reaches
+all ten apps; every file it writes is version-stamped, migrated forward and backed up by
+`common.schema`; and a wrong card can be reported from inside the drill as a prefilled
+GitHub issue.
+
 ---
 
 ## Features
@@ -33,8 +39,18 @@ session history.
   *confidently wrong* topics — the unknown unknowns nothing else in the suite surfaces
 - **Reference browser** — read every chapter of the suite's `docs/` corpus inside the
   app, with chapter filter, full-text search and hideable exercise solutions
+- **Report a problem with this item** — the revealed answer carries a
+  *⚠ Report a problem with this item* button that opens a prefilled GitHub issue for that
+  card (its id, both sides of it, what you say is wrong, an optional correction and a
+  severity). The repository is public; this is the path from "this card is wrong" to a
+  fix. It never blocks the drill and, on a machine with no browser, puts the URL on the
+  clipboard and says so
 - **Browse mode** — read-only view of every card by category
 - **Session history** — lifetime totals plus a % Known trend chart
+- **Versioned, backed-up data** — every file the app writes carries a
+  `<file>.schema.json` version marker, is migrated forward when its format changes, is
+  refused (never overwritten) if a newer build wrote it, and keeps three generations of
+  backup of the state each session started from
 - **Minimal dependencies** — only PyQt6 and matplotlib (history chart) required
 
 ---
@@ -125,6 +141,13 @@ Footer buttons: **View History**, **Browse Cards**, **Reference**.
   screen and there is no dialog to close. `W` jumps into the row, Escape or **✕ Dismiss**
   closes it, and rating the next card closes it too
 - **⚑ Flag for Review** appears after the reveal; it is a toggle — click again to unflag
+- **⚠ Report a problem with this item** sits beside it. It opens a small form (what is
+  wrong / what it should say / how bad) and then a **prefilled GitHub issue** in your
+  browser, carrying the card id, the card's file path and both sides of the card exactly
+  as you just read them. Nothing is sent until you submit it on GitHub. The dialog is
+  *opened*, not run in a nested event loop, so the countdown keeps ticking and the drill
+  is never frozen; if no browser can be opened the URL goes to your clipboard and the
+  button's own label says so until the next card
 - **End Session** finishes early (rated cards are still saved; with nothing rated it
   simply returns to Setup and nothing is written)
 
@@ -136,9 +159,11 @@ never touches `flashcard_schedule.json`.
 
 #### Accessibility
 
-Every control added by these two features is Tab-reachable with a 2 px accent focus ring
+Every control added by these three features is Tab-reachable with a 2 px accent focus ring
 and an accessible name, and hands focus straight back to the card screen when activated so
-Space / `1`–`3` keep working. Selected state is never colour alone — the buttons carry a
+Space / `1`–`3` keep working (the errata button included: Tab reaches it, Space opens
+its dialog, and closing the dialog hands focus back to the card). Selected state is never
+colour alone — the buttons carry a
 `○` / `●` glyph — and the missed-card header pairs its red with the `✗` glyph and the word
 "Missed". Every new label clears 4.5:1 against the dark palette (body text `#e6edf3` on
 `#21262d` is 12.9:1, muted `#8b949e` on `#161b22` is 6.1:1, the `✗ Missed` header `#f85149`
@@ -165,8 +190,10 @@ on `#0d1117` is 5.7:1, and a selected button is `#0d1117` on `#58a6ff` at 7.5:1)
 
 ### Reference Screen
 
-An in-app browser for the shared study docs (`<repo>/docs/**/*.md` — 58 chapters plus
-the README):
+The suite-wide Reference screen (`common.ui.reference.ReferenceScreen`) — an in-app
+browser for the shared study docs (`<repo>/docs/**/*.md`). This app has no chapter of its
+own in the corpus and no topic map, so it takes the defaults: the whole corpus, opened on
+its README, and no "Jump to topic" picker.
 
 - **Chapter filter** (Start Here / Ch 1 … Ch 8) and a navigation list grouped by chapter;
   the landing page is `docs/README.md`, the learning ladder
@@ -183,6 +210,10 @@ the README):
 Rendering uses Qt's built-in Markdown engine (no extra dependency) restyled for the dark
 theme; `$$ … $$` display math in a doc is shown as a monospaced block (kept inside its
 block quote when the formula is part of one).
+
+The corpus is found at call time (from the package, then the working directory, then
+`sys.argv[0]`), and `QUANTUM_STUDY_DOCS_DIR` overrides it — this app no longer hard-codes
+`parents[3] / "docs"`.
 
 ---
 
@@ -312,7 +343,10 @@ excluded.
 ```
 flashcard-drill/
 ├── main.py
-├── config.py                    APP_NAME, DATA_DIR, HISTORY_FILE, SCHEDULE_FILE, defaults
+├── common_path.py               the import shim: a verbatim copy of common/app_shim.py
+│                                that puts the repository root on sys.path
+├── config.py                    APP name, window defaults, and the path of every file
+│                                this app writes (resolved at call time)
 ├── core/
 │   ├── models.py                Flashcard, DrillConfig, Rating, CardResult, SessionStats
 │   ├── scheduler.py             SM-2: CardState, review(), select_due_ids(), summarise()
@@ -333,35 +367,78 @@ flashcard-drill/
 │   ├── quantum_hardware/        22 cards
 │   ├── quantum_optics/          21 cards
 │   └── many_body_physics/       21 cards
+├── journal_sync.py              **unused by the app** — the pre-migration lock module,
+│                                kept only because tests/test_journal_concurrency.py
+│                                asserts the ten app copies are byte-identical (see
+│                                "Known issues" below).  common.locking is the live one
 ├── persistence/
-│   ├── storage.py               save_session(), card_weights(), lifetime_stats(),
+│   ├── storage.py               flashcard_history.json + flagged_cards.json:
+│   │                            save_session(), card_weights(), lifetime_stats(),
 │   │                            load_flagged() / save_flagged() / toggle_flag()
+│   │                            (the flag store itself is common.flags)
 │   ├── schedule_store.py        flashcard_schedule.json: load/save, record_rating(),
 │   │                            ensure_states() (migration from history)
-│   └── review_store.py          mistakes.json / confidence.json / flashcard_settings.json:
-│                                make_mistake_entry(), log_mistake(), set_mistake_cause(),
-│                                resolve_mistakes(), cause_counts(), log_confidence(),
-│                                calibration_summary(), confidently_wrong()
+│   └── review_store.py          the app's adapter over common.journal, plus
+│                                flashcard_settings.json
 └── ui/
-    ├── theme.py                  Shared dark palette + QSS
+    ├── theme.py                  common.ui.theme + this app's colour vocabulary and the
+    │                             few rules for widgets only this app has
     ├── main_window.py            QStackedWidget controller (setup, cards, summary,
     │                             history, browse, reference)
     ├── screens/
     │   ├── setup_screen.py       Daily pull banner, session mode, categories, count,
     │   │                         timer, flagged-only, confidence opt-in
     │   ├── card_screen.py        Card display, reveal, rating buttons, timer, flag toggle,
-    │   │                         confidence strip, "what went wrong?" cause row
+    │   │                         confidence strip, "what went wrong?" cause row,
+    │   │                         "report a problem with this item"
     │   ├── summary_screen.py     Session stats, SM-2 outcome line, review-missed
     │   ├── history_screen.py     Lifetime stats, trend chart, flagged-card list / unflag
-    │   ├── browse_screen.py      Read-only card browser by category
-    │   └── reference_screen.py   Docs browser for <repo>/docs/**/*.md
+    │   └── browse_screen.py      Read-only card browser by category
     └── widgets/
-        └── timer_widget.py       QLabel countdown; turns red at ≤5 s; time_up signal
+        ├── timer_widget.py       QLabel countdown; turns red at ≤5 s; time_up signal
+        └── errata_button.py      Non-blocking "report this card" button over
+                                  common.ui.errata_dialog
 ```
 
-The Reference screen locates the docs corpus as
-`Path(__file__).resolve().parents[3] / "docs"` (i.e. `ui/screens/` → `ui/` →
-`flashcard-drill/` → repo root), the same contract used by the other suite apps.
+### What comes from `common/`
+
+The Reference screen, the mistake/confidence journal, the flag store, the data-directory
+resolution, the palette and the base stylesheet are **not** in this tree any more; they
+are the suite-wide implementations in [`common/`](../common/README.md), imported through
+the documented shim:
+
+```python
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common import journal
+```
+
+`common_path.py` is a verbatim copy of `common/app_shim.py`; it *appends* the repository
+root to `sys.path`, so the app's own `config` / `core` / `ui` / `persistence` modules
+always win over the repository's. Every module of this app that imports from `common`
+imports it first, including `persistence/*.py` (loaded by path, with no conftest, by the
+root suite's `tests/test_journal_concurrency.py`).
+
+| Concern | Was | Now |
+|---|---|---|
+| Docs Reference screen | `ui/screens/reference_screen.py`, 698 lines | `common.ui.reference.ReferenceScreen` |
+| Mistake journal + calibration | 477 lines in `persistence/review_store.py` | `common.journal`; the adapter is 380 lines of app-specific glue and docs |
+| Flag store | ~90 lines in `persistence/storage.py` | `common.flags` (+ card-bank labels here) |
+| Cross-process lock | `journal_sync.py`, 276 lines | `common.locking` |
+| Palette + base stylesheet | 170 lines in `ui/theme.py` | `common.ui.theme` (+ 125 lines of this app's own) |
+| Data-directory resolution | frozen constants in `config.py` | `common.datadir`, resolved per call |
+
+Two things this app's copies did that the canonical versions do not, and how each was
+kept rather than forked:
+
+- **A flag's label and category come from the card bank** (`common.flags` cannot know
+  what a card id means). They are *passed in* to `common.flags.toggle_flag`, and
+  `persistence/storage.py` keeps the lookup and the first-occurrence de-duplication.
+- **`set_mistake_cause` can target one row by timestamp.** The card screen logs a miss
+  and then categorises *that* row while the next card is already on screen; the canonical
+  helper targets "the newest unresolved row", which is the same row in ordinary use but
+  not when one card is missed twice in a session. The adapter keeps the extra precision,
+  built out of the canonical load/save inside the canonical lock.
 
 ---
 
@@ -380,28 +457,34 @@ card of a run), so the call is wrapped in `try/except (TypeError, RuntimeError)`
 
 ## Configuration (`config.py`)
 
-| Constant | Default | Effect |
+| Setting | Default | Effect |
 |---|---|---|
 | `DEFAULT_CARD_COUNT` | 20 | Pre-filled card count on setup screen |
 | `DEFAULT_TIMER_SECS` | 0 | Pre-filled timer (0 = no timer) |
-| `DATA_DIR` | `~/.local/share/quantum-study` | History / flag / schedule storage directory |
-| `HISTORY_FILE` | `DATA_DIR/flashcard_history.json` | Session history (shared with the suite) |
-| `SCHEDULE_FILE` | `DATA_DIR/flashcard_schedule.json` | SM-2 schedule (this app only) |
-| `MISTAKES_FILE` | `DATA_DIR/mistakes.json` | Mistake journal (shared with the suite) |
-| `CONFIDENCE_FILE` | `DATA_DIR/confidence.json` | Confidence calibration (shared with the suite) |
-| `SETTINGS_FILE` | `DATA_DIR/flashcard_settings.json` | This app's preferences (confidence opt-out) |
+| `data_dir()` | `~/.local/share/quantum-study` | History / flag / schedule / journal directory |
+| `history_file()` | `<data dir>/flashcard_history.json` | Session history (read by coach.py / dashboard.py) |
+| `flagged_file()` | `<data dir>/flagged_cards.json` | Flag-for-review entries (legacy name, read by coach.py) |
+| `schedule_file()` | `<data dir>/flashcard_schedule.json` | SM-2 schedule (this app only) |
+| `mistakes_file()` | `<data dir>/mistakes.json` | Mistake journal (shared with the suite) |
+| `confidence_file()` | `<data dir>/confidence.json` | Confidence calibration (shared with the suite) |
+| `settings_file()` | `<data dir>/flashcard_settings.json` | This app's preferences (confidence opt-out) |
 
-Set the `QUANTUM_STUDY_DATA_DIR` environment variable to point `DATA_DIR` somewhere else
-(the same override `coach.py` honours) — handy for tests and experiments that must not
-touch your real history.
+These are **functions, not constants**: every one resolves
+`QUANTUM_STUDY_DATA_DIR` through `common.datadir` at the moment it is called (blank means
+no override, `~` is expanded), so setting the variable moves every file this app touches,
+at any point, in any process — handy for tests and experiments that must not touch your
+real history. The file names themselves come from
+`common.datadir.APP_FILES["flashcard-drill"]`, which is where the suite records the names
+`coach.py` and `dashboard.py` parse.
 
 ---
 
 ## Data Persistence
 
-Six files live in `DATA_DIR`. The first two are shared with `dashboard.py` / `coach.py`
-and their schemas are frozen; `mistakes.json` and `confidence.json` are shared with the
-other nine apps in the suite; the last two belong to this app alone:
+Six files live in the data directory. The first two are shared with `dashboard.py` /
+`coach.py` and their schemas are frozen; `mistakes.json` and `confidence.json` are shared
+with the other nine apps in the suite; the last two belong to this app alone. **No
+schema changed in the migration to `common/`** — only how the files are written:
 
 - **`flashcard_history.json`** — a JSON list; one entry per completed session with
   `total`, `got_it`, `unsure`, `missed`, `timestamp` (epoch seconds) and `results`, a
@@ -484,13 +567,47 @@ other nine apps in the suite; the last two belong to this app alone:
 - **`flashcard_settings.json`** — `{"confidence_prompt": true}`; written by *Don't ask* on
   the card screen and by the Setup screen's *Self-assessment* tick box.
 
-Both shared files carry every app's rows. This app reads them whole, rewrites only rows
-whose `app` is `flashcard-drill`, and leaves the rest byte-for-byte alone. Both are written
-atomically (temp file plus `os.replace`), both tolerate a missing, unreadable, corrupt or
-partially malformed file by starting fresh and skipping unusable rows, and neither can
-raise into a drill — a failed write simply means that one entry was not recorded. Growth is
-capped on every write at this app's newest 2000 mistakes and 5000 confidence rows (other
-apps' rows are never trimmed by us).
+Both shared files carry every app's rows, and both are written by `common.journal`: the
+whole read-modify-write runs under an `fcntl.flock` on a `<file>.lock` sidecar (so two
+apps open at once cannot drop each other's rows), the read happens *inside* the lock, and
+every row this app does not own is put back exactly as it was read, unknown keys included.
+Both tolerate a missing, unreadable, corrupt or partially malformed file by starting fresh
+and skipping unusable rows, and neither can raise into a drill — a failed write simply
+means that one entry was not recorded. Growth is capped at 2000 mistakes and 5000
+confidence rows, and **only this app's own rows are ever dropped** to stay under the cap.
+
+Three details of the shared store differ from this app's pre-migration copy, all of them
+the canonical choices recorded in [`common/README.md` §3](../common/README.md):
+
+- a cause is case-normalised (`"Misread"` matches) instead of being discarded;
+- a note keeps its line breaks and has its own 500-character cap (the one-line fields are
+  still collapsed and clipped to 200);
+- a confidence rating outside 1–4 records **nothing** instead of being clamped into range
+  — a clamped rating is one the learner never gave.
+
+### Versioning, migration and backups
+
+Every file above is written through `common.schema`, which adds three things and changes
+none of the formats:
+
+- **A version sidecar.** `mistakes.json` gets `mistakes.json.schema.json`:
+  `{"file", "kind", "schema", "written_by", "updated"}`. It is a *sidecar* rather than a
+  key in the data because `coach.py` and `dashboard.py` require the top level of these
+  files to be a plain JSON list — a `{"schema": 1, "rows": […]}` wrapper would make them
+  read the journal as empty. A file with no sidecar (anything written before this) is
+  read as v1, and merely reading it never rewrites it.
+- **Forward migration.** When a format does change, the registered migration runs on
+  read, in memory; the file is only rewritten the next time something writes it, and is
+  stamped then.
+- **Refusal instead of corruption.** A file whose sidecar says it was written by a newer
+  build is never overwritten with this build's narrower view of it. `save_session` raises
+  (the summary screen already reports "this session could not be saved"), the journal
+  helpers return "nothing happened" and record the reason in
+  `review_store.last_write_error()`, and the flag write surfaces it on the flag button.
+- **Rotating backups.** Before the *first* write of each session to a file, its current
+  contents are copied to `<file>.bak`, ageing `.bak` → `.bak.1` → `.bak.2`. Three
+  generations, one backup per session (not per write), best-effort:
+  `common.schema.restore_backup(path)` puts one back.
 
 **Migration.** The first run that has history but no schedule replays
 `flashcard_history.json` through the scheduler in timestamp order, at the dates the
@@ -543,4 +660,37 @@ set by `tests/conftest.py`, so the suite never touches your real history.
 | `test_due_session.py` | the UI end to end offscreen: due counts, mode defaulting, a *Due today* session, the summary line |
 | `test_review_store.py` | the journal / calibration helpers with no Qt: the contract schema field for field, cause validation, 200-char clipping, per-app isolation, corrupt and unwritable files, the atomic write, the growth cap, the opt-out setting |
 | `test_review_feedback.py` | the same features driven offscreen: a miss journalled and categorised, skip / Escape / dismiss, confidence taken before the reveal and paired with the grade, *Got it* resolving the entry, the *Don't ask* round trip, keyboard reach and accessible names, and proof that the SM-2 schedule and the frozen history schemas are unchanged |
-| `test_deck.py`, `test_card_flow.py`, `test_persistence.py`, … | pre-existing deck, flow and persistence coverage |
+| `test_schema_versioning.py` | the version sidecar for all six files, an unmarked file read as v1 and left alone, a registered migration applied on read and stamped on write, a newer-than-understood file refused at every call site, and the three-generation backup rotation and restore |
+| `test_errata.py` | "report a problem with this item": where it appears, what it knows about the card, Tab + Space reach, the dialog opened rather than `exec()`'d (the drill stays live), the prefilled issue's fields, truncation of a 9 000-character card, dismissal reporting nothing, and the no-browser fallback to the clipboard |
+| `test_reference_screen.py` | that the app ships the shared `common.ui.reference` screen with the defaults it wants, and that reading, searching, filtering, cross-references and the window wiring still work |
+| `test_persistence.py`, `test_card_flow.py`, `test_history_screen.py`, `test_deck.py`, `test_cards.py`, `test_models.py`, `test_app.py` | history and flags round-tripping, the drill end to end offscreen, the history screen, deck building, the card bank itself |
+
+The suite is 249 tests. The root suite's `tests/test_common_*.py` covers the shared code
+this app now uses, and `tests/test_journal_concurrency.py` runs this app's store in
+parallel with the other nine to prove no rows are lost.
+
+---
+
+## Known issues (not in this app's tree)
+
+- `flashcard-drill/journal_sync.py` is dead code: nothing in the app imports it any more
+  (its replacement is `common.locking`). It cannot be deleted yet because the root suite's
+  `tests/test_journal_concurrency.py::test_every_app_ships_the_same_journal_sync` requires
+  all ten copies to exist *and* uses **this app's copy as the reference text**. Deleting it
+  needs that test updated first (skip the apps that have migrated, and re-base the
+  byte-identity check on a copy that still exists).
+- `tests/test_common_ui.py::test_the_palette_matches_every_app_it_was_extracted_from`
+  greps each `<app>/ui/theme.py` for literal `NAME = "#rrggbb"` lines and asserts it read
+  at least 100 of them. Now that the apps import the palette from `common.ui.theme`
+  instead of redefining it, it reads none — the assertion has to become "every literal one
+  that is still there matches", with no floor.
+- `common.journal.trim_own(rows, app, cap)` compares the cap against the **whole file's**
+  row count, not this app's share of it, so a data directory dominated by another app's
+  rows would trim this app harder than the documented "newest 2000 of your own". It never
+  drops another app's row, which is the property that matters, and 2000/5000 is far from
+  reach in practice.
+- `common.journal` and `common.flags` raise `OSError` out of a write when the data
+  directory cannot be created (e.g. a file where a directory should be), which contradicts
+  the package's own "nothing raises into a drill" invariant. This app's adapter catches it
+  and returns "not written"; the other nine will each need the same guard until it is
+  fixed centrally.

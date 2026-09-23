@@ -149,8 +149,8 @@ class HistoryScreen(QWidget):
 
     def refresh(self) -> None:
         try:
-            from persistence import _load_raw
-            sessions = _load_raw()
+            from persistence import load_history
+            sessions = load_history()
         except Exception:
             sessions = []
 

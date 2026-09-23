@@ -214,3 +214,38 @@ def test_a_persistence_failure_never_blocks_the_session(win, monkeypatch):
     _answer(win, "B")                       # still reaches the result screen
     win._result._mistake_row.button_for("other").click()   # no journal row to update
     win._result._next_btn.click()
+
+
+def test_flagging_from_the_result_screen_round_trips_through_common_flags(win):
+    """The flag button writes the suite's contract shape, atomically."""
+    import json
+
+    _start(win)
+    _answer(win, "B")
+    assert "Flag for Review" in win._result._flag_btn.text()
+
+    win._result._flag_btn.click()
+    assert "Flagged" in win._result._flag_btn.text()
+    assert persistence.load_flagged() == {"qaoa_mixer_role"}
+    rows = json.loads(persistence._FLAGGED_FILE.read_text())
+    assert rows == [{
+        "id": "qaoa_mixer_role", "label": "qaoa_mixer_role", "category": "",
+        "app": "vqa-trainer", "timestamp": rows[0]["timestamp"],
+    }]
+
+    win._result._flag_btn.click()               # the button is a toggle
+    assert "Flag for Review" in win._result._flag_btn.text()
+    assert persistence.load_flagged() == set()
+
+
+def test_a_flag_write_failure_never_blocks_the_session(win, monkeypatch):
+    import ui.main_window as mw
+
+    def boom(*a, **k):
+        raise OSError("read-only filesystem")
+
+    monkeypatch.setattr(mw, "toggle_flag", boom)
+    _start(win)
+    _answer(win, "B")
+    win._result._flag_btn.click()               # must not raise
+    win._result._next_btn.click()

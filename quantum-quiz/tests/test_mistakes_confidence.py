@@ -13,6 +13,9 @@ import time
 
 import pytest
 
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+from common import journal, jsonio
+
 import persistence
 
 MISTAKE_KEYS = {
@@ -23,11 +26,11 @@ CONFIDENCE_KEYS = {"id", "app", "category", "confidence", "correct", "timestamp"
 
 
 def _mistake_file() -> list:
-    return json.loads(persistence._MISTAKES_FILE.read_text())
+    return json.loads(persistence.mistakes_file().read_text())
 
 
 def _confidence_file() -> list:
-    return json.loads(persistence._CONFIDENCE_FILE.read_text())
+    return json.loads(persistence.confidence_file().read_text())
 
 
 def _log(item_id: str = "abc123", category: str = "Qiskit", **kw) -> dict:
@@ -40,12 +43,12 @@ def _log(item_id: str = "abc123", category: str = "Qiskit", **kw) -> dict:
 # ── Paths and vocabulary ──────────────────────────────────────────────────────
 
 def test_new_paths_are_redirected_and_named_per_contract(data_dir):
-    assert persistence._MISTAKES_FILE.is_relative_to(data_dir)
-    assert persistence._CONFIDENCE_FILE.is_relative_to(data_dir)
-    assert persistence._SETTINGS_FILE.is_relative_to(data_dir)
-    assert persistence._MISTAKES_FILE.name == "mistakes.json"
-    assert persistence._CONFIDENCE_FILE.name == "confidence.json"
-    assert persistence._SETTINGS_FILE.name == "quiz_settings.json"
+    assert persistence.mistakes_file().is_relative_to(data_dir)
+    assert persistence.confidence_file().is_relative_to(data_dir)
+    assert persistence.settings_file().is_relative_to(data_dir)
+    assert persistence.mistakes_file().name == "mistakes.json"
+    assert persistence.confidence_file().name == "confidence.json"
+    assert persistence.settings_file().name == "quiz_settings.json"
     assert persistence.APP_ID == "quantum-quiz"
     assert not data_dir.exists()          # importing never creates the directory
 
@@ -77,14 +80,20 @@ def test_item_id_is_content_stable_and_subject_scoped():
 def test_make_mistake_entry_shape_and_truncation():
     entry = persistence.make_mistake_entry(
         "id1", "Qiskit", "  q  " + "x" * 400, "y" * 400, "z" * 400,
-        cause="bogus", note="n" * 400, timestamp=123.0,
+        cause="bogus", note="n" * 700, timestamp=123.0,
     )
     assert set(entry) == MISTAKE_KEYS
     assert entry["id"] == "id1" and entry["app"] == "quantum-quiz"
     assert entry["category"] == "Qiskit"
     for field in ("question", "your_answer", "correct_answer"):
         assert len(entry[field]) == 200 and entry[field].endswith("…")
-    assert len(entry["note"]) == 280
+    assert journal.NOTE_MAX == persistence.NOTE_MAX == 500   # the suite-wide cap
+    assert len(entry["note"]) == persistence.NOTE_MAX and entry["note"].endswith("…")
+    # a note is prose the learner typed: its line breaks survive, unlike the
+    # one-line fields above, which are collapsed so a list row cannot break
+    multiline = persistence.make_mistake_entry("id3", "Q", "q", "a", "b",
+                                               note="first\nsecond")
+    assert multiline["note"] == "first\nsecond"
     assert entry["cause"] is None                   # unknown cause → uncategorised
     assert entry["timestamp"] == 123.0
     assert entry["resolved"] is False
@@ -92,7 +101,8 @@ def test_make_mistake_entry_shape_and_truncation():
 
     ok = persistence.make_mistake_entry("id2", "QASM", "q", "a", "b",
                                         cause="knew_but_slipped", note=" note ")
-    assert ok["cause"] == "knew_but_slipped" and ok["note"] == "note"
+    # only trailing space is stripped: the note is not reflowed
+    assert ok["cause"] == "knew_but_slipped" and ok["note"] == " note"
     assert abs(ok["timestamp"] - time.time()) < 60
 
 
@@ -131,21 +141,37 @@ def test_cause_and_note_update_the_same_entry(data_dir):
     assert persistence.set_mistake_cause("no-such-id", "other") is False
 
 
-def test_relogging_refreshes_the_entry_and_keeps_the_cause(data_dir):
+def test_a_repeat_miss_is_its_own_row(data_dir):
+    """Three slips on one item are three rows: repetition is the signal.
+
+    This is the suite-wide reconciliation (see common/README.md): merging a
+    repeat into the open row destroys the count ``coach --mistakes`` and the
+    dashboard report.  The earlier categorisation stays on the earlier row.
+    """
     _log()
     persistence.set_mistake_cause("abc123", "didnt_know", note="revise PUBs")
     again = _log(your_answer="still a Counts object")
-    assert len(_mistake_file()) == 1                # updated, not duplicated
+    stored = _mistake_file()
+    assert len(stored) == 2
+    assert stored[0]["cause"] == "didnt_know" and stored[0]["note"] == "revise PUBs"
     assert again["your_answer"] == "still a Counts object"
-    assert again["cause"] == "didnt_know"           # kept
-    assert again["note"] == "revise PUBs"           # kept
+    assert again["cause"] is None and again["note"] == ""
     assert again["resolved"] is False
+    assert persistence.mistake_cause_counts() == {"didnt_know": 1, "uncategorised": 1}
+    # categorising now targets the newest open row, not the old one
+    persistence.set_mistake_cause("abc123", "misread")
+    stored = _mistake_file()
+    assert [e["cause"] for e in stored] == ["didnt_know", "misread"]
+    # …and resolving closes every open row for the item
+    assert persistence.resolve_mistake("abc123") is True
+    assert [e["resolved"] for e in _mistake_file()] == [True, True]
+    assert persistence.get_mistake("abc123")["cause"] == "misread"   # newest
 
 
 def test_resolve_marks_by_app_and_id_only(data_dir):
     _log()
     _log(item_id="other-item")
-    persistence._atomic_write_json(persistence._MISTAKES_FILE, _mistake_file() + [
+    jsonio.atomic_write_json(persistence.mistakes_file(), _mistake_file() + [
         {"id": "abc123", "app": "quantum-tutor", "cause": None, "resolved": False},
     ])
     assert persistence.resolve_mistake("abc123") is True
@@ -181,35 +207,38 @@ def test_journal_tolerates_missing_corrupt_and_malformed(data_dir):
     assert persistence.set_mistake_cause("abc123", "other") is False
 
     data_dir.mkdir(parents=True)
-    persistence._MISTAKES_FILE.write_text("not json")
+    persistence.mistakes_file().write_text("not json")
     assert persistence.load_mistakes() == []
-    persistence._MISTAKES_FILE.write_text(json.dumps({"id": "not-a-list"}))
+    persistence.mistakes_file().write_text(json.dumps({"id": "not-a-list"}))
     assert persistence.load_mistakes() == []
-    persistence._MISTAKES_FILE.write_text(json.dumps(
+    persistence.mistakes_file().write_text(json.dumps(
         [{"id": "keep", "app": "quantum-quiz"}, {"no": "id"}, "bare", 7, None]
     ))
+    # rows with no id cannot be matched or shown, so they are not loaded …
     assert [e["id"] for e in persistence.load_mistakes()] == ["keep"]
     _log()                                          # a write still succeeds
     assert _mistake_file()[-1]["id"] == "abc123"
     assert [e["id"] for e in persistence.load_mistakes()] == ["keep", "abc123"]
+    # … but an object row is still written back, unknown keys and all
+    assert {"no": "id"} in _mistake_file()
 
 
 def test_writes_preserve_rows_from_other_apps(data_dir):
     data_dir.mkdir(parents=True)
     foreign = [{"id": "abc123", "app": "quantum-tutor", "cause": "confused"},
-               "bare-string", 42]
-    persistence._MISTAKES_FILE.write_text(json.dumps(foreign))
+               {"id": "t2", "app": "quantum-tutor", "private": {"deep": 1}}]
+    persistence.mistakes_file().write_text(json.dumps(foreign))
     _log()
     stored = _mistake_file()
-    assert stored[:3] == foreign                    # nothing dropped or rewritten
-    assert stored[3]["id"] == "abc123" and stored[3]["app"] == "quantum-quiz"
+    assert stored[:2] == foreign                    # verbatim, unknown keys intact
+    assert stored[2]["id"] == "abc123" and stored[2]["app"] == "quantum-quiz"
     persistence.set_mistake_cause("abc123", "other")
-    assert _mistake_file()[:3] == foreign
-    assert _mistake_file()[3]["cause"] == "other"   # ours, not the tutor's
+    assert _mistake_file()[:2] == foreign
+    assert _mistake_file()[2]["cause"] == "other"   # ours, not the tutor's
 
 
 def test_journal_growth_is_capped(data_dir, monkeypatch):
-    monkeypatch.setattr(persistence, "MISTAKES_MAX", 5)
+    monkeypatch.setattr(journal, "MISTAKES_MAX", 5)
     for i in range(8):
         _log(item_id=f"item{i}")
     stored = _mistake_file()
@@ -223,12 +252,16 @@ def test_writes_are_atomic_and_leave_no_temp_files(data_dir):
     persistence.set_confidence_prompt_enabled(False)
     leftovers = [p.name for p in data_dir.iterdir() if p.name.endswith(".tmp")]
     assert leftovers == []
-    # The two ".lock" sidecars are journal_sync's: empty files that exist only
-    # to be flock()ed for the length of a read-modify-write on the shared
-    # journals, so a second app cannot clobber rows we just appended.
+    # ".lock" sidecars are common.locking's: empty files that exist only to be
+    # flock()ed for the length of a read-modify-write, so a second app (or a
+    # second window) cannot clobber rows we just appended.  ".schema.json"
+    # sidecars are common.schema's version stamps — they sit *beside* the data
+    # so every existing reader, which opens one exact file name, is unaffected.
     assert sorted(p.name for p in data_dir.iterdir()) == [
-        "confidence.json", "confidence.json.lock",
-        "mistakes.json", "mistakes.json.lock", "quiz_settings.json",
+        "confidence.json", "confidence.json.lock", "confidence.json.schema.json",
+        "mistakes.json", "mistakes.json.lock", "mistakes.json.schema.json",
+        "quiz_settings.json", "quiz_settings.json.lock",
+        "quiz_settings.json.schema.json",
     ]
     assert (data_dir / "mistakes.json.lock").read_bytes() == b""
 
@@ -240,7 +273,7 @@ def test_a_failed_write_keeps_the_previous_file_intact(data_dir, monkeypatch):
     def boom(*_a, **_k):
         raise OSError("disk full")
 
-    monkeypatch.setattr(persistence.os, "replace", boom)
+    monkeypatch.setattr(jsonio.os, "replace", boom)
     with pytest.raises(OSError):
         _log(item_id="never-lands")
     assert _mistake_file() == good                  # old content still there
@@ -291,18 +324,33 @@ def test_confidence_tolerates_missing_corrupt_and_malformed(data_dir):
     assert persistence.confidence_calibration() == {}
     assert persistence.confidently_wrong() == {}
     data_dir.mkdir(parents=True)
-    persistence._CONFIDENCE_FILE.write_text("{{{")
+    persistence.confidence_file().write_text("{{{")
     assert persistence.load_confidence() == []
-    persistence._CONFIDENCE_FILE.write_text(json.dumps(
+    persistence.confidence_file().write_text(json.dumps(
         [{"id": "a", "confidence": 3, "correct": True}, {"id": "b"}, {"confidence": 2}, "x"]
     ))
     assert [r["id"] for r in persistence.load_confidence()] == ["a"]
     persistence.log_confidence("c", "Qiskit", 1, False)
-    assert len(_confidence_file()) == 5             # unknown rows kept verbatim
+    rows = _confidence_file()
+    # every object row is written back untouched; the bare string "x" is not a
+    # row any reader in the suite can use, and does not survive the rewrite
+    assert rows[:3] == [{"id": "a", "confidence": 3, "correct": True},
+                        {"id": "b"}, {"confidence": 2}]
+    assert rows[3]["id"] == "c" and len(rows) == 4
+
+
+def test_an_out_of_range_rating_records_nothing(data_dir):
+    """Clamping would invent a rating and then report on it; reject instead."""
+    assert persistence.log_confidence("id1", "Qiskit", 0, True) is None
+    assert persistence.log_confidence("id1", "Qiskit", 9, True) is None
+    assert persistence.log_confidence("id1", "Qiskit", None, True) is None
+    assert not persistence.confidence_file().exists()
+    assert persistence.log_confidence("id1", "Qiskit", 2, True) is not None
+    assert [r["confidence"] for r in _confidence_file()] == [2]
 
 
 def test_confidence_growth_is_capped(data_dir, monkeypatch):
-    monkeypatch.setattr(persistence, "CONFIDENCE_MAX", 3)
+    monkeypatch.setattr(journal, "CONFIDENCE_MAX", 3)
     for i in range(6):
         persistence.log_confidence(f"id{i}", "Qiskit", 2, True)
     assert [r["id"] for r in _confidence_file()] == ["id3", "id4", "id5"]
@@ -314,7 +362,7 @@ def test_confidence_prompt_opt_out_round_trip(data_dir):
     assert persistence.load_settings() == {}
     assert persistence.confidence_prompt_enabled() is True      # default: ask
     persistence.set_confidence_prompt_enabled(False)
-    assert json.loads(persistence._SETTINGS_FILE.read_text()) == {
+    assert json.loads(persistence.settings_file().read_text()) == {
         "confidence_prompt_enabled": False
     }
     assert persistence.confidence_prompt_enabled() is False
@@ -328,10 +376,10 @@ def test_confidence_prompt_opt_out_round_trip(data_dir):
 
 def test_settings_tolerate_corrupt_file(data_dir):
     data_dir.mkdir(parents=True)
-    persistence._SETTINGS_FILE.write_text("not json")
+    persistence.settings_file().write_text("not json")
     assert persistence.load_settings() == {}
     assert persistence.confidence_prompt_enabled() is True
-    persistence._SETTINGS_FILE.write_text(json.dumps(["a", "list"]))
+    persistence.settings_file().write_text(json.dumps(["a", "list"]))
     assert persistence.load_settings() == {}
     persistence.set_confidence_prompt_enabled(False)            # recovers cleanly
     assert persistence.load_settings() == {"confidence_prompt_enabled": False}
@@ -341,9 +389,9 @@ def test_existing_history_files_are_untouched_by_the_new_writers(data_dir):
     """The new files must never disturb the load-bearing history schemas."""
     _log()
     persistence.log_confidence("abc123", "Qiskit", 4, False)
-    assert not persistence._HISTORY_FILE.exists()
-    assert not persistence._FLAGGED_FILE.exists()
-    assert not persistence._DRAFT_FILE.exists()
+    assert not persistence.history_file().exists()
+    assert not persistence.flagged_file().exists()
+    assert not persistence.draft_file().exists()
 
 
 # ---------------------------------------------------------------------------

@@ -24,17 +24,18 @@ def _stats(*ratings: Rating, category: str = "Algorithms") -> SessionStats:
 
 
 def test_paths_are_redirected_into_temp_dir(data_dir):
-    assert storage.HISTORY_FILE.is_relative_to(data_dir)
-    assert storage.DATA_DIR == data_dir
-    assert not storage.HISTORY_FILE.exists()
+    """One environment variable moves every path: they are resolved per call."""
+    assert storage.history_path() == data_dir / "flashcard_history.json"
+    assert storage.flagged_path() == data_dir / "flagged_cards.json"
+    assert not storage.history_path().exists()
 
 
 def test_save_session_round_trip(data_dir):
     save = _stats(Rating.GOT_IT, Rating.UNSURE, Rating.MISSED)
     storage.save_session(save)
 
-    assert storage.HISTORY_FILE.exists()
-    sessions = json.loads(storage.HISTORY_FILE.read_text())
+    assert storage.history_path().exists()
+    sessions = json.loads(storage.history_path().read_text())
     assert len(sessions) == 1
     s = sessions[0]
     assert (s["total"], s["got_it"], s["unsure"], s["missed"]) == (3, 1, 1, 1)
@@ -80,7 +81,7 @@ def test_card_weights_average_across_sessions():
 
 def test_corrupt_history_is_ignored(data_dir):
     data_dir.mkdir(parents=True)
-    storage.HISTORY_FILE.write_text("{ this is not json")
+    storage.history_path().write_text("{ this is not json")
     assert storage._load_raw() == []
     assert storage.lifetime_stats()["sessions"] == 0
     assert storage.card_weights() == {}
@@ -105,7 +106,7 @@ def test_flag_entries_follow_the_flagging_contract(data_dir):
     card = all_cards()[0]
     before = time.time()
     assert storage.toggle_flag(card.id) is True
-    raw = json.loads(storage._FLAGGED_FILE.read_text())
+    raw = json.loads(storage.flagged_path().read_text())
     assert isinstance(raw, list) and len(raw) == 1
     entry = raw[0]
     assert set(entry) == {"id", "label", "category", "app", "timestamp"}
@@ -117,26 +118,26 @@ def test_flag_entries_follow_the_flagging_contract(data_dir):
 
     # An id with no card still gets a well-formed entry (label falls back to the id).
     storage.toggle_flag("ghost_card")
-    ghost = json.loads(storage._FLAGGED_FILE.read_text())[1]
+    ghost = json.loads(storage.flagged_path().read_text())[1]
     assert ghost["id"] == ghost["label"] == "ghost_card" and ghost["category"] == ""
 
     # Toggle again removes exactly that entry; the other keeps its timestamp.
     assert storage.toggle_flag(card.id) is False
-    raw = json.loads(storage._FLAGGED_FILE.read_text())
+    raw = json.loads(storage.flagged_path().read_text())
     assert [e["id"] for e in raw] == ["ghost_card"]
     assert raw[0]["timestamp"] == ghost["timestamp"]
 
 
 def test_legacy_bare_id_flag_file_is_read_and_upgraded(data_dir):
     data_dir.mkdir(parents=True, exist_ok=True)
-    storage._FLAGGED_FILE.write_text(json.dumps(["old_a", "old_b", "old_a", "", 7]))
+    storage.flagged_path().write_text(json.dumps(["old_a", "old_b", "old_a", "", 7]))
     assert storage.load_flagged() == {"old_a", "old_b"}
     entries = storage.load_flagged_entries()
     assert [e["id"] for e in entries] == ["old_a", "old_b"]
     assert all(e["app"] == "flashcard-drill" for e in entries)
 
     storage.toggle_flag("new_c")
-    raw = json.loads(storage._FLAGGED_FILE.read_text())
+    raw = json.loads(storage.flagged_path().read_text())
     assert [e["id"] for e in raw] == ["old_a", "old_b", "new_c"]
     assert all(set(e) == {"id", "label", "category", "app", "timestamp"} for e in raw)
 
@@ -150,14 +151,14 @@ def test_save_flagged_preserves_existing_entries(data_dir):
     assert entries["keep_me"]["timestamp"] == ts
     storage.save_flagged(set())
     assert storage.load_flagged() == set()
-    assert json.loads(storage._FLAGGED_FILE.read_text()) == []
+    assert json.loads(storage.flagged_path().read_text()) == []
 
 
 def test_corrupt_flag_file_is_ignored(data_dir):
     data_dir.mkdir(parents=True, exist_ok=True)
-    storage._FLAGGED_FILE.write_text("{ nope")
+    storage.flagged_path().write_text("{ nope")
     assert storage.load_flagged() == set()
-    storage._FLAGGED_FILE.write_text(json.dumps({"id": "not-a-list"}))
+    storage.flagged_path().write_text(json.dumps({"id": "not-a-list"}))
     assert storage.load_flagged() == set()
 
 

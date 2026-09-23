@@ -1,19 +1,28 @@
-"""Dark theme — shared palette with other quantum-study apps."""
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont
+"""Dark theme — the shared suite palette plus this app's own vocabulary.
 
-BG         = "#0d1117"
-SURFACE    = "#161b22"
-SURFACE2   = "#21262d"
-BORDER     = "#30363d"
-ACCENT     = "#58a6ff"
-ACCENT2    = "#388bfd"
-TEXT       = "#e6edf3"
-TEXT_MUTED = "#8b949e"
-SUCCESS    = "#3fb950"
-WARNING    = "#d29922"
-ERROR      = "#f85149"
-PARTIAL    = "#e3b341"
+The twelve palette constants and the base stylesheet now come from
+:mod:`common.ui.theme` (they were byte-identical in all ten apps, so nothing
+was compromised to share them), and with them the accessibility rules this
+copy did not have: a visible focus ring on every control, sized so tabbing
+never shifts the layout.
+
+What stays here is what is genuinely this app's: the per-category colour map,
+the rating colours, and the handful of rules for widgets only this app has
+(the card frame, the three rating buttons, the cause-note field).  The
+confidence-strip and mistake-cause buttons use the shared ``#pill`` rules —
+the same design, previously duplicated here as ``#conf_btn`` / ``#cause_btn``.
+"""
+from __future__ import annotations
+
+from PyQt6.QtWidgets import QApplication
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.ui.theme import *          # noqa: F401,F403  (palette + QSS + alpha)
+from common.ui.theme import ACCENT, ACCENT2, BG, BORDER, ERROR, SUCCESS, \
+    SURFACE, SURFACE2, TEXT, TEXT_MUTED, WARNING
+from common.ui.theme import apply as _apply
+from common.ui.theme import extend
 
 CATEGORY_COLORS = {
     "Pauli Matrices":       "#6e40c9",
@@ -38,63 +47,31 @@ RATING_COLORS = {
     "missed":  ERROR,
 }
 
-QSS = f"""
-QWidget {{
-    background-color: {BG};
-    color: {TEXT};
-    font-family: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
-    font-size: 14px;
-}}
-QScrollArea, QScrollArea > QWidget > QWidget {{ background-color: {BG}; border: none; }}
-QScrollBar:vertical {{ background: {SURFACE}; width: 8px; border-radius: 4px; }}
-QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 4px; min-height: 24px; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-QPushButton {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px;
-    padding: 8px 18px; font-size: 13px;
-}}
-QPushButton:hover {{ background-color: {BORDER}; border-color: {ACCENT}; }}
-QPushButton:pressed {{ background-color: {ACCENT2}; color: white; }}
-QPushButton:disabled {{ color: {TEXT_MUTED}; border-color: {SURFACE2}; }}
-QPushButton#accent {{
-    background-color: {ACCENT}; color: {BG};
-    border: none; font-weight: bold; font-size: 14px; padding: 10px 28px;
-}}
-QPushButton#accent:hover {{ background-color: {ACCENT2}; }}
-QPushButton#flat {{ background: transparent; border: none; color: {ACCENT}; padding: 4px 8px; }}
-QPushButton#flat:hover {{ color: {TEXT}; }}
+#: Rules for the widgets only this app has.  Everything else — buttons, focus
+#: rings, pills, inputs, scrollbars, the card frame, the separator — is in the
+#: shared base stylesheet.
+_EXTRA = f"""
 QPushButton#got_it {{
     background-color: {SUCCESS}; color: {BG};
     border: none; font-weight: bold; font-size: 14px; padding: 10px 24px; border-radius: 6px;
 }}
 QPushButton#got_it:hover {{ background-color: #2da44e; }}
+QPushButton#got_it:focus {{ border: 2px solid {TEXT}; padding: 8px 22px; }}
 QPushButton#unsure {{
     background-color: {WARNING}; color: {BG};
     border: none; font-weight: bold; font-size: 14px; padding: 10px 24px; border-radius: 6px;
 }}
 QPushButton#unsure:hover {{ background-color: #b08800; }}
+QPushButton#unsure:focus {{ border: 2px solid {TEXT}; padding: 8px 22px; }}
 QPushButton#missed {{
     background-color: {ERROR}; color: white;
     border: none; font-weight: bold; font-size: 14px; padding: 10px 24px; border-radius: 6px;
 }}
 QPushButton#missed:hover {{ background-color: #cf222e; }}
-/* --- Review feedback: confidence strip + mistake-cause row ---------------
-   Every control below is Tab-reachable, so each one needs a focus ring that is
-   visible against the dark palette (2 px ACCENT).  State is never colour-only:
-   the buttons carry a "○ / ●" glyph as well as the accent fill. */
-QPushButton#conf_btn, QPushButton#cause_btn {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 13px;
-    padding: 5px 12px; font-size: 12px; font-weight: normal;
-}}
-QPushButton#conf_btn:hover, QPushButton#cause_btn:hover {{
-    background-color: {BORDER}; border-color: {ACCENT};
-}}
-QPushButton#conf_btn:checked, QPushButton#cause_btn:checked {{
-    background-color: {ACCENT}; color: {BG};
-    border-color: {ACCENT}; font-weight: bold;
-}}
+QPushButton#missed:focus {{ border: 2px solid {TEXT}; padding: 8px 22px; }}
+
+/* Review feedback: the "Don't ask" / "Dismiss" links beside the pills.
+   State is never colour-only — the pills themselves carry a "○ / ●" glyph. */
 QPushButton#conf_opt_out, QPushButton#cause_dismiss {{
     background: transparent; color: {TEXT_MUTED};
     border: 1px solid transparent; border-radius: 6px;
@@ -103,17 +80,14 @@ QPushButton#conf_opt_out, QPushButton#cause_dismiss {{
 QPushButton#conf_opt_out:hover, QPushButton#cause_dismiss:hover {{
     color: {TEXT}; border-color: {BORDER};
 }}
-QPushButton#conf_btn:focus, QPushButton#cause_btn:focus,
 QPushButton#conf_opt_out:focus, QPushButton#cause_dismiss:focus {{
-    border: 2px solid {ACCENT}; outline: none;
+    border: 2px solid {ACCENT}; padding: 4px 9px;
 }}
 QLineEdit#cause_note {{ font-size: 12px; padding: 5px 8px; }}
-QLineEdit#cause_note:focus {{ border: 2px solid {ACCENT}; }}
+QLineEdit#cause_note:focus {{ border: 2px solid {ACCENT}; padding: 4px 7px; }}
 QCheckBox#conf_pref {{ border: 1px solid transparent; border-radius: 4px; padding: 2px; }}
 QCheckBox#conf_pref:focus {{ border-color: {ACCENT}; }}
-QLabel {{ background: transparent; }}
-QLabel#heading {{ font-size: 22px; font-weight: bold; color: {TEXT}; }}
-QLabel#subheading {{ font-size: 15px; color: {TEXT_MUTED}; }}
+
 QLabel#card_front {{
     font-size: 20px; font-weight: bold; color: {TEXT};
     qproperty-alignment: AlignCenter;
@@ -122,30 +96,10 @@ QLabel#card_back {{
     font-size: 16px; color: {TEXT};
     qproperty-alignment: AlignCenter;
 }}
-QFrame#card {{ background-color: {SURFACE}; border: 1px solid {BORDER}; border-radius: 8px; }}
-QFrame#separator {{ background-color: {BORDER}; max-height: 1px; }}
-QCheckBox {{ spacing: 8px; color: {TEXT}; }}
-QCheckBox::indicator {{ width: 16px; height: 16px; border: 1px solid {BORDER}; border-radius: 3px; background: {SURFACE2}; }}
-QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
-QSpinBox {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
-}}
-QSpinBox::up-button, QSpinBox::down-button {{ background: {SURFACE2}; border: none; width: 18px; }}
-QComboBox {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
-}}
-QComboBox::drop-down {{ border: none; }}
-QComboBox QAbstractItemView {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; selection-background-color: {ACCENT2};
-}}
-QLineEdit {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
-}}
-QLineEdit:focus {{ border-color: {ACCENT}; }}
+
+/* The browse / history screens read long text out of a QTextBrowser inside a
+   surface panel, so they keep the framed look the shared (borderless,
+   transparent) rule drops. */
 QTextBrowser {{
     background-color: {SURFACE}; color: {TEXT};
     border: 1px solid {BORDER}; border-radius: 6px;
@@ -162,9 +116,10 @@ QSplitter::handle {{ background: {BORDER}; }}
 QSplitter::handle:horizontal {{ width: 1px; margin: 0 6px; }}
 """
 
+#: The full stylesheet this app applies: the shared base plus :data:`_EXTRA`.
+QSS = extend(_EXTRA)
+
 
 def apply(app: QApplication) -> None:
-    app.setStyleSheet(QSS)
-    font = QFont("Inter", 10)
-    font.setStyleHint(QFont.StyleHint.SansSerif)
-    app.setFont(font)
+    """Apply the shared theme plus this app's rules to *app*."""
+    _apply(app, QSS)

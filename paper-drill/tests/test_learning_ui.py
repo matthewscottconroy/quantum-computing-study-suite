@@ -284,11 +284,14 @@ class TestMistakeJournal:
 
     def test_unwritable_store_never_derails_the_drill(self, qapp, window, fake_ai,
                                                       data_dir, monkeypatch):
+        # Point the whole suite at a path that is a *file*, so every write
+        # underneath it raises NotADirectoryError.  One setenv is enough now
+        # that common.datadir resolves at call time.
         data_dir.mkdir(parents=True, exist_ok=True)
         blocker = data_dir / "blocker"
         blocker.write_text("not a directory")
-        monkeypatch.setattr(persistence, "MISTAKES_FILE", blocker / "mistakes.json")
-        monkeypatch.setattr(persistence, "CONFIDENCE_FILE", blocker / "confidence.json")
+        monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", str(blocker))
+        assert persistence.mistakes_path() == blocker / "mistakes.json"
 
         fake_ai["scores"] = [1]
         q = _start_session(qapp, window)
@@ -386,7 +389,7 @@ class TestConfidenceStrip:
         from ui.screens.question_screen import QuestionScreen
 
         data_dir.mkdir(parents=True, exist_ok=True)
-        persistence.SETTINGS_FILE.write_text("{not json")
+        persistence.settings_path().write_text("{not json")
         screen = QuestionScreen()
         assert screen.confidence_enabled()
         screen.deleteLater()

@@ -114,7 +114,10 @@ def test_cause_row_emits_cause_and_note_and_confirms_in_text(qapp):
         assert row.cause() == "knew_but_slipped"
         assert row._buttons["knew_but_slipped"].text().startswith("✓")
         assert row._status.isVisible() or row._status.isVisibleTo(row)
-        assert "Knew it, slipped" in row._status.text()
+        # the label comes from common.journal.CAUSE_LABELS, so the seven-app
+        # majority wording is what the chip and the confirmation both show
+        assert persistence.CAUSE_LABELS["knew_but_slipped"] == "Knew but slipped"
+        assert "Knew but slipped" in row._status.text()
         row.reset()
         assert row.cause() is None and row._note.text() == ""
         assert not row._buttons["knew_but_slipped"].text().startswith("✓")

@@ -1,13 +1,19 @@
 """mistakes.json / confidence.json / exam_settings.json helpers (no Qt).
 
-These are the pure, unit-testable helpers behind the mistake journal and the
-confidence-calibration log. Every test runs against the temp ``data_dir``.
+The store underneath is ``common.journal`` (locked, atomic, foreign rows
+preserved, each app trimming only its own rows); what is tested here is
+exam-sim's adapter over it — Question -> row, the session journal, the home
+screen's summary — plus the schema sidecar and the settings file.  Every test
+runs against the temp ``data_dir``.
 """
 import json
 
 import pytest
 
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 import persistence
+from common import journal, schema
 from core.models import ExamAttempt, ExamResult, Question
 
 MISTAKE_KEYS = {"id", "app", "category", "question", "your_answer",
@@ -36,18 +42,33 @@ def test_make_mistake_entry_has_the_shared_schema():
     assert isinstance(entry["timestamp"], float)
 
 
-def test_make_mistake_entry_clips_text_fields_to_200_chars():
+def test_make_mistake_entry_clips_the_one_line_fields_to_200_chars():
     entry = persistence.make_mistake_entry(
-        "x", "Sampler", "q" * 500, "a" * 500, "b" * 500, note="n" * 500)
-    for field in ("question", "your_answer", "correct_answer", "note"):
+        "x", "Sampler", "q" * 500, "a" * 500, "b" * 500, note="n" * 900)
+    for field in ("question", "your_answer", "correct_answer"):
         assert len(entry[field]) == 200, field
         assert entry[field].endswith("…")
+    # The note is prose the learner typed: 500 chars, and its line breaks are
+    # kept (the one-line fields are collapsed so a list row cannot be broken).
+    assert len(entry["note"]) == persistence.NOTE_LIMIT == 500
+    assert entry["note"].endswith("…")
+    assert persistence.make_mistake_entry(
+        "x", "Sampler", "a\nb", "", "", note="one\ntwo") == {
+        **entry, "question": "a b", "your_answer": "", "correct_answer": "",
+        "note": "one\ntwo", "timestamp": pytest.approx(entry["timestamp"], abs=5)}
 
 
-def test_make_mistake_entry_rejects_an_unknown_cause():
-    with pytest.raises(ValueError):
-        persistence.make_mistake_entry("x", "Sampler", "q", "a", "b",
-                                       cause="because-i-said-so")
+def test_make_mistake_entry_never_loses_the_row_over_an_unknown_cause():
+    """Suite rule (common/README.md §3): a stray cause is stored as None.
+
+    exam-sim used to raise ValueError here, which cost the mistake itself.
+    A recognised cause still survives spacing and case.
+    """
+    entry = persistence.make_mistake_entry("x", "Sampler", "q", "a", "b",
+                                           cause="because-i-said-so")
+    assert entry["cause"] is None
+    assert persistence.make_mistake_entry(
+        "x", "Sampler", "q", "a", "b", cause=" Misread ")["cause"] == "misread"
 
 
 def test_every_documented_cause_is_accepted():
@@ -116,10 +137,11 @@ def test_update_mistake_cause_returns_false_when_there_is_no_row(data_dir):
     assert persistence.load_mistakes() == []
 
 
-def test_update_mistake_cause_rejects_an_unknown_cause(data_dir):
+def test_update_mistake_cause_stores_an_unknown_cause_as_none(data_dir):
     persistence.log_mistake(persistence.mistake_entry_for(_q("a"), 0))
-    with pytest.raises(ValueError):
-        persistence.update_mistake_cause("a", "nonsense")
+    persistence.update_mistake_cause("a", "misread")
+    assert persistence.update_mistake_cause("a", "nonsense") is True
+    assert persistence.load_mistakes()[0]["cause"] is None
 
 
 def test_update_mistake_cause_ignores_other_apps(data_dir):
@@ -151,7 +173,7 @@ def test_resolve_mistake_keeps_the_cause_analysis(data_dir):
 
 
 def test_mistakes_file_is_capped_at_the_newest_rows(data_dir, monkeypatch):
-    monkeypatch.setattr(persistence, "MISTAKES_CAP", 5)
+    monkeypatch.setattr(journal, "MISTAKES_MAX", 5)
     for i in range(8):
         persistence.log_mistake(persistence.mistake_entry_for(_q(f"q{i}"), 0))
     ids = [r["id"] for r in persistence.load_mistakes()]
@@ -163,12 +185,16 @@ def test_writes_are_atomic_and_leave_no_temp_file(data_dir):
     persistence.log_confidence("a", "Sampler", 3, True)
     persistence.set_confidence_enabled(False)
     assert [p.name for p in sorted(data_dir.glob("*.tmp"))] == []
-    # The ".lock" sidecars belong to journal_sync: empty files flock()ed for the
+    # The ".lock" sidecars are common.locking: empty files flock()ed for the
     # length of a read-modify-write on the shared journals, so another app
-    # writing at the same time cannot drop the rows we just appended.
+    # writing at the same time cannot drop the rows we just appended.  The
+    # ".schema.json" sidecars are common.schema's version markers — a sidecar
+    # rather than a key in the data, because coach.py and dashboard.py require
+    # the top level of these files to be a plain JSON list.
     assert {p.name for p in data_dir.iterdir()} == {
-        "mistakes.json", "mistakes.json.lock",
-        "confidence.json", "confidence.json.lock", "exam_settings.json"}
+        "mistakes.json", "mistakes.json.lock", "mistakes.json.schema.json",
+        "confidence.json", "confidence.json.lock", "confidence.json.schema.json",
+        "exam_settings.json", "exam_settings.json.schema.json"}
     assert (data_dir / "mistakes.json.lock").read_bytes() == b""
 
 
@@ -248,9 +274,18 @@ def test_make_confidence_entry_schema_and_range():
     assert entry["app"] == "exam-sim"
     assert entry["confidence"] == 4 and entry["correct"] is False
     assert isinstance(entry["timestamp"], float)
-    for bad in (0, 5, -1, None, "3"):
-        with pytest.raises(ValueError):
-            persistence.make_confidence_entry("x", "Sampler", bad, True)
+    # The pure builder clamps, so a row that exists is always schema-valid…
+    for bad, expected in ((0, 1), (5, 4), (-1, 1), (None, 1), ("3", 3)):
+        assert persistence.make_confidence_entry(
+            "x", "Sampler", bad, True)["confidence"] == expected
+
+
+def test_log_confidence_rejects_a_rating_the_learner_never_gave(data_dir):
+    """…but the *write* rejects rather than inventing one (common/README §3)."""
+    for bad in (0, 5, -1, None, "high"):
+        assert persistence.log_confidence("x", "Sampler", bad, True) is None
+    assert persistence.load_confidence() == []
+    assert not persistence.CONFIDENCE_FILE.exists()
 
 
 def test_confidence_labels_cover_one_to_four():
@@ -285,7 +320,7 @@ def test_record_confidence_writes_nothing_when_nobody_rated(data_dir):
 
 
 def test_confidence_file_is_capped(data_dir, monkeypatch):
-    monkeypatch.setattr(persistence, "CONFIDENCE_CAP", 4)
+    monkeypatch.setattr(journal, "CONFIDENCE_MAX", 4)
     for i in range(7):
         persistence.log_confidence(f"q{i}", "Sampler", 3, True)
     assert [r["id"] for r in persistence.load_confidence()] == [

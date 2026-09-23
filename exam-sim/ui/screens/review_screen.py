@@ -10,6 +10,7 @@ import persistence
 from persistence import load_missed, resolve_missed, record_miss
 from bank import all_questions
 from ui import theme
+from ui.errata import ReportButton
 from ui.feedback import CauseRow, ConfidenceStrip
 from ui.format import question_html
 
@@ -73,6 +74,17 @@ class ReviewScreen(QWidget):
         self._cause_row.setVisible(False)
         self._cause_row.chosen.connect(self._on_cause)
         root.addWidget(self._cause_row)
+
+        # "Report a problem with this item" — shown once the answer has been
+        # checked (right or wrong: a keyed answer can be the wrong one), so it
+        # can never leak the answer before the learner has committed.
+        report_row = QHBoxLayout()
+        report_row.setContentsMargins(0, 0, 0, 0)
+        report_row.addStretch()
+        self._report_btn = ReportButton()
+        self._report_btn.setVisible(False)
+        report_row.addWidget(self._report_btn)
+        root.addLayout(report_row)
         root.addStretch()
 
         btn_row = QHBoxLayout()
@@ -139,6 +151,8 @@ class ReviewScreen(QWidget):
             self._confidence.setVisible(True)
         self._cause_row.reset()
         self._cause_row.setVisible(False)
+        self._report_btn.set_question(q)
+        self._report_btn.setVisible(False)
         self._submit_btn.setEnabled(False)
         self._next_btn.setEnabled(False)
 
@@ -169,6 +183,8 @@ class ReviewScreen(QWidget):
             )
             self._cause_row.setVisible(True)
         self._log_confidence(q, chosen == q.correct_index)
+        self._report_btn.set_question(q, chosen)
+        self._report_btn.setVisible(True)
         self._submit_btn.setEnabled(False)
         is_last = self._idx + 1 >= len(self._queue)
         self._next_btn.setText("Finish" if is_last else "Next →")

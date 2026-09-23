@@ -1,13 +1,15 @@
 """Problem screen for vqa-trainer — handles MC, numeric, and free-form."""
 from __future__ import annotations
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QPlainTextEdit, QLineEdit, QButtonGroup, QRadioButton,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QElapsedTimer
+from common.ui.widgets import LoadingOverlay
 from core.models import Problem, GradeMode
 from ui import theme
-from ui.widgets.loading_overlay import LoadingOverlay
 from ui.widgets.confidence_strip import ConfidenceStrip
 
 
@@ -273,7 +275,9 @@ class ProblemScreen(QWidget):
         self._overlay.show_message("Grading with Claude…")
 
     def hide_grading(self) -> None:
-        self._overlay.hide()
+        # hide_overlay() also stops the dot-ellipsis timer; plain hide() left
+        # it running for the life of the window.
+        self._overlay.hide_overlay()
 
     def resizeEvent(self, event) -> None:
         self._overlay.resize(self.size())

@@ -1,7 +1,9 @@
 """In-app docs browser (REFERENCE CONTRACT): discovery, rendering, links, Back.
 
-Runs against the live ``<repo>/docs`` corpus so a broken docs root, a regex
-regression in ``_prepare_markdown`` / ``_linkify`` or a dead Back / anchor
+The browser itself is now ``common.ui.reference``; this app contributes the
+subject -> chapter map and a one-line ``show_subject``.  These tests still run
+against the live ``<repo>/docs`` corpus, so a broken docs root, a regex
+regression in ``prepare_markdown`` / linkification, or a dead Back / anchor
 path fails here rather than in the running app.
 """
 from __future__ import annotations
@@ -10,9 +12,12 @@ import pathlib
 import re
 
 import pytest
-from PyQt6.QtCore import QUrl
+from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QTextDocument, QTextFormat
 from PyQt6.QtWidgets import QPushButton
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+from common.ui import reference as _shared
 
 APP_ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOCS = APP_ROOT.parent / "docs"
@@ -70,6 +75,18 @@ def _button(widget, text: str) -> QPushButton:
     raise AssertionError(f"no button {text!r}")
 
 
+def _listed(ref) -> list:
+    """The DocEntries currently in the list (chapter headers skipped)."""
+    entries = ref.entries
+    out = []
+    for row in range(ref._list.count()):
+        item = ref._list.item(row)
+        idx = None if item is None else item.data(Qt.ItemDataRole.UserRole)
+        if idx is not None:
+            out.append(entries[idx])
+    return out
+
+
 @pytest.fixture
 def rs():
     from ui.screens import reference_screen
@@ -89,16 +106,24 @@ def ref(qapp, rs):
 
 # ── discovery ────────────────────────────────────────────────────────────────
 
-def test_docs_root_is_the_repo_docs_folder(rs):
-    assert rs._DOCS_ROOT == DOCS and DOCS.is_dir()
-    assert rs.ReferenceScreen.docs_root() == DOCS
-    assert rs._DOCS_ROOT == pathlib.Path(rs.__file__).resolve().parents[3] / "docs"
+def test_docs_root_is_the_repo_docs_folder(rs, qapp):
+    assert rs.docs_root() == DOCS and DOCS.is_dir()
+    assert rs.ReferenceScreen().docs_root() == DOCS
+    assert rs.docs_root() is not None
+
+
+def test_docs_root_honours_the_env_override(rs, monkeypatch, tmp_path):
+    corpus = tmp_path / "elsewhere"
+    corpus.mkdir()
+    (corpus / "README.md").write_text("# Elsewhere\n")
+    monkeypatch.setenv(rs.DOCS_ENV_VAR, str(corpus))
+    assert rs.docs_root() == corpus
+    assert [e.rel for e in rs.scan_docs()] == ["README.md"]
 
 
 def test_scan_docs_lists_every_doc_readme_first(rs):
-    entries = rs._scan_docs(DOCS)
+    entries = rs.scan_docs(DOCS)
     assert len(entries) >= MIN_DOCS
-    assert [e.path for e in entries] == sorted(e.path for e in entries) or True  # order checked below
     assert {e.path for e in entries} == set(_live_docs())
     assert entries[0].rel == "README.md" and entries[0].chapter == "" \
         and entries[0].chapter_label == "Overview"
@@ -107,8 +132,8 @@ def test_scan_docs_lists_every_doc_readme_first(rs):
     numbered = [e for e in entries if e.chapter]
     assert all(re.match(r"^\d+\.\d+  \S", e.label) for e in numbered), \
         [e.label for e in numbered if not re.match(r"^\d+\.\d+  \S", e.label)]
-    assert all(e.title and e.search_key == e.search_key.lower() for e in entries)
-    assert rs._scan_docs(DOCS / "does-not-exist") == []
+    assert all(e.title and e.haystack() == e.haystack().lower() for e in entries)
+    assert rs.scan_docs(DOCS / "does-not-exist") == []
 
 
 def test_every_subject_maps_to_an_existing_chapter(rs):
@@ -121,11 +146,11 @@ def test_every_subject_maps_to_an_existing_chapter(rs):
 # ── markdown preparation ─────────────────────────────────────────────────────
 
 def test_linkify_bare_refs_including_fragments(rs):
-    entries = rs._scan_docs(DOCS)
+    entries = rs.scan_docs(DOCS)
     here = next(e for e in entries if e.chapter)
     there = next(e for e in entries if e.chapter and e.chapter != here.chapter)
     sibling = next(e for e in entries if e.chapter == here.chapter and e is not here)
-    prep = lambda md: rs._prepare_markdown(md, here.path.parent)
+    prep = lambda md: rs.prepare_markdown(md, here.path.parent)
 
     assert prep(f"see {there.rel}.") == f"see [{there.rel}](../{there.rel})."
     assert prep(f"see {there.rel}#summary.") == \
@@ -140,14 +165,14 @@ def test_linkify_bare_refs_including_fragments(rs):
     assert prep("see 99_nonexistent/01_nope.md") == "see 99_nonexistent/01_nope.md"
     fenced = f"```\n{there.rel}\n```\n"
     assert prep(fenced) == fenced
-    assert rs._prepare_markdown(f"see {there.rel}") == f"see {there.rel}"  # no doc_dir: untouched
+    assert rs.prepare_markdown(f"see {there.rel}") == f"see {there.rel}"   # no doc_dir
     assert rs.resolve_doc_ref(f"{there.rel}#summary", here.path.parent) == f"../{there.rel}#summary"
     assert rs.resolve_doc_ref("99_nonexistent/01_nope.md#x", here.path.parent) is None
 
 
 def test_prerequisites_line_of_a_real_doc_becomes_links(rs):
     path = DOCS / POSTULATES
-    out = rs._prepare_markdown(path.read_text(encoding="utf-8"), path.parent)
+    out = rs.prepare_markdown(path.read_text(encoding="utf-8"), path.parent)
     prereq = next(l for l in out.splitlines() if l.startswith("> **Prerequisites**"))
     assert "[01_linear_algebra.md](../01_mathematical_foundations/01_linear_algebra.md)" in prereq
     assert "01_linear_algebra.md (" not in prereq or "](" in prereq
@@ -155,21 +180,25 @@ def test_prerequisites_line_of_a_real_doc_becomes_links(rs):
 
 def test_display_math_and_details_rewrites(rs):
     md = "Energy:\n\n$$E = mc^2$$\n\nUse `$$` in files.\n\n```\n$$ raw $$\n```\n"
-    out = rs._prepare_markdown(md)
-    assert "\n```\nE = mc^2\n```\n" in out
+    out = rs.prepare_markdown(md)
+    assert "E = mc^2\n" in out and "```" in out
     assert "`$$`" in out and "```\n$$ raw $$\n```" in out   # inline / fenced code untouched
 
     details = "<details><summary>Solution</summary>\n\nBecause `X` anticommutes.\n\n</details>\n"
-    shown = rs._prepare_markdown(details)
+    shown = rs.prepare_markdown(details)
     assert "**▸ Solution**" in shown and "anticommutes" in shown
     assert "<details>" not in shown and "</details>" not in shown and "<summary>" not in shown
+
+    # …and the shared screen can hide them so you test yourself first
+    hidden = rs.prepare_markdown(details, show_solutions=False)
+    assert "anticommutes" not in hidden and "Solution" in hidden
 
 
 def test_quoted_display_math_stays_inside_the_block_quote(rs, qapp):
     md = ("> **Postulate 2**: the state at `t₂` is:\n"
           "> $$|\\psi(t_2)\\rangle = U|\\psi(t_1)\\rangle$$\n"
           "> where `U` is unitary.\n")
-    out = rs._prepare_markdown(md)
+    out = rs.prepare_markdown(md)
     assert all(line.startswith(">") for line in out.strip().splitlines()), out
     doc = QTextDocument()
     doc.setMarkdown(out)
@@ -181,7 +210,7 @@ def test_quoted_display_math_stays_inside_the_block_quote(rs, qapp):
 def test_real_doc_quoted_formulas_render_inside_their_quotes(rs, qapp):
     path = DOCS / POSTULATES
     doc = QTextDocument()
-    doc.setMarkdown(rs._prepare_markdown(path.read_text(encoding="utf-8"), path.parent))
+    doc.setMarkdown(rs.prepare_markdown(path.read_text(encoding="utf-8"), path.parent))
     blocks = _blocks(doc)
     # The three "> $$…$$" formulas the corpus writes inside block quotes (the
     # postulate statements).  The Key Formulas recap near the end repeats some
@@ -212,8 +241,8 @@ def test_heading_slug_and_anchor_names(rs, qapp):
     assert rs.heading_slug("QAOA: Quantum Approximate Optimization Algorithm") == \
         "qaoa-quantum-approximate-optimization-algorithm"
     doc = QTextDocument()
-    doc.setMarkdown(rs._prepare_markdown("# Title\n\ntext\n\n## Key Formulas\n\nmore\n"))
-    rs._add_heading_anchors(doc)
+    doc.setMarkdown(rs.prepare_markdown("# Title\n\ntext\n\n## Key Formulas\n\nmore\n"))
+    rs.restyle_document(doc)
     _, names = _anchors(doc)
     assert {"title", "key-formulas"} <= names
 
@@ -221,13 +250,13 @@ def test_heading_slug_and_anchor_names(rs, qapp):
 def test_prepare_markdown_over_whole_corpus_leaves_no_leaks(rs):
     problems: list[str] = []
     for path in _live_docs():
-        out = rs._prepare_markdown(path.read_text(encoding="utf-8"), path.parent)
+        out = rs.prepare_markdown(path.read_text(encoding="utf-8"), path.parent)
         if re.search(r"</?details>|</?summary>", out, re.I):
             problems.append(f"{path.name}: details/summary leaked")
         if out.count("```") % 2:
             problems.append(f"{path.name}: unbalanced fences")
-        prose = "".join(seg for i, seg in enumerate(rs._FENCE.split(out)) if i % 2 == 0)
-        if "$$" in rs._CODE_SPAN.sub("", prose):
+        prose = "".join(seg for i, seg in enumerate(_shared._FENCE.split(out)) if i % 2 == 0)
+        if "$$" in _shared._CODE_SPAN.sub("", prose):
             problems.append(f"{path.name}: $$ leaked")
         for target in re.findall(r"\]\(([^)]+\.md)(?:#[\w\-]+)?\)", prose):
             if not target.startswith(("http://", "https://")) and not (path.parent / target).is_file():
@@ -238,16 +267,23 @@ def test_prepare_markdown_over_whole_corpus_leaves_no_leaks(rs):
 # ── widget behaviour ─────────────────────────────────────────────────────────
 
 def test_load_all_lists_docs_and_selects_readme(ref):
-    assert ref._list.count() >= MIN_DOCS
+    assert len(_listed(ref)) >= MIN_DOCS
     assert ref._count_lbl.text().endswith(" documents")
     assert ref.current_doc_path() == DOCS / "README.md"
-    assert ref._path_lbl.text() == "docs/README.md"
+    assert "docs/README.md" in ref._doc_path.text()
     assert len(ref._browser.toPlainText()) > 200
     labels = [ref._chapter_filter.itemText(i) for i in range(ref._chapter_filter.count())]
     assert labels[:2] == ["All chapters", "Overview"] and len(labels) >= 10
-    n = ref._list.count()
+    n = len(_listed(ref))
     ref.load_all()                                # idempotent
-    assert ref._list.count() == n
+    assert len(_listed(ref)) == n
+
+
+def test_no_jump_picker_without_a_category_map(ref):
+    """This app's categories are broad subjects, so the picker stays hidden."""
+    assert ref.category_docs == {}
+    assert ref._jump.isHidden()
+    assert ref.show_category("Qiskit") is False
 
 
 def test_open_doc_renders_and_reports_missing(ref):
@@ -256,7 +292,7 @@ def test_open_doc_renders_and_reports_missing(ref):
     text = ref._browser.toPlainText()
     assert "Postulate" in text and "Solution" in text
     assert "<details>" not in text and "$$" not in text
-    assert ref._path_lbl.text() == f"docs/{POSTULATES}"
+    assert ref._doc_path.text().endswith(f"docs/{POSTULATES}")
     assert ref._open_btn.isEnabled()
     assert ref.open_doc("99_nope/00_missing.md") is False
     assert ref.current_doc_path() == DOCS / POSTULATES     # unchanged
@@ -271,26 +307,32 @@ def test_rendered_doc_has_prerequisite_links_and_heading_anchors(ref):
     assert ref.current_doc_path() == DOCS / LINALG
 
 
+def test_show_subject_filters_to_that_subjects_chapter(ref):
+    ref.show_subject("Quantum Mechanics")
+    visible = _listed(ref)
+    assert visible and all(d.chapter == "02_quantum_mechanics" for d in visible)
+    ref.show_subject("Not A Subject")                      # unknown: everything
+    assert len({d.chapter for d in _listed(ref)}) > 1
+
+
 def test_open_doc_hidden_by_filter_clears_filter(ref):
     ref.show_subject("Quantum Mechanics")
-    visible = [ref._docs[ref._list.item(i).data(0x0100)]
-               for i in range(ref._list.count()) if not ref._list.item(i).isHidden()]
-    assert visible and all(d.chapter == "02_quantum_mechanics" for d in visible)
+    assert all(d.chapter == "02_quantum_mechanics" for d in _listed(ref))
     assert ref.open_doc(LINALG) is True                    # hidden by the filter
     assert ref._chapter_filter.currentIndex() == 0 and ref._search.text() == ""
     assert ref.current_doc_path() == DOCS / LINALG
 
 
 def test_chapter_filter_and_search(ref):
-    total = ref._list.count()
-    ref._search.setText("bloch")
-    shown = [ref._docs[ref._list.item(i).data(0x0100)].rel
-             for i in range(ref._list.count()) if not ref._list.item(i).isHidden()]
-    assert shown and all("bloch" in r.lower() for r in shown)
+    total = len(_listed(ref))
+    ref.set_search("bloch")
+    shown = _listed(ref)
+    assert shown and all("bloch" in d.haystack() for d in shown)
+    assert len(shown) < total                              # a real filter
     assert ref._count_lbl.text() == f"{len(shown)} of {total} documents"
-    ref._search.setText("zzzz-no-such-doc")
+    ref.set_search("zzzz-no-such-doc")
     assert ref._count_lbl.text() == f"0 of {total} documents"
-    ref._search.clear()
+    ref.set_search("")
     assert ref._count_lbl.text() == f"{total} documents"
     ref.show_chapter("")
     assert ref._chapter_filter.currentIndex() == 0
@@ -330,10 +372,10 @@ def test_external_outside_and_missing_links(ref, monkeypatch):
 
 
 def test_missing_docs_root_degrades_gracefully(qapp, rs, monkeypatch, tmp_path):
-    monkeypatch.setattr(rs, "_DOCS_ROOT", tmp_path / "nope")
+    monkeypatch.setenv(rs.DOCS_ENV_VAR, str(tmp_path / "nope"))
     screen = rs.ReferenceScreen()
     screen.load_all()
-    assert screen._list.count() == 0
+    assert _listed(screen) == []
     assert screen._count_lbl.text() == "0 documents"
     assert "No documentation found" in screen._browser.toPlainText()
     assert screen.open_doc("README.md") is False

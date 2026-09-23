@@ -37,6 +37,16 @@ correctness. Free-form explanation questions are graded by Claude (`claude-sonne
 - **Confidence calibration** — an optional 1–4 self-rating *before* you submit, paired
   with the result in `confidence.json`; the history screen calls out the
   **confidently wrong** answers, which are the ones that sink exam scores
+- **Errata reporting** — a **⚠ Report a problem with this item** button on every result
+  view opens a prefilled GitHub issue (file, item id, the question exactly as you saw it,
+  the four choices and the keyed answer), so "this problem is wrong" has somewhere to go
+- **Shared suite code** — the journal, the flag store, the data-directory rule, the
+  palette, the small widgets and the docs browser all come from the repository-level
+  [`common/`](../common/README.md) package rather than a private copy
+- **Versioned files with backups** — every file this app writes carries a schema version
+  in a sidecar, migrates forward on read, is refused rather than corrupted when it was
+  written by a newer build, and is backed up (three generations) before each session's
+  first write
 
 ---
 
@@ -111,9 +121,9 @@ After submission:
   skipping still leaves the mistake logged, just uncategorised
 - **Worked solution** — step-by-step solution shown inline
 - **Key concepts** — list of tested concepts
-- **⚑ Flag for review** toggle and **Next Problem →** (the last one opens the summary).
-  These sit in a bar pinned below the scrolling panel, so they stay reachable however
-  long the solution runs
+- **⚑ Flag for review** toggle, **⚠ Report a problem with this item**, and
+  **Next Problem →** (the last one opens the summary). These sit in a bar pinned below
+  the scrolling panel, so they stay reachable however long the solution runs
 
 ### Summary and History
 
@@ -209,6 +219,45 @@ calibration numbers. Sprint *mistakes* are still journalled: a wrong answer with
 `cause: null`, and a timeout pre-categorised as `out_of_time` (which needs no UI,
 because the clock already established the cause).
 
+### Reporting a Problem with an Item
+
+Flagging is for *you* ("come back to this"). **⚠ Report a problem with this item**, next
+to it on the same result bar, is for *the repository* ("this problem is wrong for
+everybody"). The repo is public, and until now there was no path from noticing a bad
+problem to fixing it except remembering it later — which nobody does.
+
+Clicking it opens a small form: **what is wrong**, **what it should say** (optional) and
+a **severity** (wrong / misleading / typo only). Accepting it hands your system browser
+a prefilled GitHub issue against
+`.github/ISSUE_TEMPLATE/content_error.yml`, with the boxes already filled in:
+
+| Field | Filled with |
+|---|---|
+| `file` | ``circuit-trainer/problems/ — item id `f8bd26a68bcf28a8` `` |
+| `quote` | the question, the state/matrix line, the four choices **and the keyed answer** — a "none of these is right" report is only checkable with all four in front of you |
+| `why_wrong` | what you typed |
+| `correction` | what you typed, if anything |
+| `severity` | the dropdown, worded exactly as the issue form words it |
+
+Properties worth knowing:
+
+- **Nothing is sent.** `common/errata.py` builds a URL string; the browser opens it and
+  *you* press Submit on GitHub. No network call happens inside the app, so the control
+  cannot stall a drill.
+- **Keyboard reachable.** It is in the tab order (`StrongFocus`) with a visible focus
+  ring, an accessible name and a description; Space opens the form and Esc cancels it.
+- **Degrades with no browser.** `QDesktopServices.openUrl` is fire-and-forget and a
+  headless or kiosk machine may have nothing registered for `https`, so the URL is also
+  copied to the clipboard and shown — selectable — on the result bar. If the clipboard is
+  unavailable too, the line carries the full URL.
+- **Bounded.** The whole URL is capped at 6000 characters, longest field trimmed first,
+  so a 20 000-character question still produces a usable issue with the file and item id
+  intact.
+
+Sprint mode has no errata control, for the same reason it has no flag control and no
+confidence strip: a modal form would eat the 60-second clock. Report it from a normal
+session, where the same problem is one flag away.
+
 ### Mistake Journal on the History Screen
 
 Under the flagged list, the history screen summarises the journal: how many mistakes are
@@ -219,8 +268,8 @@ confidence calibration per level, and — when any "Certain" answer was wrong �
 ### Accessibility
 
 Every new control (the four confidence buttons, **Don't ask again**, the six cause
-buttons, the note field, the setup checkbox) is in the tab order with a visible
-focus ring and an accessible name. Meaning is never carried by colour alone: the
+buttons, the note field, the setup checkbox, **⚠ Report a problem with this item**) is
+in the tab order with a visible focus ring and an accessible name. Meaning is never carried by colour alone: the
 selected confidence and cause buttons add a ✓ glyph, the free-form score line is
 prefixed ✓ / ~ / ✗, and the multiple-choice result gets a written verdict line.
 All new text/background pairs clear WCAG AA 4.5:1 against the dark palette
@@ -229,14 +278,26 @@ All new text/background pairs clear WCAG AA 4.5:1 against the dark palette
 
 ### Reference
 
-The **Reference** button on the setup screen opens an in-app browser for the shared
-`docs/` corpus (resolved relative to the app: `../docs`). The left pane lists every
-chapter grouped by section; the right pane renders the Markdown (GitHub dialect —
-tables, code, exercise solutions shown inline). The **Jump to category…** picker opens
-the chapter most relevant to a trainer category (e.g. *Noise channel* → density
-matrices and open systems; *Notation reading* → linear algebra). Relative `.md` links
-inside a chapter navigate in-app; **Open externally** hands the current file to your
-system Markdown viewer. **← Back** returns to setup.
+The **Reference** button on the setup screen opens the shared in-app browser for the
+`docs/` corpus (`common/ui/reference.py`; the root is found from the package, then the
+cwd, then `sys.argv[0]`, and `QUANTUM_STUDY_DOCS_DIR` overrides it). The left pane lists
+every chapter; the right pane renders the Markdown (GitHub dialect — tables, code,
+`$$…$$` display maths and `<details>` blocks rewritten for Qt's renderer).
+
+Circuit Trainer supplies exactly two things to it, which is all that was ever
+app-specific:
+
+- **the chapter it opens on** — `03_quantum_gates_and_circuits`, this app's own rung of
+  the ladder, rather than the corpus README;
+- **the topic map** behind the **Jump to topic…** picker, one entry per problem category
+  (*Noise channel* → density matrices and open systems; *Notation reading* → linear
+  algebra; and so on for all twelve).
+
+Everything else comes with the shared screen: a **search box** over titles *and* body
+text (with per-document hit counts), a **chapter filter**, a **Show solutions** checkbox
+for self-testing, in-app navigation for relative `.md` links and `#heading` anchors,
+**Open externally** for your system Markdown viewer, and a rescan when the corpus changes
+on disk while the app is open. **← Back** returns to setup.
 
 ### Sprint Mode
 
@@ -314,6 +375,9 @@ The prompt requests a JSON response with `score` (0–10), `feedback`, `model_an
 ```
 circuit-trainer/
 ├── main.py
+├── common_path.py               The import shim: puts the repo root on sys.path so
+│                                `from common import journal` resolves. Copied verbatim
+│                                from common/app_shim.py — never edited.
 ├── config.py                    Model, DPI, tolerance, session defaults
 ├── core/
 │   ├── models.py                Problem, Attempt, TrainerConfig, SessionStats dataclasses
@@ -345,19 +409,106 @@ circuit-trainer/
 │   ├── screens/
 │   │   ├── setup_screen.py      Category/difficulty/count selection + sprint launch
 │   │   ├── problem_screen.py    Problem display, answer input, confidence strip,
-│   │   │                        "What went wrong?" mistake row
+│   │   │                        "What went wrong?" mistake row, errata button
 │   │   ├── sprint_screen.py     Sprint mode: countdown question screen + end screen
 │   │   ├── summary_screen.py    Session results chart
 │   │   ├── history_screen.py    Lifetime stats, flagged-for-review list (unflag),
 │   │   │                        mistake-journal + calibration summary
-│   │   └── reference_screen.py  In-app docs browser (docs/**/*.md, category jump)
+│   │   └── reference_screen.py  87 lines: common.ui.reference.ReferenceScreen plus
+│   │                            this app's default chapter and category → doc map
+│   ├── theme.py                 common.ui.theme plus CATEGORY_COLORS/DIFFICULTY_COLORS
+│   │                            and the rules for this app's own widgets
 │   └── widgets/
-│       ├── circuit_panel.py     Displays circuit PNG
-│       ├── collapsible_panel.py Animated hints and solutions
-│       └── loading_overlay.py   Grading spinner
+│       └── circuit_panel.py     Displays circuit PNG
+├── journal_sync.py              The pre-`common` lock/merge helper. No longer imported
+│                                by anything here — kept only because the root suite's
+│                                test_every_app_ships_the_same_journal_sync still
+│                                requires all ten copies to exist and match. Delete it
+│                                once that test is updated (see below).
 ├── tests/
-└── persistence.py
+└── persistence.py               Session history + SRS weighting (this app's), adapting
+                                 common.journal / common.flags / common.schema for
+                                 everything that is shared
 ```
+
+Anything above that is *not* in this tree lives in [`common/`](../common/README.md) and
+is shared with the other nine apps.
+
+---
+
+## Shared Code (`common/`)
+
+This app used to carry its own copy of the mistake journal, the flag store, the
+data-directory rule, the palette, three small widgets and a 350-line docs browser. All
+of it now comes from the repository-level [`common/`](../common/README.md) package;
+**445 lines of forked logic left this tree** and nothing was reimplemented.
+
+### How the import works
+
+`common_path.py` is `common/app_shim.py` copied verbatim. Importing it walks up from its
+own location until it finds a directory holding `common/__init__.py` *and*
+`common/journal.py`, and **appends** that to `sys.path`:
+
+```python
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common import journal
+from common.ui import theme
+```
+
+It appends rather than prepending because the repository root also holds `tests/`,
+`tools/`, `coach.py` and `launch.py`, and this app has its own `tests/`, `ui/`, `core/`
+and `config`; putting the root first would let a root module shadow an app module. Every
+module that imports from `common` imports the shim itself — `persistence.py` is loaded
+**by path, with no conftest**, by the root suite's `tests/test_journal_concurrency.py`,
+and the screens are imported directly by this app's UI tests, so "something else will
+have run it" is not a safe assumption. `tests/test_common_integration.py` fails the build
+if a module ever forgets.
+
+Installed as a wheel there is no checkout to find: the shim appends nothing and
+`import common` resolves from site-packages.
+
+### What came from `common`, and what stayed
+
+| Concern | Now | Why |
+|---|---|---|
+| `mistakes.json` / `confidence.json` | `common.journal` | One locked, atomic, foreign-row-preserving implementation for all ten apps — and the growth cap starts holding (see *Data Persistence*) |
+| `trainer_flagged.json` | `common.flags` | Atomic write (the old one truncated first), rewrite from the *raw* list so unknown rows survive, and the legacy bare-id shape is read instead of discarded |
+| Data directory | `common.datadir` | Resolved per call, `.strip()`ped and `~`-expanded |
+| Schema versions, backups | `common.schema` | New capability, see above |
+| Palette + base stylesheet | `common.ui.theme` | The twelve palette constants were byte-identical in all ten apps before the extraction |
+| `LoadingOverlay`, `CollapsiblePanel` | `common.ui.widgets` | Identical but for an animation constant |
+| Docs browser | `common.ui.reference` | Two constructor arguments were all that was ever this app's |
+| **`flag_id_for()`** | **stayed here** | The id is the join key between `trainer_flagged.json`, `mistakes.json`, `confidence.json` and `coach.py`. It is on-disk state: switching to `common.flags.make_id` (sha256) would orphan every flag and every journalled mistake already saved |
+| **SRS weighting, `trainer_history.json`** | **stayed here** | The 14-day-half-life formula and the history schema are this app's, and the schema is load-bearing for `coach.py`/`dashboard.py` |
+| **`CATEGORY_COLORS`, `DIFFICULTY_COLORS`, `CircuitPanel`** | **stayed here** | This app's vocabulary and this app's widget, not shared style |
+
+### Where this app's behaviour differed, and what was done
+
+Two divergences were real behaviour, not drift, so they are kept as **thin adapters over**
+the shared code rather than forks of it. Both are in `persistence.py`:
+
+1. **Strict confidence ratings.** `common.journal.coerce_confidence` accepts `"3"` and
+   `2.7`; this app rejects anything that is not a plain `int` in 1–4 (a `bool`, a string
+   or a float is a caller bug). A rating the learner never gave must never reach the
+   calibration report, so `make_confidence_entry()` still raises `ValueError` and
+   `log_confidence()` still records nothing. It validates, then delegates.
+2. **Note-only journal updates.** `common.journal.set_mistake_cause` always writes a
+   cause, but this app's *What went wrong?* row lets you type a note without picking one.
+   `update_mistake(item_id, note=…)` reads the row's current cause back and re-writes it,
+   with both steps inside **one** lock on `mistakes.json` (`common.locking.lock` is
+   re-entrant), so it is still a single atomic read-modify-write.
+
+Three behaviours *changed* on purpose, all of them the shared version being right:
+
+- A **bare string** in `trainer_flagged.json` is now read as a legacy flag and upgraded
+  to the contract shape on the next write, instead of being silently dropped. `coach.py`
+  has always counted those as flags, so the app was the one out of step.
+- The journal growth cap trims **only this app's rows**, so it actually holds (see
+  *Data Persistence*).
+- A failed `show_doc()` on the Reference screen leaves you on the chapter you were
+  reading. The old fork blanked the browser, which cost the reader their place because a
+  jump target was missing.
 
 ---
 
@@ -437,8 +588,8 @@ worker thread crashed the *next* worker on Python 3.14 / qiskit 2.5). Keep that 
 
 ## Data Persistence
 
-Both files live in the shared suite data directory, `~/.local/share/quantum-study/` by
-default. Set `QUANTUM_STUDY_DATA_DIR` to redirect them (the same override `coach.py`
+All of these files live in the shared suite data directory,
+`~/.local/share/quantum-study/` by default. Set `QUANTUM_STUDY_DATA_DIR` to redirect them (the same override `coach.py`
 and the other apps honour) — handy for tests and experiments that must not touch real
 history.
 
@@ -455,11 +606,48 @@ history.
   `{"confidence_prompt": bool}`). Nothing outside circuit-trainer reads it.
 
 `mistakes.json` and `confidence.json` are shared-contract files written by every study
-app, so entries always carry `"app": "circuit-trainer"`. Both are written atomically
-(temp file + `os.replace`), treat a missing or corrupt file as empty (and rewrite it
-valid on the next write), and are capped at the newest **2000** mistakes /
-**5000** confidence rows (`_MAX_MISTAKES` / `_MAX_CONFIDENCE`) so they cannot grow
-without bound.
+app, so entries always carry `"app": "circuit-trainer"`. `common.journal` writes them
+atomically (temp file + `os.replace`) under an `flock` held across the whole
+read-modify-write, treats a missing or corrupt file as empty (and rewrites it valid on
+the next write), puts every row belonging to another app back exactly as it was read
+(unknown keys included), and caps each file at the newest **2000** mistakes /
+**5000** confidence rows — **counting only this app's own rows**.
+
+> That last clause is a real fix, though a smaller one than the `common/` notes suggest.
+> The copy this app used to carry capped the *merged* list (`entries[-2000:]`) and then
+> called `merge_foreign`, which put the foreign rows the truncation had just cut straight
+> back. Measured against the pre-migration code: **no other app's rows were ever lost or
+> reordered** — but the cap did not hold. With a cap of 4 and five rows from another app,
+> the old code left **7** rows on disk and only 2 of ours; the new code leaves 5 and 0.
+> The cap was being spent on rows that came straight back, so the file grew past it and
+> this app's own history was trimmed to pay for it.
+> `tests/test_mistake_journal.py::test_the_cap_only_ever_trims_this_apps_own_rows` pins
+> the new behaviour.
+
+### Schema versions, migration and backups
+
+Every file this app writes now goes through `common.schema`:
+
+- **A version marker beside each file**, not inside it: `mistakes.json` gets
+  `mistakes.json.schema.json` holding `{"file", "kind", "schema", "written_by",
+  "updated"}`. It has to be a sidecar, because `coach._load_list`,
+  `dashboard._read_journal` and `dashboard._load` all do
+  `return data if isinstance(data, list) else []` — a `{"schema": 1, "rows": […]}`
+  wrapper would make the whole journal read as *empty* in the coach and the dashboard.
+- **Unmarked files are v1.** Everything written before versioning existed is read as-is
+  and stamped the next time it is written; nothing has to be converted.
+- **Reading is never destructive.** An older file is migrated forward *in memory*; the
+  file on disk only changes when something writes it.
+- **A newer file is refused, not corrupted.** If a future build writes v2 and you then
+  run this one, the write is skipped rather than overwriting v2 with a v1-shaped view of
+  it. `persistence.last_write_error()` says so; the drill carries on.
+- **Rotating backups.** Before the *first* write of each run, the current contents are
+  copied to `<name>.bak`, ageing `.bak` → `.bak.1` → `.bak.2`. One backup per file per
+  run, best-effort. `persistence.restore_backup(persistence.mistakes_file())` puts the
+  newest one back.
+
+The extra files (`*.lock`, `*.schema.json`, `*.bak*`) are invisible to every existing
+reader: `coach.py` and `dashboard.py` open exact file names, and none of those is one.
 
 `persistence.py` exposes:
 
@@ -469,6 +657,8 @@ without bound.
 | Mistakes | `make_mistake_entry()`, `answer_texts_for()`, `log_mistake_for_attempt()`, `append_mistake()`, `update_mistake()`, `resolve_mistake()`, `load_mistakes()`, `mistake_cause_counts()`, `mistakes_file()`, `MISTAKE_CAUSES` |
 | Confidence | `make_confidence_entry()`, `log_confidence()`, `load_confidence()`, `calibration_by_level()`, `confidence_file()`, `CONFIDENCE_LEVELS` |
 | Prefs | `load_prefs()`, `save_prefs()`, `confidence_prompt_enabled()`, `set_confidence_prompt_enabled()`, `prefs_file()` |
+| Paths | `data_dir()`, `history_file()` — resolved **on every call**, so setting `QUANTUM_STUDY_DATA_DIR` at any point is enough and no test has to patch a module constant |
+| Schema | `last_write_error()`, `clear_write_error()`, `restore_backup()` |
 
 The entry builders are pure functions (no Qt, no I/O), so they unit-test directly —
 see `tests/test_mistake_journal.py`.

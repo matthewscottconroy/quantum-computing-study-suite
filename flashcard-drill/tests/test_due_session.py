@@ -219,7 +219,7 @@ def test_rating_a_due_session_advances_the_schedule_and_the_summary(qapp, make_w
     assert "next review tomorrow (4 cards)" in line
 
     # History keeps its own schema, untouched by the scheduler.
-    sessions = json.loads(storage.HISTORY_FILE.read_text())
+    sessions = json.loads(storage.history_path().read_text())
     assert len(sessions) == 1 and sessions[0]["total"] == 5
     assert all(set(r) == {"card_id", "category", "rating", "elapsed_secs"}
                for r in sessions[0]["results"])
@@ -271,7 +271,7 @@ def test_nothing_due_and_nothing_new_disables_start_and_explains_when_to_return(
     assert window._stack.currentIndex() == PAGE_SETUP
     assert "in 4 days" in setup.notice_text()
     assert "Free drill" in setup.notice_text()
-    assert not storage.HISTORY_FILE.exists()
+    assert not storage.history_path().exists()
 
 
 def test_no_category_selected_says_so_instead_of_claiming_no_schedule(qapp, make_window,
@@ -325,13 +325,13 @@ def test_existing_history_with_no_schedule_bootstraps_on_first_launch(
         stats.results.append(CardResult(card_id=card.id, category=card.category,
                                         rating=Rating.GOT_IT.value))
     storage.save_session(stats)
-    before = storage.HISTORY_FILE.read_bytes()
+    before = storage.history_path().read_bytes()
     assert not store.schedule_exists()
 
     setup = make_window()._setup
 
     assert store.schedule_exists()                       # migrated on first read
-    assert storage.HISTORY_FILE.read_bytes() == before   # and history is untouched
+    assert storage.history_path().read_bytes() == before   # and history is untouched
     states = store.load_states()
     assert set(states) == {c.id for c in pool}
     assert all(s.n == 1 and s.interval_days == 1 for s in states.values())

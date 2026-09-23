@@ -1,4 +1,22 @@
-"""Persistence for qiskit-dojo.
+"""Persistence for qiskit-dojo — a thin layer over the shared ``common`` package.
+
+Everything cross-cutting now lives in ``common/`` and is imported, not copied:
+
+=========================  ====================================================
+``common.datadir``         where the data directory is (env-overridable, and
+                           resolved on **every call**, never frozen at import)
+``common.journal``         mistakes.json / confidence.json — the suite-wide
+                           journal all ten apps append to
+``common.flags``           dojo_flagged.json — the flag-for-review store
+``common.schema``          version sidecars, forward migration, rotating
+                           backups, and the refusal to overwrite a file written
+                           by a newer build
+=========================  ====================================================
+
+What is left here is what is genuinely this app's own: the session-history
+schema, the kata-selection weighting, the Qiskit-specific cause labels, and
+two policies the dojo needs that the shared journal deliberately does not
+have (see "Local policy" below).
 
 Session history schema (integrated against by the coach app — do not change):
     list of {
@@ -46,36 +64,105 @@ Confidence calibration (confidence.json, suite-wide, append-only):
 App-local UI preferences live in dojo_settings.json (a flat dict); the only
 key today is "confidence_prompt" (bool, default True).
 
-Both analytics files are written atomically (temp file in the same directory
-+ os.replace) and are capped at MAX_MISTAKES / MAX_CONFIDENCE rows, oldest
-dropped first, so a decade of study cannot grow them without bound.  A
-missing or corrupt file always reads as empty rather than raising.
+Local policy (kept as adapters over ``common``, never as forked logic)
+======================================================================
+1. **A repeat failure folds into the kata's open row.**  ``common.journal``
+   appends every miss, because in a quiz three misses of one card is three
+   real signals.  A dojo is not a quiz: you press Run while you iterate, and
+   the screen re-journals on every failed run, so appending would turn one
+   stuck kata into thirty rows and drown ``coach --mistakes``.  :func:`log_mistake`
+   therefore refreshes the open row — using ``journal.lock`` /
+   ``journal.load_mistakes`` / ``journal.save_mistakes``, so the locking,
+   foreign-row preservation, trimming and versioning are all the shared ones.
+2. **A confidence rating is clamped, not rejected.**  ``journal.log_confidence``
+   records nothing for a rating outside 1..4, meaning "the strip was skipped".
+   This app decides that upstream — the kata screen only logs when the strip
+   was used — and its documented contract is that :func:`log_confidence`
+   always returns the row it stored, so it goes through the pure builder
+   (which clamps) and ``journal.save_confidence``.
+3. **The cause labels are Qiskit's.**  The *taxonomy* (the keys written to
+   disk) is ``common.journal.MISTAKE_CAUSES``, unchanged.  Only the button
+   wording is local: "Confused two APIs" is the dojo's failure mode, and it
+   would be meaningless in math-quiz.
+
+Schema versioning
+=================
+Every file this app writes carries a ``<name>.schema.json`` sidecar recording
+its version, and every write first rotates ``<name>.bak`` → ``.bak.1`` →
+``.bak.2``.  A file written by a *newer* build raises
+``common.schema.SchemaTooNewError`` instead of being overwritten with this
+build's narrower view of it; the journal helpers swallow that and record it in
+:func:`last_write_error`, while :func:`save_session` and :func:`save_settings`
+let it propagate to their callers (both are already wrapped in try/except by
+the UI, which is how "nothing happened" reaches the screen).
+
+A missing or corrupt file always reads as empty rather than raising.
 """
 from __future__ import annotations
-import json
-import os
-import tempfile
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 import time
 from pathlib import Path
-import journal_sync
+
+from common import datadir, flags, journal, schema
+from common.jsonio import read_json_dict
+
 from config import (
     HISTORY_FILE, DATA_DIR, FLAGGED_FILE, APP_DIR_NAME,
     MISTAKES_FILE, CONFIDENCE_FILE, SETTINGS_FILE,
 )
 from core.models import Kata, SessionStats
 
+#: Re-exported so a caller that already imports this module can ask whether
+#: its last write was refused as too new, without importing ``common``.
+last_write_error = journal.last_write_error
+clear_write_error = journal.clear_write_error
+SchemaTooNewError = schema.SchemaTooNewError
 
-def _load_raw() -> list[dict]:
-    if not HISTORY_FILE.exists():
-        return []
-    try:
-        return json.loads(HISTORY_FILE.read_text())
-    except Exception:
-        return []
+
+# ---------------------------------------------------------------------------
+# Paths — resolved on every call, so QUANTUM_STUDY_DATA_DIR is always honoured
+#
+# The module constants above (HISTORY_FILE &c.) are import-time snapshots kept
+# for compatibility; these functions are what the code below actually uses.
+# ---------------------------------------------------------------------------
+
+def history_path() -> Path:
+    """``<data dir>/dojo_history.json``, resolved now."""
+    return datadir.app_file(APP_DIR_NAME, "history")
+
+
+def flagged_path() -> Path:
+    """``<data dir>/dojo_flagged.json``, resolved now."""
+    return datadir.app_file(APP_DIR_NAME, "flagged")
+
+
+def settings_path() -> Path:
+    """``<data dir>/dojo_settings.json``, resolved now."""
+    return datadir.app_file(APP_DIR_NAME, "settings")
+
+
+mistakes_path = journal.mistakes_path
+confidence_path = journal.confidence_path
+
+
+# ---------------------------------------------------------------------------
+# Session history (dojo_history.json)
+# ---------------------------------------------------------------------------
+
+def _load_raw() -> list:
+    """Every stored session, oldest first; [] if missing or corrupt.
+
+    Goes through ``schema.load_versioned``, so an older file is migrated
+    forward in memory before anything here sees it.
+    """
+    return schema.load_versioned(history_path(), "history")
 
 
 def save_session(stats: SessionStats) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    """Append one session to dojo_history.json (atomic, backed up, stamped)."""
+    datadir.ensure_data_dir()
     sessions = _load_raw()
     sessions.append({
         "timestamp": time.time(),
@@ -91,7 +178,7 @@ def save_session(stats: SessionStats) -> None:
             for a in stats.attempts
         ],
     })
-    HISTORY_FILE.write_text(json.dumps(sessions, indent=2))
+    schema.save_versioned(history_path(), sessions, "history")
 
 
 def pass_rates_by_section() -> dict[str, float]:
@@ -126,33 +213,20 @@ def kata_weights() -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
-# Flag for review (dojo_flagged.json)
+# Flag for review (dojo_flagged.json) — common.flags does the work
 # ---------------------------------------------------------------------------
 
 def load_flagged() -> list[dict]:
     """Flagged katas, oldest first.  A missing or corrupt file reads as empty."""
-    if not FLAGGED_FILE.exists():
-        return []
-    try:
-        data = json.loads(FLAGGED_FILE.read_text())
-    except Exception:
-        return []
-    if not isinstance(data, list):
-        return []
-    return [e for e in data if isinstance(e, dict) and e.get("id")]
-
-
-def _save_flagged(entries: list[dict]) -> None:
-    FLAGGED_FILE.parent.mkdir(parents=True, exist_ok=True)
-    FLAGGED_FILE.write_text(json.dumps(entries, indent=2))
+    return flags.load_flagged(flagged_path(), APP_DIR_NAME)
 
 
 def flagged_ids() -> set[str]:
-    return {str(e["id"]) for e in load_flagged()}
+    return flags.flagged_ids(flagged_path(), APP_DIR_NAME)
 
 
 def is_flagged(kata_id: str) -> bool:
-    return kata_id in flagged_ids()
+    return flags.is_flagged(flagged_path(), kata_id, APP_DIR_NAME)
 
 
 def toggle_flag(kata: Kata) -> bool:
@@ -160,50 +234,31 @@ def toggle_flag(kata: Kata) -> bool:
 
     Returns the new state (True = now flagged).
     """
-    entries = load_flagged()
-    if any(e.get("id") == kata.id for e in entries):
-        _save_flagged([e for e in entries if e.get("id") != kata.id])
-        return False
-    entries.append({
-        "id":        kata.id,
-        "label":     kata.title,
-        "category":  kata.section,
-        "app":       APP_DIR_NAME,
-        "timestamp": time.time(),
-    })
-    _save_flagged(entries)
-    return True
+    return flags.toggle_flag(flagged_path(), kata.id, kata.title, kata.section,
+                             app=APP_DIR_NAME)
 
 
 def unflag(kata_id: str) -> None:
     """Remove a kata from the flagged list (no-op if it is not flagged)."""
-    entries = load_flagged()
-    remaining = [e for e in entries if e.get("id") != kata_id]
-    if len(remaining) != len(entries):
-        _save_flagged(remaining)
+    flags.unflag(flagged_path(), kata_id, app=APP_DIR_NAME)
 
 
 # ---------------------------------------------------------------------------
 # Shared analytics files: mistake journal + confidence calibration
 #
 # Both are suite-wide (every app writes into the same mistakes.json /
-# confidence.json), so every mutator here rewrites only the rows whose "app"
-# is this app and passes every foreign row through untouched.
+# confidence.json).  ``common.journal`` holds the lock across every
+# read-modify-write, writes every foreign row back verbatim, and trims only
+# this app's own rows.
 # ---------------------------------------------------------------------------
 
-#: Cause taxonomy for the mistake journal.  ``None`` means "logged, not yet
-#: categorised" — the entry still counts, it just has no diagnosis.
-MISTAKE_CAUSES: tuple[str, ...] = (
-    "misread",
-    "didnt_know",
-    "knew_but_slipped",
-    "confused",
-    "out_of_time",
-    "other",
-)
+#: Cause taxonomy for the mistake journal — the shared one, unchanged.
+#: ``None`` means "logged, not yet categorised".
+MISTAKE_CAUSES: tuple[str, ...] = journal.MISTAKE_CAUSES
 
-#: Human labels for the cause buttons (kept next to the taxonomy so the UI
-#: and the journal can never drift apart).
+#: Human labels for the cause buttons.  Qiskit's wording, on the shared
+#: taxonomy: "Confused two APIs" is this app's failure mode and would mean
+#: nothing in math-quiz, so the labels stay local while the keys do not.
 CAUSE_LABELS: dict[str, str] = {
     "misread":          "Misread the task",
     "didnt_know":       "Didn't know it",
@@ -213,65 +268,17 @@ CAUSE_LABELS: dict[str, str] = {
     "other":            "Other",
 }
 
-#: Confidence levels asked before the first Run.
-CONFIDENCE_LABELS: dict[int, str] = {
-    1: "Guessing",
-    2: "Unsure",
-    3: "Fairly sure",
-    4: "Certain",
-}
+#: Confidence levels asked before the first Run (the shared labels).
+CONFIDENCE_LABELS: dict[int, str] = journal.CONFIDENCE_LABELS
 
-FIELD_LIMIT    = 200        # question / your_answer / correct_answer / note
-MAX_MISTAKES   = 2000       # oldest rows are dropped past this
-MAX_CONFIDENCE = 5000
+FIELD_LIMIT    = journal.TEXT_MAX          # 200: question / answers / note
+MAX_MISTAKES   = journal.MISTAKES_MAX      # the cap now lives in common.journal
+MAX_CONFIDENCE = journal.CONFIDENCE_MAX
 
-
-def clip(text: object, limit: int = FIELD_LIMIT) -> str:
-    """Collapse whitespace and trim to `limit` characters (ellipsis included).
-
-    Journal fields are meant to be scannable one-liners, so embedded newlines
-    and runs of spaces are squashed rather than stored verbatim.
-    """
-    s = " ".join(str(text if text is not None else "").split())
-    if len(s) <= limit:
-        return s
-    return s[: max(0, limit - 1)].rstrip() + "…"
-
-
-def _atomic_write_json(path: Path, payload) -> None:
-    """Write `payload` as JSON to `path` via temp file + os.replace.
-
-    A crash mid-write leaves the previous file intact instead of a truncated
-    one, and readers never observe a half-written list.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp",
-                               dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-
-
-def _load_json_dicts(path: Path) -> list[dict]:
-    """Every dict row in the JSON list at `path`; [] if missing or corrupt."""
-    try:
-        if not path.exists():
-            return []
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    if not isinstance(data, list):
-        return []
-    return [row for row in data if isinstance(row, dict)]
+#: Collapse whitespace and trim to `limit` characters (ellipsis included).
+#: Journal fields are meant to be scannable one-liners, so embedded newlines
+#: and runs of spaces are squashed rather than stored verbatim.
+clip = journal.clip_text
 
 
 # ------------------------------------------------------------ mistake journal
@@ -281,44 +288,29 @@ def make_mistake_entry(kata_id: str, category: str, question: str,
                        cause: str | None = None, note: str = "",
                        timestamp: float | None = None,
                        resolved: bool = False) -> dict:
-    """A journal row in the documented shape.  Pure — touches no disk."""
-    return {
-        "id":             str(kata_id),
-        "app":            APP_DIR_NAME,
-        "category":       str(category or ""),
-        "question":       clip(question),
-        "your_answer":    clip(your_answer),
-        "correct_answer": clip(correct_answer),
-        "cause":          cause if cause in MISTAKE_CAUSES else None,
-        "note":           clip(note),
-        "timestamp":      float(timestamp) if timestamp is not None else time.time(),
-        "resolved":       bool(resolved),
-    }
+    """A journal row in the documented shape.  Pure — touches no disk.
+
+    The note is held to this app's 200-character limit rather than the shared
+    500, because the note box on the kata screen is a 200-character
+    ``QLineEdit``: what is stored should be what can be typed.
+    """
+    entry = journal.make_mistake_entry(
+        kata_id, APP_DIR_NAME, category=category, question=question,
+        your_answer=your_answer, correct_answer=correct_answer, cause=cause,
+        note=note, timestamp=timestamp, resolved=resolved,
+    )
+    entry["note"] = clip(note, FIELD_LIMIT)
+    return entry
 
 
 def load_mistakes() -> list[dict]:
     """Every journal row on disk (all apps), oldest first."""
-    return [row for row in _load_json_dicts(MISTAKES_FILE) if row.get("id")]
+    return [row for row in journal.load_mistakes() if row.get("id")]
 
 
 def mistakes_for_app(app: str = APP_DIR_NAME) -> list[dict]:
     """Journal rows written by `app` (this app by default)."""
     return [row for row in load_mistakes() if row.get("app") == app]
-
-
-def _save_mistakes(rows: list[dict]) -> None:
-    """Rewrite the shared journal under its lock.
-
-    mistakes.json is written by all ten apps, so this does two things a plain
-    replace cannot: it holds journal_sync.lock() across the whole
-    read-modify-write (an unlocked one reads a stale list and silently drops
-    rows another app appended in between), and it writes every row owned by
-    another app back exactly as it is on disk, unknown keys included.
-    """
-    with journal_sync.lock(MISTAKES_FILE, create=True):
-        merged = journal_sync.merge_foreign(_load_json_dicts(MISTAKES_FILE),
-                                            rows, APP_DIR_NAME)
-        _atomic_write_json(MISTAKES_FILE, merged[-MAX_MISTAKES:])
 
 
 def _open_index(rows: list[dict], kata_id: str) -> int:
@@ -338,34 +330,35 @@ def log_mistake(entry: dict) -> dict:
     refreshes what went wrong and the timestamp but keeps any cause and note
     already chosen (the UI re-logs on every failed Run).  Returns the row as
     stored.
+
+    See "Local policy" in the module docstring for why this app folds where
+    ``journal.log_mistake`` appends.  Everything underneath — the lock, the
+    stale-read-proof re-read, foreign rows, the growth cap, the version
+    sidecar and the backup — is ``common.journal``'s.
     """
-    with journal_sync.lock(MISTAKES_FILE, create=True):
-        return _log_mistake_locked(entry)
-
-
-def _log_mistake_locked(entry: dict) -> dict:
-    rows = load_mistakes()           # read inside the lock: never stale
-    idx = _open_index(rows, entry.get("id", ""))
-    if idx < 0:
-        rows.append(entry)
-        stored = entry
-    else:
-        stored = dict(rows[idx])
-        stored.update({
-            "category":       entry.get("category", stored.get("category", "")),
-            "question":       entry.get("question", stored.get("question", "")),
-            "your_answer":    entry.get("your_answer", stored.get("your_answer", "")),
-            "correct_answer": entry.get("correct_answer",
-                                        stored.get("correct_answer", "")),
-            "timestamp":      entry.get("timestamp", time.time()),
-            "resolved":       False,
-        })
-        if entry.get("cause"):
-            stored["cause"] = entry["cause"]
-        if entry.get("note"):
-            stored["note"] = entry["note"]
-        rows[idx] = stored
-    _save_mistakes(rows)
+    with journal.lock(mistakes_path(), create=True):
+        rows = load_mistakes()           # read inside the lock: never stale
+        idx = _open_index(rows, entry.get("id", ""))
+        if idx < 0:
+            rows.append(entry)
+            stored = entry
+        else:
+            stored = dict(rows[idx])
+            stored.update({
+                "category":       entry.get("category", stored.get("category", "")),
+                "question":       entry.get("question", stored.get("question", "")),
+                "your_answer":    entry.get("your_answer", stored.get("your_answer", "")),
+                "correct_answer": entry.get("correct_answer",
+                                            stored.get("correct_answer", "")),
+                "timestamp":      entry.get("timestamp", time.time()),
+                "resolved":       False,
+            })
+            if entry.get("cause"):
+                stored["cause"] = entry["cause"]
+            if entry.get("note"):
+                stored["note"] = entry["note"]
+            rows[idx] = stored
+        journal.save_mistakes(rows, APP_DIR_NAME)
     return stored
 
 
@@ -374,55 +367,27 @@ def set_mistake_cause(kata_id: str, cause: str | None,
     """Categorise this kata's open journal row.  True if a row was updated.
 
     `cause` outside MISTAKE_CAUSES clears the diagnosis back to None;
-    `note=None` leaves any existing note alone.
+    `note=None` leaves any existing note alone, `note=""` clears it.
     """
-    with journal_sync.lock(MISTAKES_FILE):
-        rows = load_mistakes()       # read inside the lock: never stale
-        idx = _open_index(rows, kata_id)
-        if idx < 0:
-            return False
-        row = dict(rows[idx])
-        row["cause"] = cause if cause in MISTAKE_CAUSES else None
-        if note is not None:
-            row["note"] = clip(note)
-        rows[idx] = row
-        _save_mistakes(rows)
-        return True
+    row = journal.set_mistake_cause(kata_id, cause, note, app=APP_DIR_NAME)
+    return row is not None
 
 
 def resolve_mistakes(kata_id: str) -> int:
     """Mark this app's rows for `kata_id` resolved.  Returns how many changed."""
-    with journal_sync.lock(MISTAKES_FILE):
-        rows = load_mistakes()       # read inside the lock: never stale
-        changed = 0
-        for i, row in enumerate(rows):
-            if (row.get("app") == APP_DIR_NAME and str(row.get("id")) == str(kata_id)
-                    and not row.get("resolved")):
-                updated = dict(row)
-                updated["resolved"] = True
-                rows[i] = updated
-                changed += 1
-        if changed:
-            _save_mistakes(rows)
-        return changed
+    return journal.resolve_mistakes(kata_id, APP_DIR_NAME)
 
 
 def mistake_cause_counts(unresolved_only: bool = True,
                          app: str | None = APP_DIR_NAME) -> dict[str, int]:
     """How many journal rows fall under each cause — the point of the journal.
 
-    Uncategorised rows are counted under the key ``""``.  `app=None` counts
-    the whole suite.
+    Uncategorised rows are counted under the key ``""`` (this app's history
+    view keys off that); `app=None` counts the whole suite.
     """
-    counts: dict[str, int] = {}
-    for row in load_mistakes():
-        if app is not None and row.get("app") != app:
-            continue
-        if unresolved_only and row.get("resolved"):
-            continue
-        cause = row.get("cause")
-        key = cause if cause in MISTAKE_CAUSES else ""
-        counts[key] = counts.get(key, 0) + 1
+    counts = journal.cause_counts(app, include_resolved=not unresolved_only)
+    if journal.UNCATEGORISED in counts:
+        counts[""] = counts.pop(journal.UNCATEGORISED)
     return counts
 
 
@@ -432,24 +397,13 @@ def make_confidence_entry(kata_id: str, category: str, confidence: int,
                           correct: bool,
                           timestamp: float | None = None) -> dict:
     """A calibration row in the documented shape.  Pure — touches no disk."""
-    try:
-        level = int(confidence)
-    except (TypeError, ValueError):
-        level = 1
-    level = min(4, max(1, level))
-    return {
-        "id":         str(kata_id),
-        "app":        APP_DIR_NAME,
-        "category":   str(category or ""),
-        "confidence": level,
-        "correct":    bool(correct),
-        "timestamp":  float(timestamp) if timestamp is not None else time.time(),
-    }
+    return journal.make_confidence_entry(kata_id, APP_DIR_NAME, category,
+                                         confidence, correct, timestamp)
 
 
 def load_confidence() -> list[dict]:
     """Every calibration row on disk (all apps), oldest first."""
-    return [row for row in _load_json_dicts(CONFIDENCE_FILE) if row.get("id")]
+    return [row for row in journal.load_confidence() if row.get("id")]
 
 
 def confidence_for_app(app: str = APP_DIR_NAME) -> list[dict]:
@@ -458,67 +412,44 @@ def confidence_for_app(app: str = APP_DIR_NAME) -> list[dict]:
 
 def log_confidence(kata_id: str, category: str, confidence: int,
                    correct: bool) -> dict:
-    """Append one confidence/outcome pairing.  Returns the row as stored."""
+    """Append one confidence/outcome pairing.  Returns the row as stored.
+
+    Unlike ``journal.log_confidence`` this always stores something: the kata
+    screen has already decided whether the strip was used, so a rating that
+    arrives here is a rating the learner gave and is clamped into 1..4 rather
+    than dropped (see "Local policy").
+    """
     entry = make_confidence_entry(kata_id, category, confidence, correct)
-    with journal_sync.lock(CONFIDENCE_FILE, create=True):
+    with journal.lock(confidence_path(), create=True):
         rows = load_confidence()     # read inside the lock: never stale
         rows.append(entry)
-        merged = journal_sync.merge_foreign(_load_json_dicts(CONFIDENCE_FILE),
-                                            rows, APP_DIR_NAME)
-        _atomic_write_json(CONFIDENCE_FILE, merged[-MAX_CONFIDENCE:])
+        journal.save_confidence(rows, APP_DIR_NAME)
     return entry
 
 
 def calibration_summary(app: str | None = APP_DIR_NAME) -> dict[int, dict[str, int]]:
     """{level: {"total": n, "correct": n}} for levels 1-4 that have data."""
-    out: dict[int, dict[str, int]] = {}
-    for row in load_confidence():
-        if app is not None and row.get("app") != app:
-            continue
-        try:
-            level = int(row.get("confidence"))
-        except (TypeError, ValueError):
-            continue
-        if level not in (1, 2, 3, 4):
-            continue
-        bucket = out.setdefault(level, {"total": 0, "correct": 0})
-        bucket["total"] += 1
-        if row.get("correct"):
-            bucket["correct"] += 1
-    return out
+    return journal.calibration_summary(app)
 
 
 def confidently_wrong(app: str | None = APP_DIR_NAME,
-                      threshold: int = 3) -> list[dict]:
+                      threshold: int = journal.CONFIDENT_LEVEL) -> list[dict]:
     """Rows rated `threshold`+ that turned out wrong — the unknown unknowns."""
-    out = []
-    for row in load_confidence():
-        if app is not None and row.get("app") != app:
-            continue
-        try:
-            level = int(row.get("confidence"))
-        except (TypeError, ValueError):
-            continue
-        if level >= threshold and not row.get("correct"):
-            out.append(row)
-    return out
+    return journal.confidently_wrong(app, min_confidence=threshold)
 
 
 # -------------------------------------------------------------- app settings
 
 def load_settings() -> dict:
     """App-local UI preferences; {} if missing or corrupt."""
-    try:
-        if not SETTINGS_FILE.exists():
-            return {}
-        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    data = schema.load_versioned(settings_path(), "settings",
+                                 reader=read_json_dict)
     return data if isinstance(data, dict) else {}
 
 
 def save_settings(settings: dict) -> None:
-    _atomic_write_json(SETTINGS_FILE, dict(settings))
+    """Rewrite dojo_settings.json (atomic, backed up, version-stamped)."""
+    schema.save_versioned(settings_path(), dict(settings), "settings")
 
 
 def confidence_prompt_enabled() -> bool:

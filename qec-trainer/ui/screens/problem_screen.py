@@ -5,9 +5,12 @@ from PyQt6.QtWidgets import (
     QFrame, QPlainTextEdit, QButtonGroup, QRadioButton,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QElapsedTimer
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.ui.widgets import LoadingOverlay
+
 from core.models import Problem, GradeMode
 from ui import theme
-from ui.widgets.loading_overlay import LoadingOverlay
 from ui.widgets.confidence_strip import ConfidenceStrip
 
 
@@ -232,10 +235,19 @@ class ProblemScreen(QWidget):
         super().keyPressEvent(event)
 
     def show_grading(self) -> None:
-        self._overlay.show_message("Grading with Claude…")
+        """Cover the screen while Claude marks a free-form answer.
+
+        The shared overlay animates a dot ellipsis, so a slow call never looks
+        like a frozen window, and it blocks clicks so one answer cannot be
+        submitted twice.
+        """
+        self._overlay.show_message(
+            "Grading with Claude",
+            "Marking your explanation — this usually takes a few seconds.")
 
     def hide_grading(self) -> None:
-        self._overlay.hide()
+        """Hide the overlay *and* stop its animation timer."""
+        self._overlay.hide_overlay()
 
     def resizeEvent(self, event) -> None:
         self._overlay.resize(self.size())

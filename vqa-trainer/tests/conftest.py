@@ -11,12 +11,21 @@ if str(APP_ROOT) not in sys.path:
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import common_path  # noqa: E402,F401  (puts the repo root on sys.path)
 import pytest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def isolated_data_dir(tmp_path, monkeypatch):
-    """Redirect every persistence path constant into a throwaway directory."""
+    """Point the whole app at a throwaway directory.
+
+    ``QUANTUM_STUDY_DATA_DIR`` is the only thing that matters now: every path
+    is resolved through ``common.datadir`` when it is used, not frozen at
+    import.  The constants in ``config`` and ``persistence`` are an
+    import-time snapshot of the same resolution, so they are redirected to the
+    same directory — tests that assert on them (and ``test_config_env``'s
+    subprocess probe) then still see the truth.
+    """
     import config
     import persistence
 
@@ -35,6 +44,24 @@ def isolated_data_dir(tmp_path, monkeypatch):
             target = data_dir if name == "DATA_DIR" else data_dir / current.name
             monkeypatch.setattr(mod, name, target)
     return data_dir
+
+
+@pytest.fixture(autouse=True)
+def _clean_common_module_state():
+    """``common`` keeps two per-process globals; no test may inherit them.
+
+    ``journal._LAST_WRITE_ERROR`` records the last refused write, and
+    ``schema._BACKED_UP`` remembers which files this process has already
+    backed up (one backup per file per run).  Both would otherwise leak from
+    one test into the next.
+    """
+    from common import journal, schema
+
+    journal.clear_write_error()
+    schema.reset_session()
+    yield
+    journal.clear_write_error()
+    schema.reset_session()
 
 
 @pytest.fixture(scope="session")

@@ -4,17 +4,24 @@ Supports MULTIPLE_CHOICE (instant auto-grading) and FREE_FORM (Claude grading).
 """
 
 from __future__ import annotations
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QTextBrowser,
     QPlainTextEdit, QLineEdit, QPushButton, QFrame, QScrollArea, QSplitter,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QElapsedTimer, QTimer
+from PyQt6.QtGui import QGuiApplication
+
+from common import errata
+from common.ui.errata_dialog import ErrataButton
+from common.ui.widgets import CollapsiblePanel
 
 from core.models import Problem, Attempt, AnswerFormat
-from persistence import flagged_file, mistakes_file
+from persistence import APP, flag_id_for, flagged_file, mistakes_file
 from ui import theme
 from ui.widgets.circuit_panel import CircuitPanel
-from ui.widgets.collapsible_panel import CollapsiblePanel
 
 
 # Confidence strip (shown BEFORE the answer is submitted, so it can never be
@@ -38,6 +45,30 @@ CAUSE_CHOICES = [
 ]
 
 
+def errata_text(problem: Problem) -> str:
+    """The item as the learner saw it, for the "quote it exactly" field.
+
+    The question alone is not enough for a multiple-choice complaint — "none of
+    the four is right" is only checkable with the four in front of you — so the
+    choices go in too.  ``common.errata`` truncates the whole URL if this runs
+    long, longest field first, so nothing here can make the report unusable.
+    """
+    parts = [problem.question_text.strip()]
+    if problem.matrix_str:
+        parts.append(f"Matrix:\n{problem.matrix_str.strip()}")
+    if problem.state_str:
+        parts.append(f"State: {problem.state_str.strip()}")
+    if problem.choices:
+        listed = "\n".join(f"  {chr(65 + i)}. {c}"
+                            for i, c in enumerate(problem.choices))
+        parts.append(f"Choices:\n{listed}")
+        try:
+            parts.append(f"Keyed answer: {chr(65 + int(problem.correct_answer))}")
+        except (TypeError, ValueError):
+            parts.append(f"Keyed answer: {problem.correct_answer}")
+    return "\n\n".join(parts)
+
+
 class ProblemScreen(QWidget):
     answer_submitted    = pyqtSignal(int, int)   # MC: (chosen index, elapsed_secs)
     free_form_submitted = pyqtSignal(str, int)   # FREE_FORM: (text answer, elapsed_secs)
@@ -47,6 +78,7 @@ class ProblemScreen(QWidget):
     cause_chosen        = pyqtSignal(str, str)   # mistake journal: (cause, note)
     note_committed      = pyqtSignal(str)        # mistake journal: (note)
     confidence_opt_out  = pyqtSignal()           # "Don't ask again" on the strip
+    errata_reported     = pyqtSignal(str)        # errata: the GitHub issue URL
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -63,6 +95,7 @@ class ProblemScreen(QWidget):
         self._last_note_sent = ""
         self._mistake_shown = False
         self._confidence_locked = False
+        self._errata_item: tuple[str, str] = ("", "")
 
         # Elapsed-time tracking
         self._elapsed_timer = QElapsedTimer()
@@ -285,6 +318,32 @@ class ProblemScreen(QWidget):
         self._flag_btn.clicked.connect(self.flag_requested)
         self._flag_btn.hide()
         nav_row.addWidget(self._flag_btn)
+
+        # "This item is wrong" -> a prefilled GitHub issue.  Flagging is for
+        # *you* ("come back to this"); this is for *the repository* ("this
+        # problem is wrong for everybody"), so they are separate controls.
+        # The dialog and the URL both come from common/, which is pure and
+        # offline: nothing is sent until the learner submits it on GitHub.
+        self._errata_btn = ErrataButton(
+            app=APP, text="⚠ Report a problem with this item")
+        self._errata_btn.setAccessibleName("Report a problem with this item")
+        self._errata_btn.setAccessibleDescription(
+            "Opens a prefilled GitHub issue about this problem: the item id "
+            "and its text are filled in for you.")
+        self._errata_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._errata_btn.reported.connect(self._on_errata_reported)
+        self._errata_btn.hide()
+        nav_row.addWidget(self._errata_btn)
+
+        # Shown after a report: the browser may not have opened (a headless or
+        # kiosk machine has none), so the URL is always put on the clipboard
+        # and named here rather than assumed to have arrived somewhere.
+        self._errata_status = QLabel("")
+        self._errata_status.setObjectName("muted")
+        self._errata_status.setWordWrap(True)
+        self._errata_status.hide()
+        nav_row.addWidget(self._errata_status, 1)
+
         nav_row.addStretch()
         self._next_btn = QPushButton("Next Problem →")
         self._next_btn.setObjectName("accent")
@@ -409,6 +468,9 @@ class ProblemScreen(QWidget):
         self._hints_label.hide()
         self._hints_label.setText("")
         self._flag_btn.hide()
+        self._errata_btn.hide()
+        self._errata_status.hide()
+        self._errata_status.setText("")
         self.set_flagged(False)
         self._verdict_lbl.hide()
         self._verdict_lbl.setText("")
@@ -557,6 +619,9 @@ class ProblemScreen(QWidget):
         self._concepts_lbl.setText("Key concepts: " + " · ".join(problem.key_concepts))
         self._solution_widget.show()
         self._flag_btn.show()
+        self._errata_item = (flag_id_for(problem), errata_text(problem))
+        self._errata_btn.set_item(*self._errata_item)
+        self._errata_btn.show()
         self._next_btn.setEnabled(True)
 
     def set_flagged(self, flagged: bool) -> None:
@@ -571,6 +636,44 @@ class ProblemScreen(QWidget):
 
     def is_flagged(self) -> bool:
         return bool(getattr(self, "_flagged", False))
+
+    # ── Errata ────────────────────────────────────────────────────────────────
+
+    def _on_errata_reported(self, url: str) -> None:
+        """The dialog was accepted and the URL handed to the system browser.
+
+        ``QDesktopServices.openUrl`` is fire-and-forget and there may be no
+        browser at all, so the link is also copied to the clipboard and shown
+        here: the report is never lost to a machine with nothing registered for
+        ``https``.  Copying is best-effort — an unavailable clipboard must not
+        turn a bug report into a traceback.
+        """
+        copied = False
+        try:
+            clipboard = QGuiApplication.clipboard()
+            if clipboard is not None:
+                clipboard.setText(url)
+                copied = True
+        except Exception:
+            copied = False
+        self._errata_status.setText(
+            "Report opened in your browser"
+            + (" — link also copied to the clipboard." if copied
+               else f". If nothing opened, visit: {url}")
+        )
+        self._errata_status.setToolTip(url)
+        self._errata_status.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._errata_status.show()
+        self.errata_reported.emit(url)
+
+    def errata_url_preview(self) -> str:
+        """The issue URL for the problem on screen, with no comment typed.
+
+        Pure: builds a string, opens nothing.  Used by the tests and handy for
+        checking what a report would carry."""
+        item_id, item_text = self._errata_item
+        return errata.issue_url(APP, item_id, item_text)
 
     # ── Confidence strip ──────────────────────────────────────────────────────
 

@@ -365,7 +365,7 @@ def test_feedback_flag_toggle_round_trips_to_file(qapp, window, fake_ai, data_di
     _submit(qapp, window, "d = 5")
     fb = window._feedback
     flagged_file = data_dir / "paper_flagged.json"
-    assert persistence.FLAGGED_FILE == flagged_file
+    assert persistence.flagged_path() == flagged_file
     assert not fb.is_flagged_shown()
     assert not flagged_file.exists()
 
@@ -466,6 +466,17 @@ class TestHistoryScreen:
         hs.deleteLater()
 
     def test_mixed_timestamp_types_do_not_raise(self, qapp, data_dir):
+        """Every row is listed, whatever its timestamp looks like.
+
+        common.flags normalises the store's rows on load: a timestamp that is
+        not a number becomes 0.0, so a row written by some other tool sorts as
+        "oldest" rather than being guessed at.  (Before the migration the app
+        parsed ISO-8601 and numeric strings here and sorted them accordingly;
+        the screen's ``_flag_timestamp`` still does, and is still tested
+        directly below, but the store no longer hands it those shapes.)  The
+        property that matters is unchanged: nothing raises mid-render and no
+        flag disappears.
+        """
         from ui.screens.history_screen import HistoryScreen
 
         self._write(data_dir, [
@@ -480,7 +491,9 @@ class TestHistoryScreen:
         hs.refresh()                                         # must not raise
         qapp.processEvents()
         assert hs.flagged_count() == 6
-        assert [r.flag_id for r in self._rows(hs)][:2] == ["b", "f"]
+        shown = [r.flag_id for r in self._rows(hs)]
+        assert sorted(shown) == ["a", "b", "c", "d", "e", "f"]
+        assert shown[0] == "a"                               # the only real time
         hs.deleteLater()
 
     def test_flag_timestamp_coercion(self):
@@ -497,33 +510,44 @@ class TestHistoryScreen:
 
 
 # ---------------------------------------------------------------------------
-# Reference screen
+# Reference screen  (common.ui.reference.ReferenceScreen)
+#
+# paper-drill used to carry a 357-line fork of qec-trainer's docs browser.  It
+# is the shared screen now, constructed with no ``default_chapter`` and no
+# ``category_docs`` — paper-drill drills whatever paper you paste, so it has no
+# home chapter and no topic map, and the "Jump to topic" picker hides itself.
 # ---------------------------------------------------------------------------
 
 class TestReference:
     def test_button_opens_docs_browser_and_back_returns(self, qapp, window):
-        from ui.screens.reference_screen import docs_root
-
         mw = _pages()
         _button(window._input, "Reference").click()
         qapp.processEvents()
         assert window._stack.currentIndex() == mw.PAGE_REFERENCE
 
         ref = window._reference
-        root = docs_root()
+        root = ref.docs_root()
         assert root.is_dir() and root.name == "docs"
-        assert ref.doc_count() == len([p for p in root.rglob("*.md") if p.is_file()])
-        assert ref.current_doc() == root / "README.md"
-        assert ref._path_lbl.text() == "docs / README.md"
+        expected = [p for p in root.rglob("*.md") if p.is_file()]
+        assert len(ref.entries) == len(expected)
+
+        # Lands on the corpus overview: the only top-level file, and scan_docs
+        # puts top-level files before the chapter directories.
+        assert ref.current_doc_path() == root / "README.md"
+        assert ref.current_entry.rel == "README.md"
+        assert ref._doc_path.text().endswith("docs/README.md")
         assert ref._browser.toPlainText().strip()
 
-        chapters = list(ref._chapter_items)
-        assert chapters[0] == "Overview"
-        assert chapters[1].startswith("01 ·")
-        assert ref._tree.topLevelItem(0).text(0) == "Overview"
-        assert ref._chapter_filter.itemText(0) == "All Chapters"
-        assert ref._chapter_filter.itemText(1) == "Overview"
-        assert ref._tree.currentItem() is ref._doc_items[root / "README.md"]
+        # Chapter filter: "All chapters", then the overview, then 01, 02, …
+        chapters = [ref._chapter_filter.itemText(i)
+                    for i in range(ref._chapter_filter.count())]
+        assert chapters[0] == "All chapters"
+        assert chapters[1] == "Overview"
+        assert chapters[2].startswith("1. ")
+        # No topic map for this app, so no "Jump to topic" picker.
+        assert ref._jump.isHidden()
+        assert ref.category_docs == {}
+        assert ref.show_category("anything") is False
 
         _button(ref, "← Back").click()
         qapp.processEvents()
@@ -533,10 +557,10 @@ class TestReference:
         _button(window._input, "Reference").click()
         qapp.processEvents()
         assert window._stack.currentIndex() == mw.PAGE_REFERENCE
-        assert ref.doc_count() == len([p for p in root.rglob("*.md") if p.is_file()])
+        assert len(ref.entries) == len(expected)
 
     def test_scan_docs_puts_root_files_first(self, tmp_path):
-        from ui.screens.reference_screen import scan_docs
+        from common.ui.reference import scan_docs
 
         (tmp_path / "01_alpha").mkdir()
         (tmp_path / "02_beta").mkdir()
@@ -546,48 +570,96 @@ class TestReference:
         (tmp_path / "02_beta" / "01_only_one.md").write_text("no heading\n", encoding="utf-8")
 
         entries = scan_docs(tmp_path)
-        assert [(c, t) for c, t, _ in entries] == [
+        assert [(e.chapter_label, e.title) for e in entries] == [
             ("Overview", "Overview"),
-            ("01 · Alpha", "First"),
-            ("01 · Alpha", "Second"),
-            ("02 · Beta", "Only One"),
+            ("1. Alpha", "First"),
+            ("1. Alpha", "Second"),
+            ("2. Beta", "Only One"),
+        ]
+        assert [e.rel for e in entries] == [
+            "README.md", "01_alpha/01_first.md",
+            "01_alpha/02_second.md", "02_beta/01_only_one.md",
         ]
         assert scan_docs(tmp_path / "missing") == []
 
-    def test_prettify_dir_title_casing(self):
-        from ui.screens.reference_screen import _prettify_dir
+    def test_chapter_labels_and_list_labels(self):
+        from common.ui.reference import list_label, pretty_chapter
 
-        assert _prettify_dir("03_quantum_gates_and_circuits") == "03 · Quantum Gates and Circuits"
-        assert _prettify_dir("05_quantum_error_correction") == "05 · Quantum Error Correction"
-        assert _prettify_dir("09_qec_for_the_impatient") == "09 · QEC for the Impatient"
-        assert _prettify_dir("notes") == "Notes"
+        assert pretty_chapter("03_quantum_gates_and_circuits") == \
+            "3. Quantum Gates and Circuits"
+        assert pretty_chapter("05_quantum_error_correction") == \
+            "5. Quantum Error Correction"
+        assert pretty_chapter("") == "Overview"
+        assert pretty_chapter("notes") == "Notes"
+        assert list_label("05_quantum_error_correction", "06_surface_code",
+                          "The Surface Code") == "5.6  The Surface Code"
+
+    def test_search_and_chapter_filter_narrow_the_list(self, qapp, window):
+        ref = window._reference
+        ref.load_all()
+        qapp.processEvents()
+        everything = ref.visible_titles()
+        assert len(everything) == len(ref.entries)
+
+        chapter = ref.entries[-1].chapter
+        assert chapter                                   # a real chapter dir
+        ref.show_chapter(chapter)
+        qapp.processEvents()
+        narrowed = ref.visible_titles()
+        assert 0 < len(narrowed) < len(everything)
+        assert set(narrowed) <= set(everything)
+
+        ref.show_chapter("")                             # back to everything
+        qapp.processEvents()
+        assert len(ref.visible_titles()) == len(everything)
+
+        ref.set_search("zzz-no-such-word-in-the-corpus-zzz")
+        qapp.processEvents()
+        assert ref.visible_titles() == []
+        ref.set_search("")
+        qapp.processEvents()
+        assert len(ref.visible_titles()) == len(everything)
 
     def test_anchor_fragments_scroll_and_open(self, qapp, monkeypatch):
-        from ui.screens.reference_screen import ReferenceScreen, docs_root
+        from common.ui.reference import ReferenceScreen
 
         ref = ReferenceScreen()
         ref.load_all()
         qapp.processEvents()
-        chapter = sorted(d for d in docs_root().iterdir() if d.is_dir())[0]
+        root = ref.docs_root()
+        chapter = sorted(d for d in root.iterdir() if d.is_dir())[0]
         docs = sorted(chapter.glob("*.md"))
         assert len(docs) >= 2
 
         scrolled = []
         monkeypatch.setattr(ref._browser, "scrollToAnchor", lambda name: scrolled.append(name))
 
-        assert ref.open_doc(docs[0])
+        assert ref.open_doc(docs[0].relative_to(root).as_posix())
         ref._on_anchor_clicked(QUrl("#key-formulas"))               # same-document
-        assert ref.current_doc() == docs[0]
+        assert ref.current_doc_path() == docs[0]
         assert scrolled == ["key-formulas"]
 
         ref._on_anchor_clicked(QUrl(f"{docs[1].name}#summary"))     # sibling + fragment
-        assert ref.current_doc() == docs[1]
+        assert ref.current_doc_path() == docs[1]
         assert scrolled[-1] == "summary"
 
-        ref._on_anchor_clicked(QUrl("../README.md"))                # parent dir, no fragment
-        assert ref.current_doc() == docs_root() / "README.md"
+        ref._on_anchor_clicked(QUrl("../README.md"))                # parent dir
+        assert ref.current_doc_path() == root / "README.md"
 
         ref._on_anchor_clicked(QUrl("does_not_exist.md#x"))         # missing target ignored
-        assert ref.current_doc() == docs_root() / "README.md"
+        assert ref.current_doc_path() == root / "README.md"
         assert scrolled == ["key-formulas", "summary"]
+        ref.deleteLater()
+
+    def test_missing_corpus_says_so_instead_of_crashing(self, qapp, tmp_path,
+                                                        monkeypatch):
+        from common.ui.reference import ReferenceScreen
+
+        monkeypatch.setenv("QUANTUM_STUDY_DOCS_DIR", str(tmp_path / "nothing-here"))
+        ref = ReferenceScreen()
+        ref.load_all()
+        qapp.processEvents()
+        assert ref.entries == []
+        assert ref.current_doc_path() is None
+        assert "No documentation found" in ref._browser.toPlainText()
         ref.deleteLater()

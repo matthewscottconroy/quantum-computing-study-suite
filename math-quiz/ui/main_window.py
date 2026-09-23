@@ -6,6 +6,10 @@ from __future__ import annotations
 import os
 from PyQt6.QtWidgets import QMainWindow, QStackedWidget, QMessageBox, QFileDialog
 
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.ui.widgets import LoadingOverlay
+
 from core.models import QuizConfig, Question, Evaluation
 from core.session import MathSession
 from workers.question_worker import QuestionWorker
@@ -16,7 +20,6 @@ from ui.screens.feedback_screen import FeedbackScreen
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
 from ui.screens.reference_screen import ReferenceScreen
-from ui.widgets.loading_overlay import LoadingOverlay
 from config import (
     APP_NAME, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT,
     SCORE_CORRECT_THRESHOLD, SCORE_PARTIAL_THRESHOLD,
@@ -76,6 +79,7 @@ class MainWindow(QMainWindow):
         self._feedback.flag_requested.connect(self._on_flag)
         self._feedback.mistake_cause_chosen.connect(self._on_mistake_cause)
         self._feedback.mistake_note_committed.connect(self._on_mistake_note)
+        self._feedback.errata_reported.connect(self._on_errata_reported)
         self._question.confidence_opt_out.connect(self._on_confidence_opt_out)
         self._setup.confidence_pref_changed.connect(self._on_confidence_pref_changed)
         self._summary.restart_requested.connect(self._on_restart)
@@ -149,7 +153,34 @@ class MainWindow(QMainWindow):
         self._pending_mistake_id = self._journal_result(answer, evaluation)
         self._feedback.load_evaluation(evaluation)
         self._feedback.set_flagged(self._question_is_flagged(self._current_question))
+        self._point_errata_at_current_question()
         self._show_page(PAGE_FEEDBACK)
+
+    # ── Errata ────────────────────────────────────────────────────────────────
+
+    def _point_errata_at_current_question(self) -> None:
+        """Tell the feedback screen which item a report would be about."""
+        question = self._current_question
+        if question is None:
+            self._feedback.set_item("", "")
+            return
+        try:
+            from persistence import mistake_id_for
+            item_id = mistake_id_for(question)
+        except Exception:
+            item_id = ""
+        self._feedback.set_item(item_id, question.text)
+
+    def _on_errata_reported(self, url: str, opened: bool) -> None:
+        """Confirm the report, or say where the URL went when no browser opened."""
+        if opened:
+            self.statusBar().showMessage(
+                "Opened a prefilled GitHub issue in your browser \u2014 "
+                "nothing is sent until you submit it there.", 6000)
+        else:
+            self.statusBar().showMessage(
+                "No browser available \u2014 the issue link was copied to your "
+                "clipboard.", 8000)
 
     # ── Mistake journal ───────────────────────────────────────────────────────
 
@@ -323,7 +354,7 @@ class MainWindow(QMainWindow):
 
     def _check_for_draft(self) -> None:
         try:
-            from persistence import has_draft, clear_draft, _DRAFT_FILE
+            from persistence import has_draft, clear_draft, draft_file
             if not has_draft():
                 return
             reply = QMessageBox.question(
@@ -341,7 +372,7 @@ class MainWindow(QMainWindow):
                 )
                 if path:
                     import shutil
-                    shutil.copy2(str(_DRAFT_FILE), path)
+                    shutil.copy2(str(draft_file()), path)
             clear_draft()
         except Exception:
             pass

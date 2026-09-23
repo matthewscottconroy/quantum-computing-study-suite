@@ -44,7 +44,7 @@ def test_zero_total_session_does_not_crash_refresh(history, data_dir):
     """Regression: a persisted {'total': 0, ...} session raised ZeroDivisionError
     inside a slot -> qFatal -> SIGABRT on every later launch."""
     data_dir.mkdir(parents=True, exist_ok=True)
-    storage.HISTORY_FILE.write_text(json.dumps([
+    storage.history_path().write_text(json.dumps([
         {"total": 0, "got_it": 0, "unsure": 0, "missed": 0, "timestamp": 1.0, "results": []},
     ]))
     history.refresh()                                      # must not raise
@@ -98,6 +98,6 @@ def test_flagged_list_and_unflag(history, data_dir):
 
 def test_legacy_bare_id_flag_file_is_listed(history, data_dir):
     data_dir.mkdir(parents=True, exist_ok=True)
-    storage._FLAGGED_FILE.write_text(json.dumps([all_cards()[0].id]))
+    storage.flagged_path().write_text(json.dumps([all_cards()[0].id]))
     history.refresh()
     assert history.flagged_ids() == [all_cards()[0].id]

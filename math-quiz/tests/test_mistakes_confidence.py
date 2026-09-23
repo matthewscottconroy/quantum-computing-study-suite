@@ -7,6 +7,8 @@ import time
 
 import pytest
 
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 import persistence
 from core.models import Evaluation, Question, QuizConfig
 
@@ -30,9 +32,9 @@ CONFIDENCE_FIELDS = {"id", "app", "category", "confidence", "correct", "timestam
 # ── Persistence: paths and empty state ────────────────────────────────────────
 
 def test_new_files_are_redirected_and_named_per_the_suite_contract(data_dir):
-    assert persistence._MISTAKES_FILE == data_dir / "mistakes.json"
-    assert persistence._CONFIDENCE_FILE == data_dir / "confidence.json"
-    assert persistence._SETTINGS_FILE == data_dir / "math_settings.json"
+    assert persistence.mistakes_file() == data_dir / "mistakes.json"
+    assert persistence.confidence_file() == data_dir / "confidence.json"
+    assert persistence.settings_file() == data_dir / "math_settings.json"
     assert not data_dir.exists()
     # Missing files are simply empty; nothing is created just by reading.
     assert persistence.load_mistakes() == []
@@ -82,33 +84,52 @@ def test_mistake_id_is_a_stable_hash_of_subject_plus_question_text():
     assert len(digest) == 16 and all(c in "0123456789abcdef" for c in digest)
 
 
-def test_long_text_fields_are_clipped_to_200_characters():
+def test_one_line_fields_clip_at_200_and_the_note_keeps_its_line_breaks():
+    """The suite contract: one-line fields collapse and clip at TEXT_MAX; the
+    note is prose the learner typed, so it keeps its newlines and gets the
+    larger NOTE_MAX cap (reflowing it destroys deliberate structure)."""
     q = _question(text="Prove that " + "x" * 400)
-    entry = persistence.make_mistake_entry(q, "y" * 400, "z" * 400, note="n" * 400)
-    for field in ("question", "your_answer", "correct_answer", "note"):
-        assert len(entry[field]) == 200, field
+    entry = persistence.make_mistake_entry(q, "y" * 400, "z" * 400, note="n" * 600)
+    for field in ("question", "your_answer", "correct_answer"):
+        assert len(entry[field]) == persistence.TEXT_FIELD_MAX == 200, field
         assert entry[field].endswith("…"), field
+    assert len(entry["note"]) == persistence.NOTE_FIELD_MAX == 500
+    assert entry["note"].endswith("…")
     assert persistence.clip_text("  a \n b  ") == "a b"
     assert persistence.clip_text(None) == ""
+    assert persistence.clip_note("line one\nline two") == "line one\nline two"
 
 
-def test_cause_validation_accepts_the_six_codes_and_null():
+def test_cause_validation_accepts_the_six_codes_and_never_raises():
+    """Suite contract: an unrecognised cause is stored as None, not raised.
+
+    A stray cause value must not cost us the mistake itself — the mistake is
+    the thing worth keeping; the diagnosis is optional.  Case and surrounding
+    space are forgiven so "Misread " matches.
+    """
     assert persistence.MISTAKE_CAUSES == (
         "misread", "didnt_know", "knew_but_slipped", "confused", "out_of_time", "other")
     for code in persistence.MISTAKE_CAUSES:
         assert persistence.coerce_cause(code) == code
     assert persistence.coerce_cause(None) is None
     assert persistence.coerce_cause("") is None
-    with pytest.raises(ValueError, match="unknown mistake cause"):
-        persistence.coerce_cause("lazy")
-    with pytest.raises(ValueError):
-        persistence.make_mistake_entry(_question(), "a", "b", cause="typo")
+    assert persistence.coerce_cause(" Misread ") == "misread"
+    assert persistence.coerce_cause("lazy") is None
+    assert persistence.make_mistake_entry(_question(), "a", "b",
+                                          cause="typo")["cause"] is None
 
 
-def test_log_mistake_writes_appends_and_updates_the_open_entry():
+def test_log_mistake_appends_a_row_per_miss():
+    """Suite contract: a repeat is a new row, not an update of the old one.
+
+    ``dashboard.load_mistakes`` says why — "a genuine second miss of the same
+    item keeps its own entry, because repetition is exactly the signal the
+    report is looking for".  Merging destroyed the count coach --mistakes
+    reports, so three slips on one item are three rows.
+    """
     q1, q2 = _question(), _question(text="Define a unitary operator.")
     first = persistence.log_mistake(q1, "wrong", "right")
-    on_disk = json.loads(persistence._MISTAKES_FILE.read_text(encoding="utf-8"))
+    on_disk = json.loads(persistence.mistakes_file().read_text(encoding="utf-8"))
     assert isinstance(on_disk, list) and len(on_disk) == 1
     assert set(on_disk[0]) == MISTAKE_FIELDS and on_disk[0] == first
 
@@ -116,17 +137,24 @@ def test_log_mistake_writes_appends_and_updates_the_open_entry():
     assert [e["id"] for e in persistence.load_mistakes()] == [
         persistence.mistake_id_for(q1), persistence.mistake_id_for(q2)]
 
-    # Missing the same item again updates it rather than duplicating.
+    # Missing the same item again keeps its own row: the repetition is the point.
     again = persistence.log_mistake(q1, "wrong a second time", "right")
-    assert len(persistence.load_mistakes()) == 2
+    rows = persistence.load_mistakes()
+    assert len(rows) == 3
+    assert [e["id"] for e in rows] == [
+        persistence.mistake_id_for(q1), persistence.mistake_id_for(q2),
+        persistence.mistake_id_for(q1)]
     assert again["your_answer"] == "wrong a second time"
     assert again["timestamp"] >= first["timestamp"]
 
-    # A cause survives a later re-log that does not supply one.
+    # update_mistake targets the newest open row for the item.
     persistence.update_mistake(first["id"], cause="misread", note="skim-read it")
-    persistence.log_mistake(q1, "third try", "right")
-    kept = persistence.load_mistakes()[0]
-    assert kept["cause"] == "misread" and kept["note"] == "skim-read it"
+    annotated = [e for e in persistence.load_mistakes()
+                 if e["id"] == persistence.mistake_id_for(q1)]
+    assert [e["cause"] for e in annotated] == [None, "misread"]
+    assert annotated[-1]["note"] == "skim-read it"
+    assert persistence.mistake_cause_counts() == {
+        "misread": 1, "uncategorised": 2}
 
 
 def test_update_mistake_sets_cause_and_note_and_can_clear_the_cause():
@@ -134,7 +162,7 @@ def test_update_mistake_sets_cause_and_note_and_can_clear_the_cause():
     entry_id = persistence.log_mistake(q, "wrong", "right")["id"]
     updated = persistence.update_mistake(entry_id, cause="knew_but_slipped", note="sign error")
     assert updated["cause"] == "knew_but_slipped" and updated["note"] == "sign error"
-    stored = json.loads(persistence._MISTAKES_FILE.read_text(encoding="utf-8"))[0]
+    stored = json.loads(persistence.mistakes_file().read_text(encoding="utf-8"))[0]
     assert stored["cause"] == "knew_but_slipped" and stored["note"] == "sign error"
     # Note-only update keeps the cause; cause=None clears it again.
     persistence.update_mistake(entry_id, note="a better note")
@@ -143,8 +171,13 @@ def test_update_mistake_sets_cause_and_note_and_can_clear_the_cause():
     persistence.update_mistake(entry_id, cause=None)
     assert persistence.load_mistakes()[0]["cause"] is None
     assert persistence.update_mistake("no-such-id", cause="other") is None
-    with pytest.raises(ValueError):
-        persistence.update_mistake(entry_id, cause="nope")
+    # An unrecognised cause clears it rather than raising into the drill.
+    assert persistence.update_mistake(entry_id, cause="nope")["cause"] is None
+    # A note-only update after the item was resolved still lands on that row.
+    persistence.update_mistake(entry_id, cause="confused")
+    persistence.resolve_mistake(entry_id)
+    assert persistence.update_mistake(entry_id, note="post mortem")["note"] == "post mortem"
+    assert persistence.load_mistakes()[0]["cause"] == "confused"
 
 
 def test_resolve_mistake_matches_on_app_and_id_only():
@@ -188,9 +221,9 @@ def test_cause_counts_summarise_the_open_journal():
 
 def test_corrupt_missing_and_foreign_rows_never_crash_the_journal(data_dir):
     data_dir.mkdir(parents=True)
-    persistence._MISTAKES_FILE.write_text("{not json", encoding="utf-8")
+    persistence.mistakes_file().write_text("{not json", encoding="utf-8")
     assert persistence.load_mistakes() == []
-    persistence._MISTAKES_FILE.write_text('{"a": 1}', encoding="utf-8")
+    persistence.mistakes_file().write_text('{"a": 1}', encoding="utf-8")
     assert persistence.load_mistakes() == []
     persistence.log_mistake(_question(), "w", "r")                 # recreates the file
     assert len(persistence.load_mistakes()) == 1
@@ -200,29 +233,62 @@ def test_corrupt_missing_and_foreign_rows_never_crash_the_journal(data_dir):
     assert persistence.load_app_mistakes() == []
 
 
-def test_journal_is_utf8_atomic_and_capped(data_dir, monkeypatch):
+def test_journal_round_trips_non_ascii_is_atomic_and_caps_only_our_own_rows(
+        data_dir, monkeypatch):
+    import os
+
+    from common import journal
+
     q = _question(subject="Calculus & Real Analysis", topic="ε-δ definitions",
                   text="Let f: ℝ → ℝ be continuous. Show …")
     persistence.log_mistake(q, "ε was wrong", "δ depends on ε")
-    written = persistence._MISTAKES_FILE.read_bytes().decode("utf-8")
-    assert "Let f: ℝ → ℝ" in written and "δ depends on ε" in written   # UTF-8, not escaped
+    row = json.loads(persistence.mistakes_file().read_text(encoding="utf-8"))[0]
+    assert row["question"].startswith("Let f: ℝ → ℝ")
+    assert row["correct_answer"] == "δ depends on ε"
     assert not list(data_dir.glob("*.tmp"))
 
-    good = persistence._MISTAKES_FILE.read_bytes()
+    good = persistence.mistakes_file().read_bytes()
 
     def boom(*_a, **_k):
         raise OSError("disk full")
-    monkeypatch.setattr(persistence.os, "replace", boom)
+    monkeypatch.setattr(os, "replace", boom)
     with pytest.raises(OSError):
         persistence.log_mistake(_question(text="another"), "w", "r")
-    assert persistence._MISTAKES_FILE.read_bytes() == good
+    assert persistence.mistakes_file().read_bytes() == good
     assert not list(data_dir.glob("*.tmp"))
     monkeypatch.undo()
 
-    # Growth cap: only the newest _MISTAKES_MAX rows are kept.
-    monkeypatch.setattr(persistence, "_MISTAKES_MAX", 3)
-    persistence.save_mistakes([{"id": str(i), "app": "math-quiz"} for i in range(10)])
-    assert [e["id"] for e in persistence.load_mistakes()] == ["7", "8", "9"]
+    # Growth cap: our OLDEST rows go first, and another app's rows are never
+    # trimmed to make room for ours — the file is shared.
+    monkeypatch.setattr(journal, "MISTAKES_MAX", 5)
+    persistence.save_mistakes(
+        [{"id": f"f{i}", "app": "quantum-quiz"} for i in range(2)]
+        + [{"id": str(i), "app": "math-quiz"} for i in range(10)])
+    assert [e["id"] for e in persistence.load_mistakes()] == [
+        "f0", "f1", "7", "8", "9"]
+
+
+def test_a_journal_written_by_a_newer_build_is_refused_not_corrupted(data_dir):
+    """common.schema: we never overwrite a file we do not understand."""
+    from common import journal, schema
+
+    q = _question()
+    persistence.log_mistake(q, "wrong", "right")
+    before = persistence.mistakes_file().read_bytes()
+
+    journal.clear_write_error()
+    schema.write_meta(persistence.mistakes_file(), "mistakes", version=99)
+    assert persistence.log_mistake(_question(text="second"), "w", "r")["id"]
+    assert persistence.mistakes_file().read_bytes() == before      # untouched
+    refused = journal.last_write_error()
+    assert isinstance(refused, schema.SchemaTooNewError)
+    assert refused.found == 99 and refused.understood == 1
+    journal.clear_write_error()
+
+    schema.write_meta(persistence.mistakes_file(), "mistakes", version=1)
+    persistence.log_mistake(_question(text="third"), "w", "r")
+    assert len(persistence.load_mistakes()) == 2
+    assert journal.last_write_error() is None
 
 
 # ── Persistence: confidence calibration ───────────────────────────────────────
@@ -241,13 +307,20 @@ def test_make_confidence_entry_matches_the_schema_field_for_field():
 
 
 def test_confidence_levels_are_validated():
+    """Suite contract: an unusable rating is None ("the strip was skipped"),
+    never an exception and never clamped into a rating nobody gave."""
     assert persistence.CONFIDENCE_LABELS == {
         1: "Guessing", 2: "Unsure", 3: "Fairly sure", 4: "Certain"}
     for level in (1, 2, 3, 4):
         assert persistence.coerce_confidence(level) == level
-    for bad in (0, 5, -1, "3", 3.0, None, True):
-        with pytest.raises(ValueError):
-            persistence.coerce_confidence(bad)
+    for bad in (0, 5, -1, None, True, "nope", object()):
+        assert persistence.coerce_confidence(bad) is None, bad
+    # A numeric string or whole float is the rating it spells.
+    assert persistence.coerce_confidence("3") == 3
+    assert persistence.coerce_confidence(3.0) == 3
+    # log_confidence records nothing at all for an unusable rating.
+    assert persistence.log_confidence(_question(), 9, False) is None
+    assert persistence.load_confidence() == []
 
 
 def test_log_confidence_pairs_the_rating_with_the_grade():
@@ -255,7 +328,7 @@ def test_log_confidence_pairs_the_rating_with_the_grade():
     row = persistence.log_confidence(q, 4, False)
     assert row["id"] == persistence.mistake_id_for(q)     # same item id as the journal
     assert row["category"] == "Linear Algebra"
-    on_disk = json.loads(persistence._CONFIDENCE_FILE.read_text(encoding="utf-8"))
+    on_disk = json.loads(persistence.confidence_file().read_text(encoding="utf-8"))
     assert on_disk == [row]
     persistence.log_confidence(q, 4, True)
     persistence.log_confidence(_question(subject="Number Theory", text="Q2"), 1, False)
@@ -270,7 +343,7 @@ def test_log_confidence_pairs_the_rating_with_the_grade():
 
 def test_confidence_file_tolerates_corruption_and_foreign_rows(data_dir):
     data_dir.mkdir(parents=True)
-    persistence._CONFIDENCE_FILE.write_text("]]not json", encoding="utf-8")
+    persistence.confidence_file().write_text("]]not json", encoding="utf-8")
     assert persistence.load_confidence() == []
     persistence.save_confidence([
         {"id": "a", "app": "quantum-quiz", "category": "X", "confidence": 4, "correct": False},
@@ -288,7 +361,7 @@ def test_confidence_file_tolerates_corruption_and_foreign_rows(data_dir):
 def test_confidence_opt_out_is_remembered_and_survives_corruption(data_dir):
     assert persistence.confidence_prompt_enabled() is True
     persistence.set_confidence_prompt_enabled(False)
-    assert json.loads(persistence._SETTINGS_FILE.read_text(encoding="utf-8")) == {
+    assert json.loads(persistence.settings_file().read_text(encoding="utf-8")) == {
         "confidence_prompt": False}
     assert persistence.confidence_prompt_enabled() is False
     persistence.set_confidence_prompt_enabled(True)
@@ -298,7 +371,7 @@ def test_confidence_opt_out_is_remembered_and_survives_corruption(data_dir):
     assert persistence.load_settings()["future_key"] == 7
     persistence.set_confidence_prompt_enabled(True)
     assert persistence.load_settings() == {"confidence_prompt": True, "future_key": 7}
-    persistence._SETTINGS_FILE.write_text("nonsense", encoding="utf-8")
+    persistence.settings_file().write_text("nonsense", encoding="utf-8")
     assert persistence.load_settings() == {"confidence_prompt": True}
     assert persistence.confidence_prompt_enabled() is True
 
@@ -436,7 +509,7 @@ def test_mistake_controls_are_keyboard_reachable_and_labelled(qapp):
         assert chip.accessibleName() == f"Cause of mistake: {CAUSE_LABELS[code]}"
         assert "focus" in chip.styleSheet()
     assert fb._note_edit.accessibleName()
-    assert fb._note_edit.maxLength() == persistence.TEXT_FIELD_MAX == 200
+    assert fb._note_edit.maxLength() == persistence.NOTE_FIELD_MAX == 500
     assert "focus" in fb._note_edit.styleSheet()
     fb.deleteLater()
 
@@ -547,7 +620,7 @@ def test_drive_wrong_answer_journals_categorises_and_resolves(driven_window, qap
     assert win._feedback.mistake_prompt_visible() is True
 
     # (2) the journal entry matches the contract field for field
-    rows = json.loads(persistence._MISTAKES_FILE.read_text(encoding="utf-8"))
+    rows = json.loads(persistence.mistakes_file().read_text(encoding="utf-8"))
     assert len(rows) == 1
     entry = rows[0]
     assert set(entry) == MISTAKE_FIELDS
@@ -566,14 +639,14 @@ def test_drive_wrong_answer_journals_categorises_and_resolves(driven_window, qap
     win._feedback._note_edit.setText("mixed up Hermitian and unitary")
     win._feedback._cause_buttons["confused"].click()
     qapp.processEvents()
-    rows = json.loads(persistence._MISTAKES_FILE.read_text(encoding="utf-8"))
+    rows = json.loads(persistence.mistakes_file().read_text(encoding="utf-8"))
     assert len(rows) == 1
     assert rows[0]["cause"] == "confused"
     assert rows[0]["note"] == "mixed up Hermitian and unitary"
     assert persistence.mistake_cause_counts() == {"confused": 1}
 
     # (4) the confidence rating is paired with the grade
-    conf = json.loads(persistence._CONFIDENCE_FILE.read_text(encoding="utf-8"))
+    conf = json.loads(persistence.confidence_file().read_text(encoding="utf-8"))
     assert len(conf) == 1
     assert set(conf[0]) == CONFIDENCE_FIELDS
     assert conf[0]["id"] == persistence.mistake_id_for(q)
@@ -590,7 +663,7 @@ def test_drive_wrong_answer_journals_categorises_and_resolves(driven_window, qap
     assert win._question.confidence() is None          # rating reset for the new question
     _answer(win, qapp, "A Hermitian operator has real eigenvalues.", confidence=3)
     assert win._feedback.mistake_prompt_visible() is False
-    rows = json.loads(persistence._MISTAKES_FILE.read_text(encoding="utf-8"))
+    rows = json.loads(persistence.mistakes_file().read_text(encoding="utf-8"))
     assert len(rows) == 1 and rows[0]["resolved"] is True
     assert rows[0]["cause"] == "confused"              # the diagnosis is kept
     assert persistence.mistake_cause_counts() == {}

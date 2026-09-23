@@ -71,11 +71,11 @@ def _grade(win, score: int, answer: str = "qubit 0 is the leftmost bit") -> Eval
 
 
 def _mistakes() -> list:
-    return json.loads(persistence._MISTAKES_FILE.read_text())
+    return json.loads(persistence.mistakes_file().read_text())
 
 
 def _confidence() -> list:
-    return json.loads(persistence._CONFIDENCE_FILE.read_text())
+    return json.loads(persistence.confidence_file().read_text())
 
 
 # ── The full loop ─────────────────────────────────────────────────────────────
@@ -170,7 +170,7 @@ def test_skipping_the_row_still_logs_and_never_blocks(win, qapp, data_dir, monke
     assert _mistakes()[0]["cause"] is None
     assert win._feedback_screen.mistake_journal_visible()
     assert persistence.mistake_cause_counts() == {"uncategorised": 1}
-    assert not persistence._CONFIDENCE_FILE.exists()     # confidence is optional too
+    assert not persistence.confidence_file().exists()     # confidence is optional too
 
     # clicking the chosen cause again clears it, back to uncategorised
     fb = win._feedback_screen
@@ -187,7 +187,7 @@ def test_partially_correct_answer_opens_no_journal_entry(win, qapp, data_dir):
     _grade(win, 4)                                    # SCORE_PARTIAL_THRESHOLD
     qapp.processEvents()
     assert not win._feedback_screen.mistake_journal_visible()
-    assert not persistence._MISTAKES_FILE.exists()
+    assert not persistence.mistakes_file().exists()
 
 
 def test_confidence_pairing_uses_the_correct_verdict_threshold(win, qapp, data_dir):
@@ -213,7 +213,7 @@ def test_confidence_rating_can_be_cleared_before_submitting(win, qapp, data_dir)
     assert not qs._confidence_btns[3].isChecked()
     assert qs._confidence_btns[3].text() == "3 · Fairly sure"
     _grade(win, 9)
-    assert not persistence._CONFIDENCE_FILE.exists()
+    assert not persistence.confidence_file().exists()
 
 
 def test_opt_out_is_remembered_and_never_asks_again(win, qapp, data_dir):
@@ -225,7 +225,7 @@ def test_opt_out_is_remembered_and_never_asks_again(win, qapp, data_dir):
     qapp.processEvents()
     assert qs.confidence_enabled() is False
     assert persistence.confidence_prompt_enabled() is False
-    assert json.loads(persistence._SETTINGS_FILE.read_text()) == {
+    assert json.loads(persistence.settings_file().read_text()) == {
         "confidence_prompt_enabled": False
     }
 
@@ -233,7 +233,7 @@ def test_opt_out_is_remembered_and_never_asks_again(win, qapp, data_dir):
     assert qs.confidence_enabled() is False
     assert qs.selected_confidence() is None
     _grade(win, 1)
-    assert not persistence._CONFIDENCE_FILE.exists()
+    assert not persistence.confidence_file().exists()
     assert len(_mistakes()) == 1                      # the journal still works
 
     persistence.set_confidence_prompt_enabled(True)

@@ -1,31 +1,85 @@
-"""Load / save card history for SRS weighting, plus the flagged-card file."""
+"""Session history for SRS weighting, plus the flagged-card file.
+
+Both files keep the exact on-disk shapes ``coach.py`` and ``dashboard.py``
+parse — the migration to :mod:`common` changed how they are written, never
+what is in them:
+
+``flashcard_history.json``  a JSON list of sessions
+    ``{"total", "got_it", "unsure", "missed", "timestamp", "results": [...]}``
+    written through :func:`common.schema.save_versioned`, so it is now written
+    **atomically** (it used to be a truncating ``write_text``), it is backed up
+    once per session before the first write, and it carries a version sidecar.
+
+``flagged_cards.json``      the suite's FLAGGING CONTRACT list of
+    ``{"id", "label", "category", "app", "timestamp"}`` entries, stored and
+    rewritten by :mod:`common.flags` (locked, atomic, legacy bare-id files read
+    and upgraded in place).  The legacy *name* is sanctioned: flashcard-drill
+    predates the ``<prefix>_flagged.json`` convention and coach.py maps it.
+
+What stays here rather than moving into ``common``: the recency-weighted card
+scoring (:func:`card_weights`), which is this app's own SRS signal, and the
+card-bank enrichment of a flag entry (its label is the card *front*, its
+category the card's category — ``common.flags`` cannot know either).
+"""
 from __future__ import annotations
-import json
+
 import math
 import time
 from collections import defaultdict
-from config import HISTORY_FILE, DATA_DIR
-from core.models import Rating, SessionStats
+from pathlib import Path
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+import config
+from common import flags, schema
+from common.locking import lock
+from core.models import SessionStats
 
 _HALF_LIFE_DAYS = 14.0
 _EASE = {"got_it": 1.0, "unsure": 0.5, "missed": 0.0}
-# Legacy filename sanctioned by the suite's FLAGGING CONTRACT (flashcard-drill
-# predates the "<prefix>_flagged.json" convention; coach.py maps it explicitly).
-_FLAGGED_FILE = DATA_DIR / "flagged_cards.json"
-_APP_NAME = "flashcard-drill"
+_APP_NAME = config.APP
 
+__all__ = [
+    "history_path", "flagged_path", "save_session", "card_weights",
+    "lifetime_stats", "load_flagged", "load_flagged_entries", "save_flagged",
+    "toggle_flag",
+]
+
+
+def history_path() -> Path:
+    """``flashcard_history.json``, resolved now."""
+    return config.history_file()
+
+
+def flagged_path() -> Path:
+    """``flagged_cards.json``, resolved now."""
+    return config.flagged_file()
+
+
+# ---------------------------------------------------------------------------
+# Session history
+# ---------------------------------------------------------------------------
 
 def _load_raw() -> list[dict]:
-    if not HISTORY_FILE.exists():
-        return []
-    try:
-        return json.loads(HISTORY_FILE.read_text())
-    except Exception:
-        return []
+    """Every saved session, oldest first; ``[]`` when missing or corrupt.
+
+    Goes through :func:`common.schema.load_versioned`, so a history written by
+    an older build is migrated forward **in memory** before anything reads it.
+    """
+    return [s for s in schema.load_versioned(history_path(), "history")
+            if isinstance(s, dict)]
 
 
 def save_session(stats: SessionStats) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    """Append one session.  Raises when it could not be written.
+
+    The caller (``ui/main_window.py``) reports the failure on the summary
+    screen rather than losing the drill, which is why this does not swallow.
+    A history written by a *newer* build raises
+    :class:`common.schema.SchemaTooNewError` instead of being overwritten with
+    this build's narrower view of it.
+    """
+    config.ensure_data_dir()
     sessions = _load_raw()
     results = []
     for r in stats.results:
@@ -41,7 +95,7 @@ def save_session(stats: SessionStats) -> None:
         "timestamp": time.time(),
         "results":   results,
     })
-    HISTORY_FILE.write_text(json.dumps(sessions, indent=2))
+    schema.save_versioned(history_path(), sessions, "history")
 
 
 def _session_weight(session: dict) -> float:
@@ -85,23 +139,15 @@ def lifetime_stats() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Flagged cards (FLAGGING CONTRACT)
+# Flagged cards (the suite's FLAGGING CONTRACT, stored by common.flags)
 #
-# flagged_cards.json is a JSON list of entries
-#     {"id", "label", "category", "app", "timestamp"}
-# appended in flag order.  Older files held bare id strings; those are still
-# read (and upgraded to full entries the next time the file is written).
+# Two things are this app's own and are therefore passed *into* common.flags
+# rather than forked out of it:
+#   * a flag's label and category come from the card bank (the id alone is not
+#     readable in coach.py's review queue);
+#   * duplicate ids collapse to their first occurrence, so an older file that
+#     repeats an id does not grow a second entry every time it is rewritten.
 # ---------------------------------------------------------------------------
-
-def _entry_id(entry) -> str | None:
-    if isinstance(entry, str):
-        return entry.strip() or None
-    if isinstance(entry, dict):
-        ident = entry.get("id") or entry.get("card_id")
-        if isinstance(ident, str) and ident.strip():
-            return ident.strip()
-    return None
-
 
 def _card_lookup() -> dict:
     try:
@@ -118,29 +164,29 @@ def _make_entry(card_id: str, cards_by_id: dict | None = None) -> dict:
     card = cards_by_id.get(card_id)
     return {
         "id":        card_id,
-        "label":     card.front if card is not None else card_id,
+        "label":     flags.make_label(card.front if card is not None else card_id),
         "category":  card.category if card is not None else "",
         "app":       _APP_NAME,
         "timestamp": time.time(),
     }
 
 
-def _normalise(entry, cards_by_id: dict | None = None) -> dict | None:
-    """Coerce one on-disk entry (bare id or dict) into a full contract entry."""
-    cid = _entry_id(entry)
-    if cid is None:
-        return None
-    if isinstance(entry, dict):
-        full = _make_entry(cid, cards_by_id)
-        for key in ("label", "category", "app"):
-            val = entry.get(key)
-            if isinstance(val, str) and val.strip():
-                full[key] = val
-        ts = entry.get("timestamp")
-        if isinstance(ts, (int, float)) and ts > 0:
-            full["timestamp"] = float(ts)
-        return full
-    return _make_entry(cid, cards_by_id)
+def _enrich(entry: dict, cards_by_id: dict) -> dict:
+    """Fill a stored entry's blanks from the card bank.
+
+    A legacy bare-id row normalises to ``label == id`` with no category and no
+    timestamp; this app knows the card, so it can say more.  Anything the file
+    already carries wins.
+    """
+    card = cards_by_id.get(entry["id"])
+    if card is not None:
+        if entry["label"] == entry["id"]:
+            entry["label"] = flags.make_label(card.front)
+        if not entry["category"]:
+            entry["category"] = card.category
+    if not entry["timestamp"]:
+        entry["timestamp"] = time.time()
+    return entry
 
 
 def load_flagged_entries() -> list[dict]:
@@ -149,23 +195,14 @@ def load_flagged_entries() -> list[dict]:
     Bare-string ids from older files are expanded; malformed items are skipped;
     duplicate ids keep their first occurrence.
     """
-    if not _FLAGGED_FILE.exists():
-        return []
-    try:
-        raw = json.loads(_FLAGGED_FILE.read_text())
-    except Exception:
-        return []
-    if not isinstance(raw, list):
-        return []
     cards_by_id = _card_lookup()
     out: list[dict] = []
     seen: set[str] = set()
-    for item in raw:
-        entry = _normalise(item, cards_by_id)
-        if entry is None or entry["id"] in seen:
+    for entry in flags.load_flagged(flagged_path(), _APP_NAME):
+        if entry["id"] in seen:
             continue
         seen.add(entry["id"])
-        out.append(entry)
+        out.append(_enrich(entry, cards_by_id))
     return out
 
 
@@ -175,8 +212,15 @@ def load_flagged() -> set[str]:
 
 
 def _write_entries(entries: list[dict]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    _FLAGGED_FILE.write_text(json.dumps(entries, indent=2))
+    """Rewrite the file through common.flags (locked, atomic, versioned).
+
+    A file written by a newer build is refused rather than overwritten; the
+    refusal is raised so the caller can keep its button truthful.
+    """
+    path = flagged_path()
+    schema.check_writable(path, "flagged")     # raises SchemaTooNewError
+    if not flags.save_flagged(path, entries, _APP_NAME):
+        raise schema.SchemaError(f"{path.name} could not be written")
 
 
 def save_flagged(ids: set[str]) -> None:
@@ -186,20 +230,26 @@ def save_flagged(ids: set[str]) -> None:
     ids that are new get a fresh contract entry appended in sorted order.
     """
     wanted = set(ids)
-    entries = [e for e in load_flagged_entries() if e["id"] in wanted]
-    present = {e["id"] for e in entries}
-    cards_by_id = _card_lookup()
-    for cid in sorted(wanted - present):
-        entries.append(_make_entry(cid, cards_by_id))
-    _write_entries(entries)
+    with lock(flagged_path(), create=True):
+        entries = [e for e in load_flagged_entries() if e["id"] in wanted]
+        present = {e["id"] for e in entries}
+        cards_by_id = _card_lookup()
+        for cid in sorted(wanted - present):
+            entries.append(_make_entry(cid, cards_by_id))
+        _write_entries(entries)
 
 
 def toggle_flag(card_id: str) -> bool:
-    """Toggle flag; return new state (True = flagged)."""
-    entries = load_flagged_entries()
-    if any(e["id"] == card_id for e in entries):
-        _write_entries([e for e in entries if e["id"] != card_id])
-        return False
-    entries.append(_make_entry(card_id))
-    _write_entries(entries)
-    return True
+    """Toggle flag; return new state (True = flagged).
+
+    The whole read-modify-write is under the shared advisory lock, so two
+    windows of this app cannot each decide "not flagged yet".
+    """
+    with lock(flagged_path(), create=True):
+        entries = load_flagged_entries()
+        if any(e["id"] == card_id for e in entries):
+            _write_entries([e for e in entries if e["id"] != card_id])
+            return False
+        entries.append(_make_entry(card_id))
+        _write_entries(entries)
+        return True

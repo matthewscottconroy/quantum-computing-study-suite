@@ -1,7 +1,12 @@
 """MainWindow — owns all screens, routes signals, keeps the session alive."""
 
 from __future__ import annotations
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 from PyQt6.QtWidgets import QMainWindow, QStackedWidget, QMessageBox
+
+from common.ui.widgets import LoadingOverlay
 from core.models import TrainerConfig, Problem, Attempt, AnswerFormat
 from core.session import TrainerSession
 from grading.auto_grader import grade
@@ -13,7 +18,6 @@ from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
 from ui.screens.sprint_screen import SprintScreen, SprintSummaryScreen
 from ui.screens.reference_screen import ReferenceScreen
-from ui.widgets.loading_overlay import LoadingOverlay
 from persistence import (
     flag_id_for, is_flagged, toggle_flag,
     log_mistake_for_attempt, update_mistake, resolve_mistake, log_confidence,

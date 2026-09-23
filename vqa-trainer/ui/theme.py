@@ -1,24 +1,29 @@
-"""Dark theme for vqa-trainer."""
+"""Dark theme for vqa-trainer.
+
+The palette and the base stylesheet live in :mod:`common.ui.theme` — they were
+byte-identical in all ten apps, so nothing was compromised to share them.  What
+stays here is this app's own vocabulary: the problem-category colours, and the
+three widget rules ``#chip`` / ``#linkbtn`` / ``#note`` that only the VQA
+trainer's confidence strip and mistake row use.
+
+``theme.QSS`` is still the *complete* stylesheet this app applies, so anything
+that inspects it (the accessibility test, for one) sees the app's rules too.
+"""
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont
 
-BG         = "#0d1117"
-SURFACE    = "#161b22"
-SURFACE2   = "#21262d"
-BORDER     = "#30363d"
-ACCENT     = "#58a6ff"
-ACCENT2    = "#388bfd"
-TEXT       = "#e6edf3"
-TEXT_MUTED = "#8b949e"
-SUCCESS    = "#3fb950"
-WARNING    = "#d29922"
-ERROR      = "#f85149"
-PARTIAL    = "#e3b341"
-# Keyboard-focus ring. FOCUS reads 14:1 on SURFACE2 and 17:1 on BG; on a
-# filled ACCENT chip the ring flips to FOCUS_ON_ACCENT (7.5:1 on ACCENT).
-FOCUS           = "#f0f6fc"
-FOCUS_ON_ACCENT = "#0d1117"
+# Named rather than star-imported so the re-export is explicit: mypy does not
+# forward names that arrived through `import *`, and a reader can see at a
+# glance what this module hands on unchanged.
+from common.ui.theme import (
+    ACCENT, ACCENT2, BG, BORDER, ERROR, FLAG, FOCUS, FOCUS_ON_ACCENT, PARTIAL,
+    SUCCESS, SURFACE, SURFACE2, TEXT, TEXT_MUTED, WARNING,
+    CODE_FG, MONO, MONO_FAMILIES, UI_FONT, alpha, extend,
+    apply as _apply,
+)
 
+#: This app's problem categories.  App vocabulary, not shared style.
 CATEGORY_COLORS = {
     "VQE Fundamentals":  "#6e40c9",
     "QAOA":              "#1f6feb",
@@ -28,67 +33,12 @@ CATEGORY_COLORS = {
     "Noise & Mitigation":"#0969da",
 }
 
-QSS = f"""
-QWidget {{
-    background-color: {BG}; color: {TEXT};
-    font-family: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
-    font-size: 14px;
-}}
-QScrollArea, QScrollArea > QWidget > QWidget {{ background-color: {BG}; border: none; }}
-QScrollBar:vertical {{ background: {SURFACE}; width: 8px; border-radius: 4px; }}
-QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 4px; min-height: 24px; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-QPushButton {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px;
-    padding: 8px 18px; font-size: 13px;
-}}
-QPushButton:hover {{ background-color: {BORDER}; border-color: {ACCENT}; }}
-QPushButton:pressed {{ background-color: {ACCENT2}; color: white; }}
-QPushButton:disabled {{ color: {TEXT_MUTED}; border-color: {SURFACE2}; }}
-QPushButton#accent {{
-    background-color: {ACCENT}; color: {BG};
-    border: none; font-weight: bold; font-size: 14px; padding: 10px 28px;
-}}
-QPushButton#accent:hover {{ background-color: {ACCENT2}; }}
-QPushButton#accent:disabled {{ background-color: {SURFACE2}; color: {TEXT_MUTED}; }}
-QPushButton#flat {{ background: transparent; border: none; color: {ACCENT}; padding: 4px 8px; }}
-QPushButton#flat:hover {{ color: {TEXT}; }}
+_EXTRA = f"""
+/* This app sizes its text inputs a notch larger than the suite default. */
 QPlainTextEdit, QLineEdit {{
-    background-color: {SURFACE}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px;
-    padding: 8px; font-size: 14px; selection-background-color: {ACCENT2};
+    padding: 8px; font-size: 14px;
 }}
-QPlainTextEdit:focus, QLineEdit:focus {{ border-color: {ACCENT}; }}
-QTextBrowser {{ background-color: transparent; color: {TEXT}; border: none; font-size: 15px; }}
-QLabel {{ background: transparent; }}
-QLabel#heading {{ font-size: 22px; font-weight: bold; color: {TEXT}; }}
-QLabel#subheading {{ font-size: 15px; color: {TEXT_MUTED}; }}
-QFrame#card {{ background-color: {SURFACE}; border: 1px solid {BORDER}; border-radius: 8px; }}
-QFrame#separator {{ background-color: {BORDER}; max-height: 1px; }}
-QCheckBox {{ spacing: 8px; color: {TEXT}; }}
-QCheckBox::indicator {{ width: 16px; height: 16px; border: 1px solid {BORDER}; border-radius: 3px; background: {SURFACE2}; }}
-QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
-QComboBox {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
-}}
-QComboBox::drop-down {{ border: none; }}
-QComboBox QAbstractItemView {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; selection-background-color: {ACCENT2};
-}}
-QSpinBox {{
-    background-color: {SURFACE2}; color: {TEXT};
-    border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;
-}}
-QSpinBox::up-button, QSpinBox::down-button {{ background: {SURFACE2}; border: none; width: 18px; }}
-QRadioButton {{ spacing: 8px; color: {TEXT}; }}
-QRadioButton::indicator {{
-    width: 16px; height: 16px;
-    border: 1px solid {BORDER}; border-radius: 8px; background: {SURFACE2};
-}}
-QRadioButton::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+QLineEdit:focus {{ border: 1px solid {ACCENT}; padding: 8px; }}
 
 /* Small toggle chips: confidence levels and mistake causes.
    Every state is carried by text + shape as well as colour, and the keyboard
@@ -114,9 +64,21 @@ QPushButton#linkbtn:focus {{ border: 2px solid {FOCUS}; padding: 3px 7px; }}
 QLineEdit#note:focus {{ border: 2px solid {FOCUS}; padding: 7px; }}
 """
 
+#: The complete stylesheet this app applies: the suite base plus the rules above.
+QSS = extend(_EXTRA)
+
 
 def apply(app: QApplication) -> None:
-    app.setStyleSheet(QSS)
-    font = QFont("Inter", 10)
-    font.setStyleHint(QFont.StyleHint.SansSerif)
-    app.setFont(font)
+    """Apply the suite theme plus this app's own rules."""
+    _apply(app, QSS)
+
+
+__all__ = [
+    # re-exported from common.ui.theme, unchanged
+    "BG", "SURFACE", "SURFACE2", "BORDER", "ACCENT", "ACCENT2", "TEXT",
+    "TEXT_MUTED", "SUCCESS", "WARNING", "ERROR", "PARTIAL", "FLAG",
+    "FOCUS", "FOCUS_ON_ACCENT", "CODE_FG", "MONO", "MONO_FAMILIES", "UI_FONT",
+    "alpha", "extend",
+    # this app's own
+    "CATEGORY_COLORS", "QSS", "apply",
+]

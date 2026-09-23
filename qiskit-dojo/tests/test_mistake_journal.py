@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 
 import persistence
+from common import journal as _journal
+from common import jsonio as _jsonio
 
 MISTAKE_KEYS = {"id", "app", "category", "question", "your_answer",
                 "correct_answer", "cause", "note", "timestamp", "resolved"}
@@ -241,19 +243,39 @@ def test_missing_files_are_not_conjured_up_by_readers(data_dir):
 
 
 def test_rows_are_capped_and_no_temp_files_survive(data_dir, monkeypatch):
-    monkeypatch.setattr(persistence, "MAX_MISTAKES", 3)
-    monkeypatch.setattr(persistence, "MAX_CONFIDENCE", 3)
+    # The cap now lives in one place for all ten apps; persistence.MAX_MISTAKES
+    # is an alias of it.
+    monkeypatch.setattr(_journal, "MISTAKES_MAX", 3)
+    monkeypatch.setattr(_journal, "CONFIDENCE_MAX", 3)
     for i in range(6):
         persistence.log_mistake(_entry(f"k{i}"))
         persistence.log_confidence(f"k{i}", "Sampler", 2, True)
     assert [r["id"] for r in _mistakes(data_dir)] == ["k3", "k4", "k5"]
     assert [r["id"] for r in _confidence(data_dir)] == ["k3", "k4", "k5"]
-    # The ".lock" sidecars are journal_sync's: empty files flock()ed for the
+    # The ".lock" sidecars are common.locking's: empty files flock()ed for the
     # length of each read-modify-write on the shared journals, so a second app
-    # cannot clobber rows we just wrote.
+    # cannot clobber rows we just wrote.  The ".schema.json" sidecars are
+    # common.schema's version stamps.  No temp file survives either write.
     assert sorted(p.name for p in data_dir.iterdir()) == [
-        "confidence.json", "confidence.json.lock",
-        "mistakes.json", "mistakes.json.lock"]
+        "confidence.json", "confidence.json.lock", "confidence.json.schema.json",
+        "mistakes.json", "mistakes.json.lock", "mistakes.json.schema.json"]
+
+
+def test_the_cap_only_ever_drops_our_own_rows(data_dir, monkeypatch):
+    """The bug eight of the ten copies shipped: trimming the *merged* list by
+    timestamp deleted other apps' rows during our own write."""
+    monkeypatch.setattr(_journal, "MISTAKES_MAX", 5)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    foreign = [{"id": f"t{i}", "app": "quantum-tutor", "timestamp": 0.0}
+               for i in range(3)]
+    persistence.MISTAKES_FILE.write_text(json.dumps(foreign))
+    for i in range(5):
+        persistence.log_mistake(_entry(f"k{i}"))
+    rows = _mistakes(data_dir)
+    # 3 foreign + 5 ours, capped at 5: OUR three oldest go, the foreign rows
+    # are untouchable however far over the cap the file is.
+    assert [r for r in rows if r["app"] == "quantum-tutor"] == foreign
+    assert [r["id"] for r in rows if r["app"] == "qiskit-dojo"] == ["k3", "k4"]
 
 
 def test_writes_are_atomic(data_dir, monkeypatch):
@@ -261,17 +283,18 @@ def test_writes_are_atomic(data_dir, monkeypatch):
     persistence.log_mistake(_entry("safe"))
     good = persistence.MISTAKES_FILE.read_text()
 
-    real_replace = persistence.os.replace
-    monkeypatch.setattr(persistence.os, "replace",
+    # The atomic write is common.jsonio's now, so that is where the disk fills.
+    real_replace = _jsonio.os.replace
+    monkeypatch.setattr(_jsonio.os, "replace",
                         lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
     with pytest.raises(OSError):
         persistence.log_mistake(_entry("lost"))
-    monkeypatch.setattr(persistence.os, "replace", real_replace)
+    monkeypatch.setattr(_jsonio.os, "replace", real_replace)
 
     assert persistence.MISTAKES_FILE.read_text() == good
     assert [r["id"] for r in persistence.load_mistakes()] == ["safe"]
     assert sorted(p.name for p in data_dir.iterdir()) == [
-        "mistakes.json", "mistakes.json.lock"]      # the lock sidecar, no temp files
+        "mistakes.json", "mistakes.json.lock", "mistakes.json.schema.json"]
     assert (data_dir / "mistakes.json.lock").read_bytes() == b""
 
 

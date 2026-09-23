@@ -1,10 +1,26 @@
-"""Per-problem result screen for qec-trainer."""
+"""Per-problem result screen for qec-trainer.
+
+This is where a study item is shown with its answer, so it is where the errata
+control lives: "⚠ Report a problem with this item" opens the shared
+:class:`common.ui.errata_dialog.ErrataDialog`, which builds a prefilled GitHub
+issue URL for *this* problem (its id, its text, the learner's comment).  The
+button is an ordinary tab-reachable QPushButton, the URL is built offline, and
+opening it is handed to ``QDesktopServices`` — if there is no browser the link
+goes to the clipboard and is printed on screen instead.
+"""
 from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextBrowser,
-    QPushButton, QFrame,
+    QPushButton, QFrame, QApplication,
 )
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices
+
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.ui.errata_dialog import ErrataButton
+
+from config import APP_DIR_NAME
 from core.models import Attempt, Verdict
 from ui import theme
 from ui.widgets.mistake_row import MistakeRow
@@ -22,6 +38,7 @@ class ResultScreen(QWidget):
     flag_requested  = pyqtSignal()
     cause_selected  = pyqtSignal(str)    # a persistence.MISTAKE_CAUSES value
     note_edited     = pyqtSignal(str)
+    errata_reported = pyqtSignal(str)    # the GitHub issue URL that was opened
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -72,6 +89,19 @@ class ResultScreen(QWidget):
         self._mistake_card.hide()
         root.addWidget(self._mistake_card)
 
+        # Errata — "this item itself is wrong", as opposed to "flag it for me
+        # to revisit".  Hidden until a report is made; then it says what
+        # happened, and carries the URL when no browser could be opened.
+        self._errata_lbl = QLabel("")
+        self._errata_lbl.setWordWrap(True)
+        self._errata_lbl.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._errata_lbl.setStyleSheet(
+            f"font-size: 11px; color: {theme.TEXT_MUTED};")
+        self._errata_lbl.setAccessibleName("Error report status")
+        self._errata_lbl.hide()
+        root.addWidget(self._errata_lbl)
+
         root.addStretch()
 
         btn_row = QHBoxLayout()
@@ -80,6 +110,16 @@ class ResultScreen(QWidget):
         self._flag_btn.setAccessibleName("Flag this problem for review")
         self._flag_btn.clicked.connect(self.flag_requested)
         btn_row.addWidget(self._flag_btn)
+
+        self._errata_btn = ErrataButton(
+            app=APP_DIR_NAME, open_browser=False,
+            text="⚠ Report a problem with this item")
+        self._errata_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._errata_btn.setAccessibleName(
+            "Report a problem with this item on GitHub")
+        self._errata_btn.reported.connect(self._on_errata_reported)
+        btn_row.addWidget(self._errata_btn)
+
         btn_row.addStretch()
         self._next_btn = QPushButton("Next Problem")
         self._next_btn.setObjectName("accent")
@@ -114,6 +154,12 @@ class ResultScreen(QWidget):
         self._next_btn.setText("View Summary" if is_last else "Next Problem")
         self._next_btn.setAccessibleName(self._next_btn.text())
 
+        # Point the errata control at the item now on screen.
+        self._errata_btn.set_item(attempt.problem.id,
+                                  self._item_text(attempt))
+        self._errata_lbl.hide()
+        self._errata_lbl.setText("")
+
     def set_flagged(self, flagged: bool) -> None:
         """Update flag button to reflect flagged state. Button always enabled."""
         if flagged:
@@ -135,3 +181,68 @@ class ResultScreen(QWidget):
     def mistake_row(self) -> MistakeRow:
         """The cause/note row — exposed for headless drives and tests."""
         return self._mistake_row
+
+    @property
+    def errata_button(self) -> ErrataButton:
+        """The "report a problem" control — exposed for headless drives."""
+        return self._errata_btn
+
+    # ── Errata ────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _item_text(attempt: Attempt) -> str:
+        """The item exactly as the learner saw it, for the "quote it" field.
+
+        A maintainer can reconstruct everything else from the id; the rendered
+        question, its choices and the answer the bank calls correct are what
+        they cannot.
+        """
+        p = attempt.problem
+        lines = [p.question]
+        for i, choice in enumerate(p.choices or []):
+            lines.append(f"{chr(65 + i)}. {choice}")
+        if p.choices and 0 <= p.correct_index < len(p.choices):
+            lines.append(f"Bank answer: {chr(65 + p.correct_index)}. "
+                         f"{p.choices[p.correct_index]}")
+        if p.explanation:
+            lines.append(f"Explanation: {p.explanation}")
+        return "\n".join(lines)
+
+    def _on_errata_reported(self, url: str) -> None:
+        """Hand the finished issue URL to the browser, or to the clipboard.
+
+        Never raises and never waits on anything: ``openUrl`` hands off to the
+        desktop and returns, and a machine with no browser (a kiosk, a remote
+        session, the offscreen platform) falls back to the clipboard so the
+        report is not lost.
+        """
+        opened = False
+        try:
+            opened = bool(QDesktopServices.openUrl(QUrl(url)))
+        except Exception:
+            opened = False
+        if opened:
+            self._errata_lbl.setText(
+                "Opened a prefilled issue in your browser. Nothing is sent "
+                "until you submit it there.")
+        elif self._copy_to_clipboard(url):
+            self._errata_lbl.setText(
+                "No browser could be opened — the issue link is on your "
+                "clipboard. Paste it into a browser to finish the report.")
+        else:
+            self._errata_lbl.setText(
+                "No browser could be opened. Copy this link to finish the "
+                f"report:\n{url}")
+        self._errata_lbl.show()
+        self.errata_reported.emit(url)
+
+    @staticmethod
+    def _copy_to_clipboard(text: str) -> bool:
+        try:
+            clipboard = QApplication.clipboard()
+            if clipboard is None:
+                return False
+            clipboard.setText(text)
+            return True
+        except Exception:
+            return False

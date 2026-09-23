@@ -34,8 +34,17 @@ APP = "problem-trainer"
 
 
 def _clipped(text: str, limit: int = 200) -> str:
-    """The contract's <=200-char form of a text field."""
-    return text if len(text) <= limit else text[: limit - 1] + "…"
+    """The contract's <=200-char form of a one-line text field.
+
+    Whitespace is collapsed first: ``question`` / ``your_answer`` /
+    ``correct_answer`` are shown in a one-line list row on the History screen
+    and in ``coach --mistakes``, and a model solution with a newline in it
+    breaks the row.  (This is ``common.journal.clip_text``; the app's own copy
+    used to truncate without collapsing, which is the divergence common/
+    reconciled.  The *note* is the exception — it keeps its line breaks.)
+    """
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else flat[: limit - 1].rstrip() + "…"
 
 
 def _raw(data_dir, name):
@@ -311,14 +320,25 @@ def test_writes_are_atomic_and_leave_no_temp_files(data_dir):
     persistence.toggle_flag("p", "P", "VQA")
     leftovers = sorted(p.name for p in data_dir.iterdir() if p.suffix == ".tmp")
     assert leftovers == []
-    # The ".lock" sidecars are journal_sync's: empty files flock()ed for the
-    # length of a read-modify-write on the two shared journals, so a second app
-    # cannot clobber rows we just appended.
+    # Three sidecars per data file, and nothing else:
+    #   .lock         an empty file flock()ed for the length of a
+    #                 read-modify-write, so a second window or a second app
+    #                 cannot clobber rows we just appended (common.locking);
+    #   .schema.json  the version marker (common.schema).  It is a sidecar and
+    #                 not a key in the data because coach.py / dashboard.py
+    #                 require the top level of these files to be a plain list.
+    # No .bak yet: nothing here existed before this session's first write.
     assert sorted(p.name for p in data_dir.iterdir()) == [
-        "confidence.json", "confidence.json.lock",
-        "mistakes.json", "mistakes.json.lock", "problems_flagged.json",
-        "problems_settings.json"]
+        "confidence.json", "confidence.json.lock", "confidence.json.schema.json",
+        "mistakes.json", "mistakes.json.lock", "mistakes.json.schema.json",
+        "problems_flagged.json", "problems_flagged.json.lock",
+        "problems_flagged.json.schema.json",
+        "problems_settings.json", "problems_settings.json.lock",
+        "problems_settings.json.schema.json"]
     assert (data_dir / "mistakes.json.lock").read_bytes() == b""
+    assert not list(data_dir.glob("*.bak*"))
+    # The names coach.py globs for still match exactly one file each.
+    assert [p.name for p in data_dir.glob("*_flagged.json")] == ["problems_flagged.json"]
 
 
 def test_confidence_prompt_setting_round_trips(data_dir):

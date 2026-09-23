@@ -17,7 +17,7 @@ quantum-study suite. Two modes:
    After 2 failed tries (or any time you choose) you can reveal the model step
    and continue. A progress bar tracks the steps.
 
-Plus four study aids shared with the rest of the suite:
+Plus five study aids shared with the rest of the suite:
 
 - **Reference** — an in-app browser for the suite's `docs/` corpus (every
   `docs/**/*.md` chapter, grouped by chapter directory, rendered as rich text).
@@ -40,6 +40,17 @@ Plus four study aids shared with the rest of the suite:
   logged, just uncategorised. Answering the same item correctly later marks
   the entry resolved by itself. The causes are the payload: "nine
   knew-but-slipped entries this month" is the signal worth acting on.
+- **Report a problem with this item** — the repository is public, and a wrong
+  rubric, a sign error in a model solution or an ambiguous expected step used
+  to have no route to a fix except remembering it later. Every problem part
+  and every derivation step carries a "⚑ Report a problem with this item"
+  button next to "Show model solution" / "Show model step". It opens a short
+  form (what is wrong · what it should say · how bad) and then a **prefilled
+  GitHub issue** in your browser: the file, the item id and the text exactly as
+  you saw it are already filled in, and nothing is filed until you press Submit
+  there. The form is modeless — the drill behind it keeps working, and you can
+  leave a half-written report open. With no browser available the link is shown
+  in a selectable box instead, so the report is never lost.
 - **Confidence calibration** — an optional "◔ How sure?" strip (1 Guessing ·
   2 Unsure · 3 Fairly sure · 4 Certain) shown **before** you submit a part or
   check a derivation step, so it can never be hindsight. The rating is paired
@@ -124,7 +135,10 @@ item; flagging again removes the entry):
 `id` is the problem or derivation id, `label` its title, and `category` the
 problem topic (or `"derivation"` for guided derivations). `persistence.py`
 exposes `load_flagged()`, `flagged_ids()`, `is_flagged()`, `toggle_flag()` and
-`unflag()`; legacy bare-string entries are tolerated on read.
+`unflag()`; legacy bare-string and `{"problem_id": …}` entries are tolerated on
+read and upgraded to the contract shape on the next write. The file is written
+atomically from the *raw* list, so a row this app does not understand survives
+a rewrite rather than being dropped.
 
 ### Mistake journal — `mistakes.json`
 
@@ -152,10 +166,14 @@ field, so this app only ever reads, updates and resolves its own rows):
 `<derivation_id>:<step_id>` for a derivation step; `category` is the problem
 topic, or `"derivation"`. `cause` is one of `misread`, `didnt_know`,
 `knew_but_slipped`, `confused`, `out_of_time`, `other`, or `null` (logged but
-not yet categorised — skipping the row is fine). `question`, `your_answer`,
-`correct_answer` and `note` are clipped to 200 characters. A second bad attempt
-at the same item refreshes the entry instead of duplicating it, and keeps any
-cause/note you already chose.
+not yet categorised — skipping the row is fine). `question`, `your_answer` and
+`correct_answer` are collapsed to one line and clipped to 200 characters (they
+are shown in one-line rows on the History screen and by `coach --mistakes`);
+`note` keeps its line breaks and is clipped to the same 200. A second bad
+attempt at the same item refreshes the entry instead of duplicating it, and
+keeps any cause/note you already chose — a part here is *revised* (the feedback
+view offers "Resubmit revision" with no limit), so appending a row per draft
+would multiply the count the coach reports by however many times you iterated.
 
 ### Confidence calibration — `confidence.json`
 
@@ -182,9 +200,11 @@ like the one above — high confidence, wrong — are the ones worth chasing.
 `log_mistake()`, `set_mistake_cause()`, `resolve_mistake()`,
 `make_confidence_entry()`, `load_confidence()`, `log_confidence()` and
 `confidence_summary()` — all usable without Qt. Both files are written
-atomically (temp file + `os.replace`), a missing or corrupt file simply starts
-fresh instead of crashing, and the logs are capped at the newest 2 000
-mistakes / 5 000 calibration rows (`MAX_MISTAKES`, `MAX_CONFIDENCE`).
+atomically (temp file + `os.replace`) under a cross-process lock, a missing or
+corrupt file simply starts fresh instead of crashing, and each app keeps at
+most the newest 2 000 mistakes / 5 000 calibration rows **of its own**
+(`MAX_MISTAKES`, `MAX_CONFIDENCE`) — the files are shared, so trimming another
+app's rows would be data loss, not housekeeping.
 
 ### App preferences — `problems_settings.json`
 
@@ -195,27 +215,97 @@ from anything the suite coach parses.
 Set `QUANTUM_STUDY_DATA_DIR` to relocate every one of these files (history,
 flagged, mistakes, confidence, settings) to another directory — the same
 override `coach.py` and `launch.py` honour; the default directory is unchanged.
+A blank value is treated as no override, and a leading `~` is expanded.
+
+### Schema versions, migration and backups
+
+The study data above cannot be regenerated, so every file this app writes now
+carries a version marker and a rotating backup, via `common/schema.py`:
+
+```
+problems_history.json              the data — unchanged, still a plain JSON list
+problems_history.json.schema.json  {"file", "kind", "schema", "written_by", "updated"}
+problems_history.json.bak          the state this session started from
+problems_history.json.bak.1/.2     the two sessions before that
+problems_history.json.lock         the advisory write lock (empty file)
+```
+
+The marker is a **sidecar** rather than a key inside the data because
+`coach.py` and `dashboard.py` require the top level of these files to be a
+plain JSON list — a `{"schema": 1, "rows": [...]}` wrapper would make all of
+their loaders read the journal as empty. Nothing about the data files
+themselves changed, so an existing directory keeps working untouched, and
+`coach.py`'s `*_flagged.json` and `launch.py`'s `*_history.json` globs still
+match exactly one file each.
+
+Three guarantees follow:
+
+- **Old files migrate forward.** A file with no sidecar is a v1 file. When a
+  format does change, its migration runs *in memory* on read and the file is
+  only rewritten the next time something writes it — reading is never
+  destructive.
+- **A newer file is refused, not corrupted.** If a file was written by a build
+  that understands a later schema, this build will not overwrite it with its
+  older view. The write is skipped, nothing is raised into a drill, and the
+  Setup screen shows a warning line naming the file and the two versions
+  (`persistence.last_write_error()`).
+- **One backup per session.** Before the first write of each run the previous
+  contents are copied to `<name>.bak`, ageing `.bak` → `.bak.1` → `.bak.2`.
+  Three generations, best-effort; `common.schema.restore_backup(path)` puts one
+  back.
 
 ## Layout
 
 ```
 problem-trainer/
+  common_path.py     the import shim: puts the repository root on sys.path so
+                     `import common` works (verbatim copy of common/app_shim.py)
   config.py          constants (model, paths, window)
   persistence.py     history, review-flag, mistake-journal, confidence and
-                     settings schemas above (pure, Qt-free helpers)
+                     settings schemas above (pure, Qt-free helpers) over
+                     common.journal / common.flags / common.schema
   core/models.py     Problem/Part, Derivation/Step, session dataclasses
   ai/                client, prompt builders, robust JSON response parsing, grader
   workers/           QThread wrappers for part grading and step checking
   problems/          auto-discovered bank: one file per problem, PROBLEM object
   derivations/       auto-discovered bank: one file per derivation, DERIVATION object
-  ui/                theme + screens (setup, problem, derivation, summary, history,
-                     reference — the docs browser; resolves <repo>/docs relative
-                     to its own path, never a hardcoded home directory)
-  ui/widgets/        collapsible sections, loading overlay, and study_journal
-                     (the confidence strip + "What went wrong?" row)
+  ui/theme.py        the shared palette from common.ui.theme, plus this app's
+                     topic colours, flag labels and widget rules
+  ui/screens/        setup, problem, derivation, summary, history, and
+                     reference — a thin subclass of common.ui.reference's docs
+                     browser adding this app's topic/derivation chapter maps
+  ui/widgets/        collapsible sections, study_journal (the confidence strip
+                     + "What went wrong?" row) and errata (the "report this
+                     item" button over common.ui.errata_dialog)
+  journal_sync.py    retained, unmodified and no longer imported — see below
   tests/             pytest suite: banks, scoring, prompts, parser, grader,
-                     persistence, flags, reference, study journal
+                     persistence, flags, reference, study journal, schema
+                     versioning, errata, and the common/ wiring itself
 ```
+
+## Shared code (`common/`)
+
+The data-directory rule, the mistake/confidence journal, the flag store, the
+schema/backup machinery, the palette, the loading overlay, the Reference screen
+and the errata dialog all live in the repository's `common/` package and are
+*used*, not copied, here. `tests/test_common_migration.py` asserts that by
+identity, so a helper cannot quietly be re-forked into this tree.
+
+`common/` is reached through `common_path.py`, a verbatim copy of
+`common/app_shim.py` that appends the repository root to `sys.path`. It is
+imported by every module here that imports from `common` — including
+`persistence.py`, which the repository's concurrency suite loads by path with
+nothing but this directory on `sys.path`. It *appends* rather than prepends, so
+a root module (`tests/`, `tools/`, `coach.py`) can never shadow an app module
+of the same name. Installed as a wheel, `common` is an ordinary package and the
+shim is a no-op.
+
+`journal_sync.py` — the cross-process lock this app used before the migration —
+is dead code here now: nothing imports it, and `common.locking` is the
+behaviour-preserving extraction. The file is kept, byte-identical, only because
+the repository-level `tests/test_journal_concurrency.py` still asserts that all
+ten apps ship the same copy; it should be deleted in the same change that
+relaxes that test.
 
 All quantitative claims in rubrics/model solutions (Schmidt spectra, gate
 identities, teleportation corrections, Grover/QPE numbers, QAOA closed form,

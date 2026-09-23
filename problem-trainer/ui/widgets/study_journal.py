@@ -24,6 +24,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common import journal
 from ui import theme
 
 # Shown left of each control so meaning never rests on colour alone.
@@ -31,21 +34,27 @@ CONFIDENCE_GLYPH = "◔"
 MISTAKE_GLYPH    = "✗"
 CHECK_GLYPH      = "✓"
 
+# The taxonomy and the rating scale come from common.journal, so the buttons
+# and the file they write can never drift apart; only the *wording* below is
+# this app's (the shared CAUSE_LABELS are terser).
 CONFIDENCE_LEVELS: list[tuple[int, str]] = [
-    (1, "Guessing"),
-    (2, "Unsure"),
-    (3, "Fairly sure"),
-    (4, "Certain"),
+    (level, journal.CONFIDENCE_LABELS[level]) for level in journal.CONFIDENCE_LEVELS
 ]
 
-# (cause key stored in mistakes.json, button label)
+#: cause key stored in mistakes.json -> this app's button label.
+_CAUSE_WORDING: dict[str, str] = {
+    "misread":          "Misread it",
+    "didnt_know":       "Didn't know",
+    "knew_but_slipped": "Knew it — slipped",
+    "confused":         "Confused",
+    "out_of_time":      "Out of time",
+    "other":            "Other",
+}
+
+# (cause key stored in mistakes.json, button label), in the contract's order.
 MISTAKE_CAUSE_LABELS: list[tuple[str, str]] = [
-    ("misread",          "Misread it"),
-    ("didnt_know",       "Didn't know"),
-    ("knew_but_slipped", "Knew it — slipped"),
-    ("confused",         "Confused"),
-    ("out_of_time",      "Out of time"),
-    ("other",            "Other"),
+    (cause, _CAUSE_WORDING.get(cause, journal.CAUSE_LABELS[cause]))
+    for cause in journal.MISTAKE_CAUSES
 ]
 
 
@@ -220,7 +229,7 @@ class MistakeRow(QWidget):
         self._note.setPlaceholderText("Optional one-line note — what to remember next time…")
         self._note.setAccessibleName("Optional note about this mistake")
         self._note.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._note.setMaxLength(200)
+        self._note.setMaxLength(journal.TEXT_MAX)   # the journal's own cap
         self._note.setStyleSheet(
             f"QLineEdit {{ background: {theme.SURFACE}; color: {theme.TEXT};"
             f"  border: 1px solid {theme.BORDER}; border-radius: 6px;"

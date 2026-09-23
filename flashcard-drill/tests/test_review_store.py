@@ -2,8 +2,17 @@
 
 Pure Python, no Qt: everything here is the contract shape, the tolerance of a
 missing or corrupt file, the atomic write and the per-app isolation of the two
-suite-wide files.  The autouse ``data_dir`` fixture in ``conftest.py`` relocates
-``config``'s path constants, so nothing touches the real data directory.
+suite-wide files.  The autouse ``data_dir`` fixture in ``conftest.py`` points
+``QUANTUM_STUDY_DATA_DIR`` at a fresh directory, and every path is resolved
+from it on each call, so nothing here can touch the real data directory.
+
+Since the migration the store itself is :mod:`common.journal`, shared with the
+other nine apps; ``persistence.review_store`` is the adapter that supplies this
+app's identity, the timestamp-targeted ``set_mistake_cause`` the card screen
+needs, and the settings file.  Three canonical behaviours differ from the old
+local copy and are pinned here: a cause is case-normalised rather than
+rejected, a note keeps its line breaks (and its own 500-character cap), and a
+confidence rating outside 1-4 records nothing instead of being clamped.
 """
 from __future__ import annotations
 
@@ -11,8 +20,11 @@ import json
 
 import pytest
 
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
 import config
 import persistence.review_store as rs
+from common import journal
 
 OTHER_APP = {
     "id": "q7", "app": "exam-sim", "category": "Complexity",
@@ -33,7 +45,8 @@ def test_paths_follow_the_relocated_data_dir(data_dir):
     assert rs.mistakes_path() == data_dir / "mistakes.json"
     assert rs.confidence_path() == data_dir / "confidence.json"
     assert rs.settings_path() == data_dir / "flashcard_settings.json"
-    assert rs.mistakes_path() == config.MISTAKES_FILE
+    assert rs.mistakes_path() == config.mistakes_file()
+    assert rs.mistakes_path() == journal.mistakes_path()
 
 
 def test_everything_reads_empty_before_anything_is_written():
@@ -65,9 +78,15 @@ def test_every_documented_cause_is_accepted(cause):
     assert rs.make_mistake_entry("c", cause=cause)["cause"] == cause
 
 
-@pytest.mark.parametrize("bogus", ["typo", "", 3, None, "Misread"])
+@pytest.mark.parametrize("bogus", ["typo", "", 3, None, "knew it, slipped"])
 def test_an_unknown_cause_degrades_to_none(bogus):
     assert rs.make_mistake_entry("c", cause=bogus)["cause"] is None
+
+
+@pytest.mark.parametrize("written", ["Misread", " misread ", "MISREAD"])
+def test_a_recognisable_cause_is_normalised_rather_than_lost(written):
+    """Canonical: case and surrounding space are forgiven (common/README §3)."""
+    assert rs.make_mistake_entry("c", cause=written)["cause"] == "misread"
 
 
 def test_long_multiline_text_is_collapsed_and_clipped_to_200_chars():
@@ -75,8 +94,19 @@ def test_long_multiline_text_is_collapsed_and_clipped_to_200_chars():
         "c", question="line one\n\n   line two", correct_answer="x" * 500,
         note="n" * 400)
     assert entry["question"] == "line one line two"
-    for field in ("correct_answer", "note"):
-        assert len(entry[field]) == rs.MAX_TEXT and entry[field].endswith("…")
+    assert len(entry["correct_answer"]) == rs.MAX_TEXT
+    assert entry["correct_answer"].endswith("…")
+
+
+def test_the_note_keeps_its_line_breaks_and_has_its_own_cap():
+    """Canonical: a one-line list field is collapsed; a typed note is not.
+
+    Reflowing the note (as this copy used to) destroys structure the learner
+    put there deliberately; it is capped at 500 instead.
+    """
+    entry = rs.make_mistake_entry("c", note="first line\nsecond line")
+    assert entry["note"] == "first line\nsecond line"
+    assert len(rs.make_mistake_entry("c", note="n" * 900)["note"]) == journal.NOTE_MAX
 
 
 # ---------------------------------------------------------------------------
@@ -196,10 +226,13 @@ def test_partial_rows_are_filled_in_with_contract_defaults():
 def test_an_unwritable_location_returns_none_instead_of_raising(monkeypatch, tmp_path):
     blocker = tmp_path / "not-a-dir"
     blocker.write_text("i am a file")
-    monkeypatch.setattr(config, "MISTAKES_FILE", blocker / "mistakes.json")
-    monkeypatch.setattr(config, "CONFIDENCE_FILE", blocker / "confidence.json")
+    monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", str(blocker / "nope"))
+    assert rs.mistakes_path() == blocker / "nope" / "mistakes.json"
     assert rs.log_mistake("c") is None
     assert rs.log_confidence("c", "Cat", 3, True) is None
+    assert rs.set_mistake_cause("c", "misread") is False
+    assert rs.resolve_mistakes("c") == 0
+    assert rs.save_settings({"confidence_prompt": False}) is False
     assert rs.load_mistakes() == [] and rs.load_confidence() == []
 
 
@@ -210,22 +243,36 @@ def test_an_unwritable_location_returns_none_instead_of_raising(monkeypatch, tmp
 def test_the_write_is_atomic_and_leaves_no_temp_files(data_dir):
     rs.log_mistake("c")
     rs.log_confidence("c", "Cat", 2, False)
-    leftovers = [p.name for p in data_dir.iterdir() if p.name.startswith(".")]
+    leftovers = [p.name for p in data_dir.iterdir()
+                 if p.name.startswith(".") or p.name.endswith(".tmp")]
     assert leftovers == []
     assert json.loads(rs.mistakes_path().read_text())      # valid JSON, non-empty
 
 
-def test_growth_is_capped_at_the_newest_entries_of_this_app(monkeypatch):
-    monkeypatch.setattr(rs, "MISTAKE_LIMIT", 3)
-    monkeypatch.setattr(rs, "CONFIDENCE_LIMIT", 2)
+def test_the_caps_are_the_shared_ones():
+    assert (rs.MISTAKE_LIMIT, rs.CONFIDENCE_LIMIT) == (journal.MISTAKES_MAX,
+                                                       journal.CONFIDENCE_MAX)
+    assert (rs.MISTAKE_LIMIT, rs.CONFIDENCE_LIMIT) == (2000, 5000)
+
+
+def test_growth_is_capped_by_dropping_only_this_apps_oldest_rows(monkeypatch):
+    """The cap is the file's, and only *our* rows are ever dropped to meet it.
+
+    Eight of the ten apps used to sort the merged list and keep the newest N,
+    which deleted other apps' rows during our own write.  ``trim_own`` never
+    does: exam-sim's row below survives every one of our writes.
+    """
+    monkeypatch.setattr(journal, "MISTAKES_MAX", 4)
+    monkeypatch.setattr(journal, "CONFIDENCE_MAX", 2)
     rs.mistakes_path().parent.mkdir(parents=True, exist_ok=True)
     rs.mistakes_path().write_text(json.dumps([OTHER_APP]))
     for i in range(6):
         rs.log_mistake(f"c{i}", timestamp=float(i))
         rs.log_confidence(f"c{i}", "Cat", 1, False, timestamp=float(i))
-    mine = rs.load_mistakes(rs.APP_NAME)
-    assert [e["id"] for e in mine] == ["c3", "c4", "c5"]
-    assert len(rs.load_mistakes()) == 4                    # exam-sim's row is kept
+    every = rs.load_mistakes()
+    assert len(every) == 4                                 # the file-wide cap
+    assert every[0] == OTHER_APP                           # never ours to drop
+    assert [e["id"] for e in rs.load_mistakes(rs.APP_NAME)] == ["c3", "c4", "c5"]
     assert [e["id"] for e in rs.load_confidence()] == ["c4", "c5"]
 
 
@@ -251,12 +298,20 @@ def test_confidence_log_load_and_calibration():
     rs.log_confidence("b", "Pauli Matrices", 4, True)
     rs.log_confidence("c", "Theorems", 1, True)            # a lucky guess
     assert [set(e) for e in rs.load_confidence()] == [CONFIDENCE_FIELDS] * 3
+    # Canonical buckets: {"total", "correct"} (common/README §3), not {"n", …}.
     assert rs.calibration_summary() == {
-        4: {"n": 2, "correct": 1, "accuracy": 0.5},
-        1: {"n": 1, "correct": 1, "accuracy": 1.0},
+        1: {"total": 1, "correct": 1},
+        4: {"total": 2, "correct": 1},
     }
     assert [e["id"] for e in rs.confidently_wrong()] == ["a"]
     assert rs.confidently_wrong(threshold=5) == []
+
+
+@pytest.mark.parametrize("bogus", [0, 5, -1, None, "high", True])
+def test_an_out_of_range_rating_records_nothing_rather_than_being_clamped(bogus):
+    """Canonical: clamping invents a rating the learner never gave."""
+    assert rs.log_confidence("c", "Cat", bogus, True) is None
+    assert rs.load_confidence() == []
 
 
 def test_corrupt_confidence_rows_are_skipped():

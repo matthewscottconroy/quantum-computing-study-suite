@@ -57,7 +57,7 @@ def test_toggle_flag_writes_contract_entry(data_dir):
     assert persistence.toggle_flag(flag_id, "Q1?", "Paper A") is True
 
     path = data_dir / "paper_flagged.json"
-    assert persistence.FLAGGED_FILE == path
+    assert persistence.flagged_path() == path
     assert path.exists()
     entries = json.loads(path.read_text())
     assert len(entries) == 1
@@ -76,7 +76,7 @@ def test_toggle_twice_removes_and_third_re_adds(data_dir):
     flag_id = persistence.make_flag_id("P", "Q")
     assert persistence.toggle_flag(flag_id, "Q", "P") is True
     assert persistence.toggle_flag(flag_id, "Q", "P") is False
-    assert json.loads(persistence.FLAGGED_FILE.read_text()) == []
+    assert json.loads(persistence.flagged_path().read_text()) == []
     assert not persistence.is_flagged(flag_id)
     assert persistence.toggle_flag(flag_id, "Q", "P") is True
     assert [e["id"] for e in persistence.load_flagged()] == [flag_id]
@@ -96,7 +96,7 @@ def test_flags_are_per_question(data_dir):
 def test_unflag_unknown_id_is_a_noop(data_dir):
     assert persistence.load_flagged() == []
     persistence.unflag("paper-doesnotexist00")
-    assert not persistence.FLAGGED_FILE.exists()   # nothing was written
+    assert not persistence.flagged_path().exists()   # nothing was written
     persistence.toggle_flag("paper-0000000000000001", "L", "C")
     persistence.unflag("paper-doesnotexist00")
     assert [e["id"] for e in persistence.load_flagged()] == ["paper-0000000000000001"]
@@ -114,20 +114,65 @@ def test_unflag_unknown_id_is_a_noop(data_dir):
 ], ids=["corrupt", "non-list", "malformed-entries", "empty-file"])
 def test_load_flagged_tolerates_bad_files(data_dir, raw, expected_ids):
     data_dir.mkdir(parents=True, exist_ok=True)
-    persistence.FLAGGED_FILE.write_text(raw)
+    persistence.flagged_path().write_text(raw)
     assert [e["id"] for e in persistence.load_flagged()] == expected_ids
     assert not persistence.is_flagged("missing")
 
 
 def test_toggle_recovers_from_corrupt_file(data_dir):
     data_dir.mkdir(parents=True, exist_ok=True)
-    persistence.FLAGGED_FILE.write_text("{not json")
+    persistence.flagged_path().write_text("{not json")
     assert persistence.toggle_flag("paper-00000000000000aa", "L", "C") is True
-    entries = json.loads(persistence.FLAGGED_FILE.read_text())
+    entries = json.loads(persistence.flagged_path().read_text())
     assert [e["id"] for e in entries] == ["paper-00000000000000aa"]
 
 
 def test_missing_file_reads_as_empty(data_dir):
-    assert not persistence.FLAGGED_FILE.exists()
+    assert not persistence.flagged_path().exists()
     assert persistence.load_flagged() == []
     assert persistence.is_flagged("anything") is False
+
+
+# ---------------------------------------------------------------------------
+# Behaviour gained from common.flags
+# ---------------------------------------------------------------------------
+
+def test_a_row_we_do_not_understand_survives_a_rewrite(data_dir):
+    """Five of the ten copies rewrote the file from the *filtered* list, which
+    deleted every row they could not parse.  The rewrite is based on the raw
+    list now, so an unknown row is still there afterwards."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    persistence.flagged_path().write_text(json.dumps([
+        {"id": "keep-me", "label": "L", "unknown_key": {"deep": True}},
+        "just-an-id",
+    ]))
+    persistence.toggle_flag("paper-new", "Q", "P")
+    ids = [e["id"] for e in json.loads(persistence.flagged_path().read_text())]
+    assert ids == ["keep-me", "just-an-id", "paper-new"]
+
+
+def test_a_legacy_bare_id_file_is_read_and_upgraded_in_place(data_dir):
+    """Three apps still write ``["id", "id"]``.  coach.py parses both shapes;
+    common.flags reads both and writes the contract shape."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    persistence.flagged_path().write_text(json.dumps(["old-a", "old-b"]))
+    assert persistence.is_flagged("old-a")
+    assert [e["id"] for e in persistence.load_flagged()] == ["old-a", "old-b"]
+
+    persistence.unflag("old-a")
+    rows = json.loads(persistence.flagged_path().read_text())
+    assert all(isinstance(r, dict) for r in rows)
+    assert [r["id"] for r in rows] == ["old-b"]
+    assert rows[0]["app"] == APP_ID
+    # 0.0, not "now": a ten-month-old flag must not jump the review queue
+    # just because the file was rewritten today.
+    assert rows[0]["timestamp"] == 0.0
+
+
+def test_the_file_carries_a_schema_sidecar(data_dir):
+    persistence.toggle_flag("paper-0000000000000001", "L", "C")
+    sidecar = data_dir / "paper_flagged.json.schema.json"
+    assert sidecar.exists()
+    meta = json.loads(sidecar.read_text())
+    assert meta["kind"] == "flagged" and meta["schema"] == 1
+    assert meta["file"] == "paper_flagged.json"

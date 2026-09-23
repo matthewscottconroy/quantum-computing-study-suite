@@ -13,6 +13,7 @@ import time
 import pytest
 
 import persistence
+from common import journal
 from config import APP_ID
 
 MISTAKE_KEYS = {"id", "app", "category", "question", "your_answer",
@@ -76,7 +77,10 @@ def test_make_mistake_entry_matches_contract_field_for_field():
     assert len(entry["your_answer"]) == 200 and entry["your_answer"].endswith("…")
     assert len(entry["correct_answer"]) == 200
     assert entry["cause"] == "knew_but_slipped"
-    assert entry["note"] == "bit order"
+    # clip_note only rstrips: a note is prose the learner typed, and
+    # reflowing it (as clip_text does for the one-line fields) would destroy
+    # deliberate structure.  The UI strips it before it gets here.
+    assert entry["note"] == "  bit order"
     assert isinstance(entry["timestamp"], float)
     assert before <= entry["timestamp"] <= time.time() + 1
     assert entry["resolved"] is False
@@ -124,11 +128,13 @@ def test_confidently_wrong_picks_the_unknown_unknowns():
         persistence.make_confidence_entry("b", "c", 3, False),   # confidently wrong
         persistence.make_confidence_entry("c", "c", 2, False),   # knew it was shaky
         persistence.make_confidence_entry("d", "c", 4, True),    # right and knew it
+        # A rating stored as a numeric string (an older build, or another
+        # tool) is coerced rather than ignored — common.coerce_confidence.
         {"id": "e", "app": APP_ID, "confidence": "4", "correct": False},
         dict(FOREIGN_CONFIDENCE, confidence=4, correct=False),
     ]
-    assert [e["id"] for e in persistence.confidently_wrong(rows)] == ["a", "b"]
-    assert len(persistence.confidently_wrong(rows, app=None)) == 3
+    assert [e["id"] for e in persistence.confidently_wrong(rows)] == ["a", "b", "e"]
+    assert len(persistence.confidently_wrong(rows, app=None)) == 4
 
 
 # ---------------------------------------------------------------------------
@@ -137,13 +143,13 @@ def test_confidently_wrong_picks_the_unknown_unknowns():
 
 class TestMistakeStore:
     def test_log_mistake_writes_contract_entry(self, data_dir):
-        assert persistence.MISTAKES_FILE == data_dir / "mistakes.json"
+        assert persistence.mistakes_path() == data_dir / "mistakes.json"
         assert persistence.load_mistakes() == []
 
         before = time.time()
         returned = persistence.log_mistake(
             "paper-aaaa", "Paper A", "What is d?", "three", "five")
-        entries = json.loads(persistence.MISTAKES_FILE.read_text())
+        entries = json.loads(persistence.mistakes_path().read_text())
         assert entries == [returned]
         entry = entries[0]
         assert set(entry) == MISTAKE_KEYS
@@ -169,11 +175,19 @@ class TestMistakeStore:
         assert rows[-1]["note"] == "swapped order"
         assert rows[-1]["your_answer"] == "wrong2"
 
-        # Re-picking overwrites the same row instead of piling up duplicates.
+        # Re-picking overwrites the same row instead of piling up duplicates,
+        # and leaves the note alone: the default is note=None ("do not touch"),
+        # not note="" — the old default wiped a note whenever a cause was
+        # picked after it had been typed.
         persistence.set_mistake_cause("paper-a", "confused")
         rows = persistence.mistakes_for("paper-a")
         assert len(rows) == 2
-        assert rows[-1]["cause"] == "confused" and rows[-1]["note"] == ""
+        assert rows[-1]["cause"] == "confused"
+        assert rows[-1]["note"] == "swapped order"
+        # An explicit empty string still clears it.
+        persistence.set_mistake_cause("paper-a", "confused", "")
+        assert persistence.mistakes_for("paper-a")[-1]["note"] == ""
+        rows = persistence.mistakes_for("paper-a")
         # Clearing the cause is allowed (back to "logged, not categorised").
         persistence.set_mistake_cause("paper-a", None, "note only")
         assert persistence.mistakes_for("paper-a")[-1] == {
@@ -181,10 +195,10 @@ class TestMistakeStore:
 
     def test_set_cause_on_unknown_item_is_false_and_writes_nothing(self, data_dir):
         assert persistence.set_mistake_cause("paper-nope", "misread") is False
-        assert not persistence.MISTAKES_FILE.exists()
+        assert not persistence.mistakes_path().exists()
 
     def test_resolve_marks_only_this_app_and_this_item(self, data_dir):
-        _write(persistence.MISTAKES_FILE, [dict(FOREIGN_MISTAKE, id="paper-a")])
+        _write(persistence.mistakes_path(), [dict(FOREIGN_MISTAKE, id="paper-a")])
         persistence.log_mistake("paper-a", "P", "Q", "w", "r")
         persistence.log_mistake("paper-a", "P", "Q", "w2", "r")
         persistence.log_mistake("paper-b", "P", "Q2", "w", "r")
@@ -210,7 +224,7 @@ class TestMistakeStore:
             ("didnt_know", True), ("knew_but_slipped", False)]
 
     def test_foreign_rows_survive_our_writes(self, data_dir):
-        _write(persistence.MISTAKES_FILE, [FOREIGN_MISTAKE])
+        _write(persistence.mistakes_path(), [FOREIGN_MISTAKE])
         persistence.log_mistake("paper-a", "P", "Q", "w", "r")
         persistence.set_mistake_cause("paper-a", "other", "note")
         persistence.resolve_mistake("paper-a")
@@ -221,11 +235,14 @@ class TestMistakeStore:
     @pytest.mark.parametrize("raw,expected", [
         ("{not json", 0),
         (json.dumps({"id": "x"}), 0),
-        (json.dumps([{"no": "id"}, 7, None, FOREIGN_MISTAKE]), 1),
+        (json.dumps([{"no": "id"}, 7, None, FOREIGN_MISTAKE]), 2),
         ("", 0),
     ], ids=["corrupt", "non-list", "malformed-entries", "empty-file"])
     def test_load_tolerates_bad_files(self, data_dir, raw, expected):
-        _write(persistence.MISTAKES_FILE, raw)
+        # ``expected`` counts every *dict* row: unlike the old app-local
+        # loader, common.journal does not silently drop a dict without an
+        # "id", because a rewrite has to put back rows it cannot parse.
+        _write(persistence.mistakes_path(), raw)
         assert len(persistence.load_mistakes()) == expected
         # and a write still recovers the file
         persistence.log_mistake("paper-a", "P", "Q", "w", "r")
@@ -235,11 +252,11 @@ class TestMistakeStore:
         assert persistence.load_mistakes() == []
         assert persistence.mistakes_for("anything") == []
         assert persistence.cause_counts() == {}
-        assert not persistence.MISTAKES_FILE.exists()
+        assert not persistence.mistakes_path().exists()
 
     def test_cap_drops_our_oldest_rows_only(self, data_dir, monkeypatch):
-        monkeypatch.setattr(persistence, "MISTAKES_MAX_ENTRIES", 3)
-        _write(persistence.MISTAKES_FILE, [FOREIGN_MISTAKE])
+        monkeypatch.setattr(journal, "MISTAKES_MAX", 3)
+        _write(persistence.mistakes_path(), [FOREIGN_MISTAKE])
         for n in range(5):
             persistence.log_mistake(f"paper-{n}", "P", "Q", "w", "r")
         entries = persistence.load_mistakes()
@@ -251,13 +268,23 @@ class TestMistakeStore:
         persistence.log_mistake("paper-a", "P", "Q", "w", "r")
         persistence.log_confidence("paper-a", "P", 3, False)
         persistence.set_confidence_prompt_enabled(False)
-        # The ".lock" sidecars are journal_sync's: empty files flock()ed for
-        # the length of a read-modify-write on the two shared journals, so a
-        # second app cannot clobber rows we just appended.
+        # Three files per store:
+        #   <name>              the data, always a plain JSON list/object so
+        #                       coach.py and dashboard.py keep reading it;
+        #   <name>.lock         an empty file flock()ed for the length of a
+        #                       read-modify-write, so a second app (or a second
+        #                       window) cannot clobber rows we just appended;
+        #   <name>.schema.json  the version marker — a sidecar precisely
+        #                       because those readers require a bare list.
         assert sorted(p.name for p in data_dir.iterdir()) == [
-            "confidence.json", "confidence.json.lock",
-            "mistakes.json", "mistakes.json.lock", "paper_settings.json"]
+            "confidence.json", "confidence.json.lock", "confidence.json.schema.json",
+            "mistakes.json", "mistakes.json.lock", "mistakes.json.schema.json",
+            "paper_settings.json", "paper_settings.json.lock",
+            "paper_settings.json.schema.json"]
         assert (data_dir / "mistakes.json.lock").read_bytes() == b""
+        # No temp files and no backups: nothing existed before these writes.
+        assert not [p for p in data_dir.iterdir() if p.suffix == ".tmp"]
+        assert not [p for p in data_dir.iterdir() if ".bak" in p.name]
 
 
 # ---------------------------------------------------------------------------
@@ -266,11 +293,11 @@ class TestMistakeStore:
 
 class TestConfidenceStore:
     def test_log_confidence_writes_contract_row(self, data_dir):
-        assert persistence.CONFIDENCE_FILE == data_dir / "confidence.json"
+        assert persistence.confidence_path() == data_dir / "confidence.json"
         assert persistence.load_confidence() == []
 
         returned = persistence.log_confidence("paper-a", "Paper A", 4, False)
-        rows = json.loads(persistence.CONFIDENCE_FILE.read_text())
+        rows = json.loads(persistence.confidence_path().read_text())
         assert rows == [returned]
         row = rows[0]
         assert set(row) == CONFIDENCE_KEYS
@@ -282,16 +309,18 @@ class TestConfidenceStore:
     @pytest.mark.parametrize("bad", [0, 5, -1, None, "", "high", [], 9.5])
     def test_out_of_range_rating_is_a_silent_no_op(self, data_dir, bad):
         assert persistence.log_confidence("paper-a", "P", bad, True) is None
-        assert not persistence.CONFIDENCE_FILE.exists()
+        assert not persistence.confidence_path().exists()
 
     def test_numeric_strings_and_bools_are_coerced_or_rejected(self, data_dir):
         assert persistence.log_confidence("paper-a", "P", "3", True)["confidence"] == 3
-        assert persistence.log_confidence("paper-b", "P", True, True)["confidence"] == 1
+        # ``True`` is an int subclass but it is not a rating anyone gave, so it
+        # is rejected rather than recorded as "Guessing".
+        assert persistence.log_confidence("paper-b", "P", True, True) is None
         # a float is truncated, not rejected (the UI only ever sends 1-4 ints)
         assert persistence.log_confidence("paper-c", "P", 2.7, True)["confidence"] == 2
 
     def test_rows_accumulate_and_foreign_rows_survive(self, data_dir):
-        _write(persistence.CONFIDENCE_FILE, [FOREIGN_CONFIDENCE])
+        _write(persistence.confidence_path(), [FOREIGN_CONFIDENCE])
         persistence.log_confidence("paper-a", "P", 1, True)
         persistence.log_confidence("paper-a", "P", 4, False)
         rows = persistence.load_confidence()
@@ -301,15 +330,15 @@ class TestConfidenceStore:
 
     @pytest.mark.parametrize("raw", ["{not json", '{"id": "x"}', "", "[1, 2"])
     def test_load_tolerates_bad_files(self, data_dir, raw):
-        _write(persistence.CONFIDENCE_FILE, raw)
+        _write(persistence.confidence_path(), raw)
         assert persistence.load_confidence() == []
         assert persistence.confidently_wrong() == []
         persistence.log_confidence("paper-a", "P", 2, True)
         assert len(persistence.load_confidence()) == 1
 
     def test_cap_drops_our_oldest_rows_only(self, data_dir, monkeypatch):
-        monkeypatch.setattr(persistence, "CONFIDENCE_MAX_ENTRIES", 2)
-        _write(persistence.CONFIDENCE_FILE, [FOREIGN_CONFIDENCE])
+        monkeypatch.setattr(journal, "CONFIDENCE_MAX", 2)
+        _write(persistence.confidence_path(), [FOREIGN_CONFIDENCE])
         for n in range(4):
             persistence.log_confidence(f"paper-{n}", "P", 2, True)
         rows = persistence.load_confidence()
@@ -322,12 +351,12 @@ class TestConfidenceStore:
 
 class TestSettings:
     def test_defaults_to_on_and_round_trips(self, data_dir):
-        assert persistence.SETTINGS_FILE == data_dir / "paper_settings.json"
+        assert persistence.settings_path() == data_dir / "paper_settings.json"
         assert persistence.load_settings() == {}
         assert persistence.confidence_prompt_enabled() is True
 
         persistence.set_confidence_prompt_enabled(False)
-        assert json.loads(persistence.SETTINGS_FILE.read_text()) == {
+        assert json.loads(persistence.settings_path().read_text()) == {
             "confidence_prompt": False}
         assert persistence.confidence_prompt_enabled() is False
 
@@ -342,7 +371,7 @@ class TestSettings:
 
     @pytest.mark.parametrize("raw", ["{not json", "[]", "null", ""])
     def test_bad_settings_file_reads_as_defaults(self, data_dir, raw):
-        _write(persistence.SETTINGS_FILE, raw)
+        _write(persistence.settings_path(), raw)
         assert persistence.load_settings() == {}
         assert persistence.confidence_prompt_enabled() is True
 

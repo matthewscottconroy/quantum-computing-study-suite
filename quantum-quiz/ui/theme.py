@@ -1,21 +1,18 @@
-"""Dark theme palette and QSS stylesheet."""
+"""This app's slice of the shared dark theme.
 
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont, QPalette, QColor
+The twelve palette constants, the base stylesheet, the focus rings and
+:func:`alpha` now live in :mod:`common.ui.theme` (they were byte-identical in
+all ten apps).  What stays here is quantum-quiz's own vocabulary — the subject
+and difficulty colour maps — plus the handful of widget rules the base theme
+has no opinion about.
+"""
 
-# ── Palette ───────────────────────────────────────────────────────────────────
-BG        = "#0d1117"
-SURFACE   = "#161b22"
-SURFACE2  = "#21262d"
-BORDER    = "#30363d"
-ACCENT    = "#58a6ff"
-ACCENT2   = "#388bfd"
-TEXT      = "#e6edf3"
-TEXT_MUTED = "#8b949e"
-SUCCESS   = "#3fb950"
-WARNING   = "#d29922"
-ERROR     = "#f85149"
-PARTIAL   = "#e3b341"
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.ui.theme import *          # noqa: F401,F403  (palette + helpers)
+from common.ui.theme import apply as _apply, extend
+
+# ── This app's vocabulary ─────────────────────────────────────────────────────
 
 # Difficulty pill colours
 DIFFICULTY_COLORS = {
@@ -47,80 +44,12 @@ def subject_color(subject: str) -> str:
     return _SUBJECT_PALETTE[idx % len(_SUBJECT_PALETTE)]
 
 
-QSS = f"""
-/* ── Global ── */
-QWidget {{
-    background-color: {BG};
-    color: {TEXT};
-    font-family: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
-    font-size: 14px;
-}}
+# ── Rules the base stylesheet does not carry ──────────────────────────────────
+# The base has the confidence/cause pills under ``#pill``; this app has always
+# called them ``#chip`` and its tests pin that, so the chip rules stay here.
+# The list / table / splitter / tooltip rules are this app's alone.
 
-/* ── Scroll areas ── */
-QScrollArea, QScrollArea > QWidget > QWidget {{
-    background-color: {BG};
-    border: none;
-}}
-QScrollBar:vertical {{
-    background: {SURFACE};
-    width: 8px;
-    border-radius: 4px;
-}}
-QScrollBar::handle:vertical {{
-    background: {BORDER};
-    border-radius: 4px;
-    min-height: 24px;
-}}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-    height: 0;
-}}
-
-/* ── Buttons ── */
-QPushButton {{
-    background-color: {SURFACE2};
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 8px 18px;
-    font-size: 13px;
-}}
-QPushButton:hover {{
-    background-color: {BORDER};
-    border-color: {ACCENT};
-}}
-QPushButton:pressed {{
-    background-color: {ACCENT2};
-    color: white;
-}}
-QPushButton:disabled {{
-    color: {TEXT_MUTED};
-    border-color: {SURFACE2};
-}}
-QPushButton#accent {{
-    background-color: {ACCENT};
-    color: {BG};
-    border: none;
-    font-weight: bold;
-    font-size: 14px;
-    padding: 10px 28px;
-}}
-QPushButton#accent:hover {{
-    background-color: {ACCENT2};
-}}
-QPushButton#accent:disabled {{
-    background-color: {SURFACE2};
-    color: {TEXT_MUTED};
-}}
-QPushButton#flat {{
-    background: transparent;
-    border: none;
-    color: {ACCENT};
-    padding: 4px 8px;
-}}
-QPushButton#flat:hover {{
-    color: {TEXT};
-}}
-
+_EXTRA = f"""
 /* ── Chip buttons (confidence strip, mistake-cause row) ── */
 QPushButton#chip {{
     background-color: {SURFACE2};
@@ -141,134 +70,14 @@ QPushButton#chip:checked {{
     color: {BG};
     border-color: {ACCENT};
 }}
-
-/* ── Keyboard focus rings ──
-   Every focusable control gets a visible ring.  Widths match the unfocused
-   border so focusing never shifts the layout (#accent has no border, so its
-   padding is reduced by the 2px the ring adds). */
-QPushButton:focus {{
-    border: 1px solid {ACCENT};
-}}
 QPushButton#chip:focus, QPushButton#chip:checked:focus {{
     border: 1px solid {TEXT};
 }}
-QPushButton#flat:focus {{
-    border: 1px solid {ACCENT};
-    border-radius: 4px;
-}}
-QPushButton#accent:focus {{
-    border: 2px solid {TEXT};
-    padding: 8px 26px;
-}}
 
-/* ── Single-line text inputs ── */
-QLineEdit {{
-    background-color: {SURFACE};
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 6px 8px;
-    font-size: 13px;
-    selection-background-color: {ACCENT2};
-}}
-QLineEdit:focus {{
-    border-color: {ACCENT};
-}}
-
-/* ── Text inputs ── */
-QPlainTextEdit, QTextEdit {{
-    background-color: {SURFACE};
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 8px;
-    font-size: 14px;
-    selection-background-color: {ACCENT2};
-}}
-QPlainTextEdit:focus, QTextEdit:focus {{
-    border-color: {ACCENT};
-}}
-QTextBrowser {{
-    background-color: transparent;
-    color: {TEXT};
-    border: none;
-    font-size: 15px;
-}}
-
-/* ── Labels ── */
-QLabel {{
-    background: transparent;
-}}
-QLabel#heading {{
-    font-size: 22px;
-    font-weight: bold;
-    color: {TEXT};
-}}
-QLabel#subheading {{
-    font-size: 15px;
-    color: {TEXT_MUTED};
-}}
+/* ── Muted one-line hints and statuses ── */
 QLabel#muted {{
     color: {TEXT_MUTED};
     font-size: 12px;
-}}
-
-/* ── Frames / cards ── */
-QFrame#card {{
-    background-color: {SURFACE};
-    border: 1px solid {BORDER};
-    border-radius: 8px;
-}}
-QFrame#separator {{
-    background-color: {BORDER};
-    max-height: 1px;
-}}
-
-/* ── Combo box ── */
-QComboBox {{
-    background-color: {SURFACE2};
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 6px 10px;
-}}
-QComboBox::drop-down {{ border: none; }}
-QComboBox QAbstractItemView {{
-    background-color: {SURFACE2};
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    selection-background-color: {ACCENT2};
-}}
-
-/* ── Spin box ── */
-QSpinBox {{
-    background-color: {SURFACE2};
-    color: {TEXT};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 6px 10px;
-}}
-QSpinBox::up-button, QSpinBox::down-button {{
-    background: {SURFACE2};
-    border: none;
-    width: 18px;
-}}
-
-/* ── Check box ── */
-QCheckBox {{
-    spacing: 8px;
-    color: {TEXT};
-}}
-QCheckBox::indicator {{
-    width: 16px;
-    height: 16px;
-    border: 1px solid {BORDER};
-    border-radius: 3px;
-    background: {SURFACE2};
-}}
-QCheckBox::indicator:checked {{
-    background: {ACCENT};
-    border-color: {ACCENT};
 }}
 
 /* ── List widget ── */
@@ -327,9 +136,9 @@ QToolTip {{
 }}
 """
 
+#: The full stylesheet this app applies: the shared base plus the rules above.
+QSS = extend(_EXTRA)
 
-def apply(app: QApplication) -> None:
-    app.setStyleSheet(QSS)
-    font = QFont("Inter", 10)
-    font.setStyleHint(QFont.StyleHint.SansSerif)
-    app.setFont(font)
+
+def apply(app) -> None:
+    _apply(app, QSS)

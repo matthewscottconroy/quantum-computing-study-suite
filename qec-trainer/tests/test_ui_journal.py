@@ -105,7 +105,7 @@ def test_wrong_answer_logs_a_mistake_with_a_cause_then_resolves(win, isolated_da
         "id": "rep_distance", "app": "qec-trainer", "category": "Repetition Code",
         "confidence": 4, "correct": False, "timestamp": conf[0]["timestamp"],
     }]
-    assert persistence.calibration_summary() == {4: {"n": 1, "correct": 0}}
+    assert persistence.calibration_summary() == {4: {"total": 1, "correct": 0}}
 
     # (4) re-answer correctly -> resolved True, mistake row gone
     _start(win, p)
@@ -116,8 +116,8 @@ def test_wrong_answer_logs_a_mistake_with_a_cause_then_resolves(win, isolated_da
     assert len(rows) == 1 and rows[0]["resolved"] is True
     assert rows[0]["cause"] == "knew_but_slipped"       # the analysis survives
     assert persistence.open_mistakes() == []
-    assert persistence.calibration_summary() == {4: {"n": 1, "correct": 0},
-                                                 3: {"n": 1, "correct": 1}}
+    assert persistence.calibration_summary() == {3: {"total": 1, "correct": 1},
+                                                 4: {"total": 1, "correct": 0}}
 
 
 def test_skipping_both_prompts_still_logs_the_mistake_and_nothing_else(win, isolated_data_dir):

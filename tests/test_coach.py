@@ -14,7 +14,8 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from datetime import datetime, time as dtime, timedelta, timezone
+from datetime import (date, datetime, time as dtime, timedelta,
+                      timezone)
 from pathlib import Path
 
 import pytest
@@ -2278,3 +2279,614 @@ class TestTier5CLI:
         assert "CONFIDENCE CALIBRATION" in r.stdout
         assert sorted(p.name for p in tmp_path.iterdir()) == [
             "confidence.json", "mistakes.json"]
+
+
+# ---------------------------------------------------------------------------
+# Tier-6: interleaving (the mixed default plan) and exam-date mode
+#
+# Interleaving is asserted structurally -- what goes in the mix, that
+# consecutive blocks change app and area, and that the coach refuses to call
+# a one-app plan "interleaved".  Exam-date mode is asserted against a fake
+# --readiness payload so the schedule, the mocks and the verdict can be
+# driven independently of history density, plus end-to-end through the CLI.
+# ---------------------------------------------------------------------------
+
+def fake_readiness(confident: bool = True, accuracies=None,
+                   projected: float = 52.0, low: float = 48.0,
+                   high: float = 56.0, reasons=(), stale=()) -> dict:
+    """A build_readiness()-shaped dict with only the keys the exam plan uses."""
+    sections = []
+    for name, weight in coach.EXAM_SECTION_WEIGHTS:
+        acc = (accuracies or {}).get(name)
+        sections.append({"name": name, "weight": weight, "accuracy": acc,
+                         "measured": acc is not None,
+                         "stale": name in stale,
+                         "n_direct": 10 if acc is not None else 0,
+                         "action": f"study {name}"})
+    return {"sections": sections, "confident": confident,
+            "reasons": list(reasons) or ([] if confident else
+                                         ["only 0 direct observation(s)"]),
+            "projected": projected, "low": low, "high": high,
+            "pass_mark": coach.EXAM_PASS_CORRECT,
+            "questions": coach.EXAM_PASS_TOTAL}
+
+
+def exam_state(offset_days: int) -> dict:
+    """Coach state with an exam booked *offset_days* from today."""
+    state = {"exam_date": (TODAY + timedelta(days=offset_days))
+             .strftime("%Y-%m-%d")}
+    return state
+
+
+def cand(app, topic, priority=5.0, pinned=False):
+    return {"app": app, "topic": topic, "area": coach.topic_area(app, topic),
+            "priority": priority, "pinned": pinned, "why": "test",
+            "action": "do it"}
+
+
+class TestTopicArea:
+    @pytest.mark.parametrize("app,topic,area", [
+        ("qec-trainer", "stabilizers", "qec"),
+        ("qec-trainer", "surface code", "qec"),
+        ("vqa-trainer", "ansatz", "vqa"),
+        ("vqa-trainer", "gradients", "vqa"),
+        ("qiskit-dojo", "Transpiler", "qiskit-api"),
+        ("exam-sim", "Create circuits", "qiskit-api"),
+        ("exam-sim", "Sampler", "qiskit-api"),
+        ("quantum-quiz", "grover", "algorithms"),
+        ("quantum-quiz", "Algorithms", "algorithms"),
+        ("math-quiz", "eigenvalues", "math"),
+        ("math-quiz", "Linear Algebra", "math"),
+        ("circuit-trainer", "entanglers", "circuits"),
+        ("flashcard-drill", "Gate Unitaries", "circuits"),
+        ("flashcard-drill", "Quantum Hardware", "hardware"),
+        ("quantum-quiz", "measurement", "qm"),
+    ])
+    def test_topic_names_drive_the_area_not_the_app(self, app, topic, area):
+        assert coach.topic_area(app, topic) == area
+
+    def test_an_unrecognised_topic_falls_back_to_the_apps_area(self):
+        assert coach.topic_area("paper-drill", "Nielsen & Chuang ch 4") \
+            == "papers"
+        assert coach.topic_area("problem-trainer", "zzz") == "problem-solving"
+        assert coach.topic_area("nonexistent-app", "zzz") == "general"
+
+    def test_a_recognised_word_beats_the_app_fallback(self):
+        # a paper-drill entry about Shor is still an algorithms topic
+        assert coach.topic_area("paper-drill", "Shor 1994") == "algorithms"
+
+    def test_every_app_the_coach_reads_has_a_fallback_area(self):
+        for app in coach._HISTORY_FILES:
+            assert app in coach._AREA_BY_APP, app
+
+    def test_the_same_subject_in_two_apps_is_one_area(self):
+        # the point of the second axis: two apps drilling Grover is not a mix
+        assert coach.topic_area("quantum-quiz", "grover") == \
+            coach.topic_area("problem-trainer", "grover circuit? no: grover")
+
+
+class TestInterleaveCandidates:
+    def test_every_signal_contributes_a_candidate(self, synthetic_dir):
+        histories = coach.load_histories()
+        stats = coach.build_category_stats(histories)
+        cands = coach.interleave_candidates(
+            stats,
+            exam=coach.exam_readiness(histories["exam-sim"]),
+            dojo=coach.dojo_weakest_section(histories["qiskit-dojo"]),
+            diag_rungs={"math": {"total": 3, "correct": 0}},
+            review_count=9)
+        by_app = {c["app"] for c in cands}
+        assert "review queue" in by_app                 # due items
+        assert "exam-sim" in by_app                     # weak exam section
+        assert "qiskit-dojo" in by_app                  # lowest kata section
+        assert "math-quiz" in by_app                    # weak category + rung
+        whys = " | ".join(c["why"] for c in cands)
+        assert "item(s) due" in whys and "weakest, avg" in whys
+        assert "untouched" in whys and "diagnostic" in whys
+        assert all(set(c) == {"app", "topic", "area", "priority", "pinned",
+                              "why", "action"} for c in cands)
+
+    def test_solid_categories_are_never_candidates(self, data_dir, now):
+        h = empty_histories()
+        h["quantum-quiz"] = [{"timestamp": now, "records": [
+            {"topic": "shor", "score": 10}, {"topic": "grover", "score": 1}]}]
+        cands = coach.interleave_candidates(coach.build_category_stats(h))
+        assert [c["topic"] for c in cands] == ["grover"]
+
+    def test_the_review_queue_and_the_exam_target_are_pinned(self):
+        cands = coach.interleave_candidates(
+            {}, review_count=3,
+            exam_week={"name": "Sampler", "weight": 12,
+                       "status": "unmeasured"})
+        assert [c["pinned"] for c in cands] == [True, True]
+        assert cands[0]["app"] == "review queue"
+        assert "12% of the exam" in cands[1]["why"]
+
+    def test_no_candidates_without_signals(self):
+        assert coach.interleave_candidates({}) == []
+
+    def test_dedupe_keeps_the_most_urgent_row_and_any_pin(self):
+        rows = coach._dedupe_candidates([
+            cand("exam-sim", "Sampler", 6.0, pinned=True),
+            cand("exam-sim", "sampler", 2.0),
+            cand("math-quiz", "eigenvalues", 4.0)])
+        assert len(rows) == 2
+        sampler = next(r for r in rows if r["app"] == "exam-sim")
+        assert sampler["priority"] == 2.0 and sampler["pinned"] is True
+
+
+class TestMixedSession:
+    def _blocks(self, *pairs, **kw):
+        return coach.build_mixed_session(
+            [cand(app, topic, i) for i, (app, topic) in enumerate(pairs)],
+            **kw)
+
+    def test_consecutive_blocks_change_both_app_and_area(self):
+        mixed = self._blocks(("quantum-quiz", "grover"),
+                             ("quantum-quiz", "shor"),
+                             ("math-quiz", "eigenvalues"),
+                             ("qec-trainer", "stabilizers"),
+                             ("math-quiz", "integrals"))
+        assert mixed["enough"] is True
+        blocks = mixed["blocks"]
+        assert len(blocks) == coach.INTERLEAVE_MAX_BLOCKS
+        assert mixed["clean_handovers"] == mixed["handovers"] == 4
+        for a, b in zip(blocks, blocks[1:]):
+            assert a["app"] != b["app"] and a["area"] != b["area"]
+
+    def test_it_spreads_over_apps_before_doubling_up(self):
+        # five urgent quantum-quiz topics and one from elsewhere: the mix
+        # must reach for the other app rather than take all five
+        rows = [cand("quantum-quiz", t, i) for i, t in
+                enumerate(("grover", "shor", "qft", "deutsch", "simon"))]
+        rows.append(cand("qec-trainer", "stabilizers", 9.0))
+        mixed = coach.build_mixed_session(rows)
+        assert {b["app"] for b in mixed["blocks"]} == {"quantum-quiz",
+                                                       "qec-trainer"}
+
+    def test_a_pinned_candidate_keeps_its_slot_against_the_area_rule(self):
+        # Sampler and Transpiler are both "qiskit-api": without the pin the
+        # exam target would lose to the more urgent dojo section
+        rows = [cand("qiskit-dojo", "Transpiler", 0.0),
+                cand("exam-sim", "Sampler", 0.5, pinned=True),
+                cand("math-quiz", "eigenvalues", 1.0),
+                cand("qec-trainer", "stabilizers", 2.0),
+                cand("quantum-quiz", "grover", 3.0),
+                cand("circuit-trainer", "entanglers", 4.0)]
+        blocks = coach.build_mixed_session(rows)["blocks"]
+        assert "Sampler" in [b["topic"] for b in blocks]
+
+    def test_minutes_are_split_across_the_blocks(self):
+        mixed = self._blocks(("quantum-quiz", "grover"),
+                             ("math-quiz", "eigenvalues"),
+                             ("qec-trainer", "stabilizers"))
+        assert mixed["block_minutes"] == 10
+        assert mixed["minutes"] == 30
+        assert all(b["minutes"] == 10 for b in mixed["blocks"])
+        assert self._blocks(("quantum-quiz", "grover"),
+                            ("math-quiz", "eigenvalues"),
+                            ("qec-trainer", "stabilizers"),
+                            ("vqa-trainer", "ansatz"),
+                            ("circuit-trainer", "entanglers"),
+                            )["block_minutes"] == 6
+
+    def test_a_block_never_drops_under_the_floor(self):
+        mixed = self._blocks(("quantum-quiz", "grover"),
+                             ("math-quiz", "eigenvalues"),
+                             ("qec-trainer", "stabilizers"), minutes=3)
+        assert mixed["block_minutes"] == coach.INTERLEAVE_MIN_BLOCK_MINUTES
+
+    @pytest.mark.parametrize("pairs,fragment", [
+        ((), "only 0 distinct"),
+        ((("math-quiz", "eigenvalues"),), "only 1 distinct"),
+        ((("math-quiz", "eigenvalues"), ("math-quiz", "integrals"),
+          ("math-quiz", "vectors")), "one app (math-quiz)"),
+        ((("math-quiz", "eigenvalues"), ("quantum-quiz", "matrices"),
+          ("flashcard-drill", "tensor products")), "one area (math)"),
+    ])
+    def test_it_refuses_to_call_thin_material_interleaved(self, pairs,
+                                                          fragment):
+        mixed = self._blocks(*pairs)
+        assert mixed["enough"] is False
+        assert fragment in mixed["reason"]
+
+    def test_three_topics_across_two_apps_and_areas_is_enough(self):
+        mixed = self._blocks(("math-quiz", "eigenvalues"),
+                             ("math-quiz", "integrals"),
+                             ("qec-trainer", "stabilizers"))
+        assert mixed["enough"] is True and mixed["reason"] is None
+
+    def test_the_mix_is_deterministic(self, synthetic_dir):
+        histories = coach.load_histories()
+        stats = coach.build_category_stats(histories)
+        runs = [coach.build_mixed_session(
+            coach.interleave_candidates(stats, review_count=4))
+            for _ in range(3)]
+        assert runs[0] == runs[1] == runs[2]
+
+    def test_ordering_falls_back_when_no_legal_switch_exists(self):
+        # two topics, one app, one area: the order still has to be stable
+        blocks = coach.order_interleaved([cand("math-quiz", "eigenvalues", 2.0),
+                                          cand("math-quiz", "matrices", 1.0)])
+        assert [b["topic"] for b in blocks] == ["matrices", "eigenvalues"]
+
+
+class TestPlanCarriesTheMix:
+    def test_the_synthetic_plan_is_interleaved(self, synthetic_dir):
+        plan = coach.build_plan(coach.load_histories(), coach.load_state())
+        mixed = plan["mixed"]
+        assert mixed["enough"] is True
+        assert len(mixed["blocks"]) == 5
+        assert len(mixed["apps"]) >= coach.INTERLEAVE_MIN_APPS
+        assert len(mixed["areas"]) >= coach.INTERLEAVE_MIN_AREAS
+        assert mixed["blocks"][0]["app"] == "review queue"   # due first
+        for a, b in zip(mixed["blocks"], mixed["blocks"][1:]):
+            assert a["app"] != b["app"]
+        # the blocked list is still there, unchanged, for --blocked
+        assert plan["items"][0].startswith("review queue — 9 item(s) due")
+
+    def test_an_empty_dir_cannot_interleave_and_says_so(self, data_dir):
+        plan = coach.build_plan(coach.load_histories(), coach.load_state())
+        assert plan["mixed"]["enough"] is False
+        assert "only 0 distinct" in plan["mixed"]["reason"]
+        assert len(plan["items"]) == 3          # starter plan survives
+
+    def test_the_plan_stays_deterministic_with_the_mix(self, synthetic_dir):
+        first = coach.build_plan(coach.load_histories(), coach.load_state())
+        second = coach.build_plan(coach.load_histories(), coach.load_state())
+        assert first == second
+        json.dumps(first, sort_keys=True)       # still JSON-serialisable
+
+    def test_render_plan_prints_the_mix_and_the_evidence(self, synthetic_dir,
+                                                         capsys):
+        plan = coach.build_plan(coach.load_histories(), coach.load_state())
+        coach.render_plan(plan, coach.load_state())
+        out = capsys.readouterr().out
+        assert "TODAY'S PLAN — interleaved" in out
+        assert "Rohrer" in out and "Kornell" in out
+        assert "--blocked" in out
+
+    def test_render_plan_blocked_prints_the_blocked_list(self, synthetic_dir,
+                                                         capsys):
+        plan = coach.build_plan(coach.load_histories(), coach.load_state())
+        coach.render_plan(plan, coach.load_state(), blocked=True)
+        out = capsys.readouterr().out
+        assert "TODAY'S PLAN — blocked" in out
+        assert "interleaved" not in out.split("TODAY'S PLAN")[1].split("\n")[0]
+        for item in plan["items"]:
+            assert item.split(" — ")[0] in out
+
+
+class TestInterleavingCLI:
+    def test_the_default_plan_is_mixed(self, synthetic_dir):
+        r = run_coach(["coach.py"], synthetic_dir)
+        assert r.returncode == 0, r.stderr
+        assert "TODAY'S PLAN — interleaved" in r.stdout
+        assert "Rotate on the clock" in r.stdout
+
+    def test_blocked_is_an_escape_hatch_not_a_mode(self, synthetic_dir):
+        r = run_coach(["coach.py", "--blocked"], synthetic_dir)
+        assert r.returncode == 0, r.stderr
+        assert "TODAY'S PLAN — blocked" in r.stdout
+        assert "Rotate on the clock" not in r.stdout
+        # --blocked next to a read-only mode is accepted and ignored
+        r = run_coach(["coach.py", "--readiness", "--blocked"], synthetic_dir)
+        assert r.returncode == 0, r.stderr
+        assert "Exam Readiness" in r.stdout
+
+    def test_the_help_text_documents_the_evidence(self, tmp_path):
+        r = run_coach(["coach.py", "--help"], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert "Rohrer" in r.stdout and "Kornell" in r.stdout
+        assert "interleaved" in r.stdout
+        assert list(tmp_path.iterdir()) == []
+
+
+# ---------------------------------------------------------------------------
+# Exam-date mode
+# ---------------------------------------------------------------------------
+
+class TestExamDateParsing:
+    @pytest.mark.parametrize("text,expected", [
+        ("2026-12-04", (2026, 12, 4)),
+        ("  2026-12-04  ", (2026, 12, 4)),
+        ("2026-1-5", (2026, 1, 5)),
+    ])
+    def test_valid_dates(self, text, expected):
+        assert coach.parse_exam_date(text) == date(*expected)
+
+    @pytest.mark.parametrize("text", [
+        "", "   ", "nope", "tomorrow", "2026-13-45", "2026-02-30",
+        "04/12/2026", "20261204", "2026-12-04T09:00", None, 20261204, [],
+    ])
+    def test_rubbish_is_not_a_date(self, text):
+        assert coach.parse_exam_date(text) is None
+
+    def test_setting_a_date_stores_the_canonical_string(self):
+        state = {}
+        ok, message = coach.apply_exam_date(state, " 2026-1-5 ")
+        assert ok and state["exam_date"] == "2026-01-05"
+        assert "2026-01-05" in message
+
+    @pytest.mark.parametrize("word", coach.EXAM_DATE_CLEAR_WORDS)
+    def test_clearing(self, word):
+        state = {"exam_date": "2026-12-04"}
+        ok, message = coach.apply_exam_date(state, word.upper())
+        assert ok and state["exam_date"] is None
+        assert "cleared" in message and "2026-12-04" in message
+        ok, message = coach.apply_exam_date(state, word)
+        assert ok and "nothing to clear" in message
+
+    def test_a_bad_date_changes_nothing(self):
+        state = {"exam_date": "2026-12-04"}
+        ok, message = coach.apply_exam_date(state, "2026-13-45")
+        assert ok is False
+        assert state["exam_date"] == "2026-12-04"
+        assert "is not a date" in message and "YYYY-MM-DD" in message
+
+    def test_the_state_file_round_trips_the_date(self, data_dir):
+        state = coach.load_state()
+        assert state["exam_date"] is None
+        coach.apply_exam_date(state, "2026-12-04")
+        coach.save_state(state)
+        assert coach.load_state()["exam_date"] == "2026-12-04"
+
+    def test_a_wrong_typed_state_value_is_ignored(self, data_dir):
+        coach.STATE_PATH.write_text(json.dumps({"exam_date": 20261204}))
+        assert coach.load_state()["exam_date"] is None
+
+    def test_today_date_follows_the_modules_stamp(self, monkeypatch):
+        monkeypatch.setattr(coach, "_TODAY", "2026-03-01")
+        assert coach._today_date() == date(2026, 3, 1)
+        monkeypatch.setattr(coach, "_TODAY", "not-a-day")
+        assert coach._today_date() == datetime.now().date()
+
+
+class TestExamPlan:
+    def plan(self, offset_days, readiness=None, **kw):
+        return coach.build_exam_plan(exam_state(offset_days),
+                                     empty_histories(),
+                                     readiness or fake_readiness(**kw))
+
+    def test_no_date_no_plan(self):
+        for state in ({}, {"exam_date": None}, {"exam_date": "   "}):
+            assert coach.build_exam_plan(state, empty_histories()) is None
+
+    def test_an_unusable_stored_date_is_reported_not_guessed(self):
+        xp = coach.build_exam_plan({"exam_date": "next tuesday"},
+                                   empty_histories(), fake_readiness())
+        assert xp["valid"] is False and xp["status"] == "invalid"
+        assert "unusable" in xp["countdown"] and "next tuesday" in xp["countdown"]
+        assert xp["weeks"] == [] and xp["mocks"] == []
+
+    def test_a_past_date_asks_to_be_cleared(self):
+        xp = self.plan(-30)
+        assert xp["status"] == "past" and xp["days_left"] == -30
+        assert "passed 30 day(s) ago" in xp["countdown"]
+        assert "--exam-date clear" in xp["countdown"]
+        assert xp["weeks"] == [] and xp["mocks"] == [] and xp["verdict"] is None
+
+    def test_exam_day_prescribes_nothing_new(self):
+        xp = self.plan(0)
+        assert xp["status"] == "today" and xp["days_left"] == 0
+        assert "TODAY" in xp["countdown"] and "no new material" in xp["countdown"]
+        assert xp["weeks"] == [] and xp["mocks"] == []
+        assert xp["verdict"]["status"] == "on_track"
+
+    def test_the_countdown_names_the_date_days_and_verdict(self):
+        xp = self.plan(45)
+        iso = (TODAY + timedelta(days=45)).strftime("%Y-%m-%d")
+        assert xp["countdown"] == (f"Exam: C1000-179 on {iso} — 45 day(s) "
+                                   f"(7 week(s)) to go — on track to pass.")
+
+    def test_weeks_run_backwards_from_the_exam(self):
+        xp = self.plan(56)
+        assert xp["status"] == "upcoming" and xp["weeks_left"] == 8
+        assert len(xp["weeks"]) == 8
+        assert xp["weeks"][-1]["end"] == (TODAY + timedelta(days=56)) \
+            .strftime("%Y-%m-%d")
+        assert xp["weeks"][0]["start"] == TODAY.strftime("%Y-%m-%d")
+        for earlier, later in zip(xp["weeks"], xp["weeks"][1:]):
+            assert earlier["end"] < later["start"]
+
+    def test_every_section_gets_scheduled_when_there_is_room(self):
+        xp = self.plan(56)
+        scheduled = {s["name"] for w in xp["weeks"] for s in w["sections"]}
+        assert scheduled == {n for n, _w in coach.EXAM_SECTION_WEIGHTS}
+        assert xp["unscheduled"] == []
+
+    def test_no_section_lands_in_two_consecutive_weeks(self):
+        xp = self.plan(84)
+        for earlier, later in zip(xp["weeks"], xp["weeks"][1:]):
+            assert not ({s["name"] for s in earlier["sections"]}
+                        & {s["name"] for s in later["sections"]})
+
+    def test_heavy_and_weak_sections_get_more_of_the_schedule(self):
+        # OpenQASM is the lightest section (6%) but the only weak one;
+        # Create circuits is the heaviest (18%) and solid
+        weak = fake_readiness(accuracies={n: 0.95 for n, _w
+                                          in coach.EXAM_SECTION_WEIGHTS}
+                              | {"OpenQASM": 0.20})
+        xp = self.plan(84, readiness=weak)
+        counts = Counter(s["name"] for w in xp["weeks"] for s in w["sections"])
+        assert xp["needs"][0]["name"] == "OpenQASM"
+        assert counts["OpenQASM"] == max(counts.values())
+        assert counts["OpenQASM"] > counts["Create circuits"]
+        # ... and weight still counts among the equally solid sections
+        assert counts["Create circuits"] > counts["Results analysis"]
+
+    def test_unmeasured_sections_are_treated_as_risky_not_ignored(self):
+        xp = self.plan(84, readiness=fake_readiness(
+            accuracies={"Create circuits": 0.9}))
+        names = [r["name"] for r in xp["needs"]]
+        # Create circuits is the heaviest section (18%) but the only one
+        # measured, and measured-and-good loses to every unmeasured section
+        # that carries real weight
+        assert names[0] != "Create circuits"
+        for other, weight in coach.EXAM_SECTION_WEIGHTS:
+            if other != "Create circuits" and weight >= 10:
+                assert names.index(other) < names.index("Create circuits")
+        statuses = {r["name"]: r["status"] for r in xp["needs"]}
+        assert statuses["Create circuits"] == "at 90%"
+        assert statuses["OpenQASM"] == "unmeasured"
+
+    def test_stale_evidence_is_labelled_as_such(self):
+        xp = self.plan(30, readiness=fake_readiness(stale=("Sampler",)))
+        statuses = {r["name"]: r["status"] for r in xp["needs"]}
+        assert statuses["Sampler"] == "stale evidence"
+
+    def test_a_far_future_exam_only_schedules_the_run_up(self):
+        xp = self.plan(400)
+        assert xp["weeks_left"] == 58
+        assert len(xp["weeks"]) == coach.EXAM_PLAN_MAX_WEEKS
+        assert "the final 12" in xp["lead_in"]
+        assert xp["weeks"][-1]["end"] == (TODAY + timedelta(days=400)) \
+            .strftime("%Y-%m-%d")
+
+    def test_mocks_are_spaced_and_leave_room_to_review_the_last_one(self):
+        xp = self.plan(84)
+        days = [datetime.strptime(m["date"], "%Y-%m-%d").date()
+                for m in xp["mocks"]]
+        assert days == sorted(days)
+        assert 1 <= len(days) <= coach.EXAM_PLAN_MAX_MOCKS
+        for earlier, later in zip(days, days[1:]):
+            assert (later - earlier).days >= 4
+        assert days[-1] == TODAY + timedelta(
+            days=84 - coach.EXAM_PLAN_LAST_MOCK_LEAD_DAYS)
+        assert "final rehearsal" in xp["mocks"][-1]["note"]
+        assert all(d >= TODAY for d in days)
+        assert "evidence mock" not in " ".join(m["note"] for m in xp["mocks"])
+
+    def test_thin_evidence_books_a_mock_at_once_instead_of_guessing(self):
+        xp = self.plan(84, confident=False)
+        assert xp["verdict"]["status"] == "unknown"
+        assert "too thin" in xp["verdict"]["line"]
+        assert any("68-question mock" in d for d in xp["verdict"]["detail"])
+        assert "evidence mock" in xp["mocks"][0]["note"]
+        assert xp["mocks"][0]["date"] == (TODAY + timedelta(days=2)) \
+            .strftime("%Y-%m-%d")
+        assert len(xp["mocks"]) <= coach.EXAM_PLAN_MAX_MOCKS
+
+    def test_an_imminent_exam_gets_no_mock_at_all(self):
+        xp = self.plan(2)
+        assert xp["mocks"] == []
+        assert xp["weeks"] and xp["weeks"][0]["sections"]
+
+    @pytest.mark.parametrize("low,high,status,short", [
+        (48.0, 56.0, "on_track", "on track to pass"),
+        (30.0, 40.0, "behind", "behind the pass line"),
+        (40.0, 55.0, "borderline", "too close to call"),
+    ])
+    def test_the_verdict_follows_the_readiness_band(self, low, high, status,
+                                                    short):
+        xp = self.plan(30, readiness=fake_readiness(
+            projected=(low + high) / 2, low=low, high=high))
+        assert xp["verdict"]["status"] == status
+        assert xp["verdict"]["short"] == short
+        assert short in xp["countdown"]
+
+    def test_being_behind_quantifies_the_gap_and_the_time(self):
+        xp = self.plan(10, readiness=fake_readiness(projected=35.0, low=30.0,
+                                                    high=40.0))
+        detail = " | ".join(xp["verdict"]["detail"])
+        assert "+12 question(s) in 2 week(s)" in detail
+        assert "10 day(s) left" in detail and "moving the date" in detail
+
+    def test_this_week_feeds_the_daily_plan(self, data_dir):
+        state = coach.load_state()
+        coach.apply_exam_date(state, (TODAY + timedelta(days=30))
+                              .strftime("%Y-%m-%d"))
+        plan = coach.build_plan(empty_histories(), state)
+        target = plan["exam_plan"]["this_week"][0]["name"]
+        assert any(i.startswith("exam-sim") and target in i
+                   and "exam-plan target" in i for i in plan["items"])
+        assert any(b["topic"] == target and b["pinned"]
+                   for b in plan["mixed"]["blocks"])
+
+    def test_rendering_an_upcoming_plan_prints_weeks_and_mocks(self, capsys):
+        coach.render_exam_plan(self.plan(56), standalone=True)
+        out = capsys.readouterr().out
+        assert "Exam Plan — IBM C1000-179" in out
+        assert "Sections by week" in out and "Week  1" in out
+        assert "Full mocks" in out and "Taper" in out
+        for name, _w in coach.EXAM_SECTION_WEIGHTS:
+            assert name in out
+
+    def test_rendering_a_thin_plan_never_prints_a_projection(self, capsys):
+        coach.render_exam_plan(self.plan(56, confident=False),
+                               standalone=True)
+        out = capsys.readouterr().out
+        assert "too thin to score you" in out
+        assert "projected" not in out.lower().split("sections by week")[0] \
+            .replace("no verdict", "")
+
+
+class TestExamDateCLI:
+    def test_booking_a_date_prints_the_plan_and_stores_it(self, tmp_path):
+        iso = (TODAY + timedelta(days=45)).strftime("%Y-%m-%d")
+        r = run_coach(["coach.py", "--exam-date", iso], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert f"Exam date set to {iso}" in r.stdout
+        assert "Exam Plan — IBM C1000-179" in r.stdout
+        assert "Sections by week" in r.stdout
+        state = json.loads((tmp_path / "coach_state.json").read_text())
+        assert state["exam_date"] == iso
+        assert sorted(p.name for p in tmp_path.iterdir()) == \
+            ["coach_state.json"]
+
+    def test_the_default_plan_then_counts_down(self, tmp_path):
+        iso = (TODAY + timedelta(days=45)).strftime("%Y-%m-%d")
+        run_coach(["coach.py", "--exam-date", iso], tmp_path)
+        r = run_coach(["coach.py"], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert f"Exam: C1000-179 on {iso}" in r.stdout
+        assert "week(s)) to go" in r.stdout
+        assert "EXAM PLAN" in r.stdout and "Full mocks" in r.stdout
+
+    def test_clearing_removes_it_from_the_plan(self, tmp_path):
+        iso = (TODAY + timedelta(days=45)).strftime("%Y-%m-%d")
+        run_coach(["coach.py", "--exam-date", iso], tmp_path)
+        r = run_coach(["coach.py", "--exam-date", "clear"], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert "cleared" in r.stdout
+        r = run_coach(["coach.py"], tmp_path)
+        assert "EXAM PLAN" not in r.stdout and "C1000-179 on" not in r.stdout
+
+    @pytest.mark.parametrize("bad", ["nope", "2026-13-45", "04/12/2026", ""])
+    def test_a_bad_date_exits_2_and_writes_nothing(self, tmp_path, bad):
+        r = run_coach(["coach.py", "--exam-date", bad], tmp_path)
+        assert r.returncode == 2
+        assert "is not a date" in r.stderr
+        assert r.stdout == ""
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_past_date_is_accepted_and_flagged(self, tmp_path):
+        iso = (TODAY - timedelta(days=5)).strftime("%Y-%m-%d")
+        r = run_coach(["coach.py", "--exam-date", iso], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert "already past" in r.stdout
+        r = run_coach(["coach.py"], tmp_path)
+        assert "passed" in r.stdout and "--exam-date clear" in r.stdout
+
+    def test_exam_date_is_mutually_exclusive_with_the_read_only_modes(
+            self, tmp_path):
+        r = run_coach(["coach.py", "--exam-date", "2026-12-04",
+                       "--readiness"], tmp_path)
+        assert r.returncode != 0 and "not allowed with" in r.stderr
+        assert list(tmp_path.iterdir()) == []
+
+    def test_every_pre_existing_flag_still_works(self, tmp_path):
+        for flag in ("--review", "--readiness", "--calibrate", "--badges",
+                     "--diagnostic", "--mistakes", "--calibration",
+                     "--item-analysis"):
+            r = run_coach(["coach.py", flag], tmp_path,
+                          stdin=subprocess.DEVNULL)
+            assert r.returncode == 0, (flag, r.stderr)
+
+    def test_the_dashboard_is_unaffected_by_a_booked_exam(self, tmp_path):
+        run_coach(["coach.py", "--exam-date",
+                   (TODAY + timedelta(days=45)).strftime("%Y-%m-%d")],
+                  tmp_path)
+        r = run_coach(["dashboard.py", "--no-retention"], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert "C1000-179" not in r.stdout

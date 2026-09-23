@@ -23,29 +23,27 @@ import pytest  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def isolated_data_dir(tmp_path, monkeypatch):
-    """Point every persistence path constant at a throwaway directory.
+    """Point every persistence path at a throwaway directory.
 
-    persistence honours QUANTUM_STUDY_DATA_DIR, but only at import time, and the
-    module is imported once per pytest process -- so the env var alone would
-    not give each test its own directory.  Set it (for any subprocess the test
-    spawns) AND patch the already-imported constants.
+    Since the migration to ``common.datadir`` the location is resolved on every
+    call rather than frozen into a module constant at import time, so setting
+    the environment variable is the whole fixture — there are no private names
+    left to patch.  (The subprocesses some tests spawn inherit it too.)
+
+    ``common.schema`` keeps a process-wide "already backed up this file" set so
+    a drill that logs two hundred rows makes one backup; it is cleared here so
+    each test starts a fresh backup session.
     """
-    import persistence
+    import common_path  # noqa: F401
+    from common import journal, schema
 
     data_dir = tmp_path / "quantum-study"
     monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", str(data_dir))
-    monkeypatch.setattr(persistence, "_DATA_DIR", data_dir)
-    monkeypatch.setattr(persistence, "_HISTORY_FILE", data_dir / "trainer_history.json")
-    if hasattr(persistence, "_FLAGGED_FILE"):
-        monkeypatch.setattr(persistence, "_FLAGGED_FILE", data_dir / "trainer_flagged.json")
-    for attr, name in (
-        ("_MISTAKES_FILE", "mistakes.json"),
-        ("_CONFIDENCE_FILE", "confidence.json"),
-        ("_PREFS_FILE", "trainer_prefs.json"),
-    ):
-        if hasattr(persistence, attr):
-            monkeypatch.setattr(persistence, attr, data_dir / name)
-    return data_dir
+    schema.reset_session()
+    journal.clear_write_error()
+    yield data_dir
+    schema.reset_session()
+    journal.clear_write_error()
 
 
 @pytest.fixture(scope="session")

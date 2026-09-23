@@ -5,7 +5,12 @@
 # -----------------------------------------------------
 # Installed: the three root console scripts (launch.py, coach.py, dashboard.py)
 # as top-level modules, exposed as the `quantum-study`, `quantum-coach` and
-# `quantum-dashboard` commands.
+# `quantum-dashboard` commands, plus the `common` package -- the shared code
+# the ten apps import (data-directory resolution, the mistake/confidence
+# journal, the flag store, schema versioning, errata URLs, and the Qt theme,
+# widgets and Reference screen under `common.ui`).  `common` is a real package
+# with no name clashes, so unlike the apps it installs cleanly; see
+# common/README.md for the import shim the apps use to reach it.
 #
 # NOT installed: the ten PyQt6 apps (circuit-trainer, exam-sim, flashcard-drill,
 # math-quiz, paper-drill, problem-trainer, qec-trainer, qiskit-dojo,
@@ -140,10 +145,19 @@ quantum-dashboard = "dashboard:main"
 # setuptools: three loose modules, no packages
 # ---------------------------------------------------------------------------
 [tool.setuptools]
-# Naming py-modules explicitly also switches off setuptools' automatic
-# discovery, which would otherwise try (and fail) to treat docs/, labs/,
-# notebooks/, projects/ and the ten app trees as packages.
+# Naming py-modules and packages explicitly also switches off setuptools'
+# automatic discovery, which would otherwise try (and fail) to treat docs/,
+# labs/, notebooks/, projects/ and the ten app trees as packages.
 py-modules = ["launch", "coach", "dashboard"]
+# The shared package.  Listed leaf by leaf rather than with `find`, for the
+# same reason: discovery would sweep in the app trees.  Add a line here when
+# common/ gains a sub-package.
+packages = ["common", "common.ui"]
+
+[tool.setuptools.package-data]
+# common/README.md is the migration contract (the import shim, the API surface
+# and the reconciled divergences); ship it with the code it documents.
+common = ["README.md"]
 
 
 # ---------------------------------------------------------------------------
@@ -169,8 +183,11 @@ warn_unused_configs = true
 # so run `make lint` for the current number.  Treat the target as advisory until
 # it reaches zero; only then make it a CI gate.
 # `make lint` passes these paths explicitly; listing them here means a bare
-# `mypy` at the repo root checks the same set.
-files = ["coach.py", "dashboard.py", "launch.py", "tools"]
+# `mypy` at the repo root checks the same set.  `common` is included from the
+# day it was added: it is new code with full annotations, and it is the one
+# part of the tree that ten other trees import, so it is the worst place for a
+# type error to go unnoticed.
+files = ["coach.py", "dashboard.py", "launch.py", "tools", "common"]
 # The ten app trees are excluded for now.  They are not importable side by side
 # (duplicate top-level core/, ui/, config.py — see the note at the top of this
 # file), so mypy would report "Duplicate module named ..." before it found a
@@ -207,7 +224,7 @@ branch = true
 # ("CoverageWarning: Module coach.py was never imported").  Anything imported
 # from outside this list is not measured, so the ten app trees stay out of the
 # report even when a test shells into one.
-source = ["coach", "dashboard", "launch", "tools"]
+source = ["coach", "dashboard", "launch", "tools", "common"]
 omit = [
     "tests/*",
     "*/tests/*",
