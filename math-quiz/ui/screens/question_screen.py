@@ -9,7 +9,9 @@ from PyQt6.QtCore import Qt, pyqtSignal, QElapsedTimer, QTimer
 from PyQt6.QtGui import QKeyEvent
 
 from core.models import Question
+from persistence import CONFIDENCE_LABELS
 from ui import theme
+from ui.widgets.chip_button import ChipButton
 from ui.widgets.pill_badge import make_subject_pill, make_difficulty_pill
 from config import MAX_HINT_COUNT
 
@@ -18,6 +20,7 @@ class QuestionScreen(QWidget):
     # Carries (answer_text, elapsed_seconds)
     answer_submitted = pyqtSignal(str, int)
     skip_requested = pyqtSignal()
+    confidence_opt_out = pyqtSignal()      # "Don't ask" on the confidence strip
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -25,6 +28,10 @@ class QuestionScreen(QWidget):
         self._hints: list[str] = []
         self._hints_shown = 0
         self._is_multiple_choice = False
+
+        # Confidence rating, chosen BEFORE submitting so it cannot be hindsight.
+        self._confidence: int | None = None
+        self._confidence_buttons: dict[int, ChipButton] = {}
 
         # Elapsed-time tracking
         self._elapsed_timer = QElapsedTimer()
@@ -127,6 +134,8 @@ class QuestionScreen(QWidget):
         self._answer_edit.submit_requested.connect(self._on_submit)
         a_layout.addWidget(self._answer_edit)
 
+        a_layout.addWidget(self._build_confidence_row())
+
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
@@ -149,10 +158,64 @@ class QuestionScreen(QWidget):
         splitter.addWidget(a_pane)
         splitter.setSizes([500, 220])
 
+    def _build_confidence_row(self) -> QWidget:
+        """Optional 1–4 confidence strip, shown above the Submit button.
+
+        Rated before the answer is graded so the pairing in confidence.json is
+        a genuine prediction. Skippable (just don't click), and "Don't ask"
+        turns it off for good — the preference is remembered in
+        math_settings.json and can be switched back on from the setup screen.
+        """
+        self._confidence_row = QWidget()
+        row = QHBoxLayout(self._confidence_row)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+
+        label = QLabel("How sure are you?")
+        label.setObjectName("muted")
+        label.setToolTip(
+            "Optional. Rating before you submit shows where you are "
+            "confidently wrong."
+        )
+        row.addWidget(label)
+
+        for level in sorted(CONFIDENCE_LABELS):
+            name = CONFIDENCE_LABELS[level]
+            chip = ChipButton(
+                f"{level} · {name}",
+                accessible_name=f"Confidence {level} of 4: {name}",
+                tooltip=f"Confidence {level} of 4 — {name.lower()} (optional)",
+                parent=self._confidence_row,
+            )
+            chip.clicked.connect(lambda _checked, lv=level: self._on_confidence_clicked(lv))
+            self._confidence_buttons[level] = chip
+            row.addWidget(chip)
+
+        row.addStretch()
+
+        self._confidence_optout_btn = QPushButton("Don\u2019t ask")
+        self._confidence_optout_btn.setObjectName("flat")
+        self._confidence_optout_btn.setAccessibleName(
+            "Stop asking for a confidence rating"
+        )
+        self._confidence_optout_btn.setToolTip(
+            "Hide this strip for good. Re-enable it under \u201cStudy aids\u201d "
+            "on the setup screen."
+        )
+        self._confidence_optout_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._confidence_optout_btn.setStyleSheet(
+            f"QPushButton:focus {{ border: 1px solid {theme.ACCENT}; border-radius: 4px; }}"
+        )
+        self._confidence_optout_btn.clicked.connect(self.confidence_opt_out)
+        row.addWidget(self._confidence_optout_btn)
+
+        return self._confidence_row
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def load_question(self, question: Question, number: int, total: int) -> None:
         self._question = question
+        self.clear_confidence()
         # Claude is asked for MAX_HINT_COUNT hints; cap here too so an
         # over-long list from the model never shows more than promised.
         self._hints = list(question.hints[:MAX_HINT_COUNT])
@@ -188,6 +251,35 @@ class QuestionScreen(QWidget):
         self._elapsed_label.setText("0s")
         self._elapsed_timer.start()
         self._tick_timer.start()
+
+    # ── Confidence strip ──────────────────────────────────────────────────────
+
+    def set_confidence_enabled(self, enabled: bool) -> None:
+        """Show or hide the strip; hiding also drops any pending rating."""
+        self._confidence_row.setVisible(bool(enabled))
+        if not enabled:
+            self.clear_confidence()
+
+    def confidence_enabled(self) -> bool:
+        return not self._confidence_row.isHidden()
+
+    def confidence(self) -> int | None:
+        """The chosen level (1–4), or None when the user skipped the strip."""
+        return self._confidence
+
+    def clear_confidence(self) -> None:
+        self._confidence = None
+        for chip in self._confidence_buttons.values():
+            chip.setChecked(False)
+
+    def _on_confidence_clicked(self, level: int) -> None:
+        """Single-select: clicking a chip clears the others, clicking the
+        selected chip again unselects it (the rating stays optional)."""
+        chosen = self._confidence_buttons[level].isChecked()
+        for lv, chip in self._confidence_buttons.items():
+            if lv != level:
+                chip.setChecked(False)
+        self._confidence = level if chosen else None
 
     # ── Slots ─────────────────────────────────────────────────────────────────
 

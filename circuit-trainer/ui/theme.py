@@ -83,6 +83,39 @@ QPushButton#choice_missed {{
     background-color: {WARNING}22; color: {WARNING};
     border: 2px solid {WARNING}; border-radius: 8px; padding: 12px 16px; font-size: 14px; text-align: left;
 }}
+/* ── Confidence strip + mistake-journal causes ───────────────────────────────
+   Both use text labels (never colour alone) for meaning; the selected state
+   adds a ✓ glyph as well as the accent colour. */
+QPushButton#confidence, QPushButton#cause {{
+    background-color: {SURFACE2}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 6px;
+    padding: 6px 10px; font-size: 12px;
+}}
+QPushButton#confidence:hover, QPushButton#cause:hover {{
+    background-color: {BORDER}; border-color: {ACCENT};
+}}
+QPushButton#confidence_on, QPushButton#cause_on {{
+    background-color: {SURFACE2}; color: {ACCENT};
+    border: 2px solid {ACCENT}; border-radius: 6px;
+    padding: 5px 9px; font-size: 12px; font-weight: bold;
+}}
+/* Visible keyboard focus ring on every interactive control. */
+QPushButton:focus, QPushButton#accent:focus, QPushButton#flat:focus,
+QPushButton#choice:focus, QPushButton#confidence:focus,
+QPushButton#confidence_on:focus, QPushButton#cause:focus,
+QPushButton#cause_on:focus {{
+    border: 2px solid {TEAL};
+}}
+QLineEdit {{
+    background-color: {SURFACE}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 6px;
+    padding: 6px 8px; font-size: 13px;
+}}
+QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus {{
+    border: 2px solid {TEAL};
+}}
+QCheckBox:focus {{ color: {TEAL}; }}
+QCheckBox::indicator:focus {{ border: 2px solid {TEAL}; }}
 QPlainTextEdit, QTextEdit {{
     background-color: {SURFACE}; color: {TEXT};
     border: 1px solid {BORDER}; border-radius: 6px; padding: 8px; font-size: 14px;

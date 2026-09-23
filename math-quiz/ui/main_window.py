@@ -17,7 +17,10 @@ from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
 from ui.screens.reference_screen import ReferenceScreen
 from ui.widgets.loading_overlay import LoadingOverlay
-from config import APP_NAME, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT
+from config import (
+    APP_NAME, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT,
+    SCORE_CORRECT_THRESHOLD, SCORE_PARTIAL_THRESHOLD,
+)
 
 PAGE_SETUP    = 0
 PAGE_QUESTION = 1
@@ -37,6 +40,10 @@ class MainWindow(QMainWindow):
         self._session: MathSession | None = None
         self._current_question: Question | None = None
         self._pending_elapsed: int = 0
+        # Confidence rating captured at submit time (before the grade is known)
+        # and the journal entry the "what went wrong?" row is editing.
+        self._pending_confidence: int | None = None
+        self._pending_mistake_id: str | None = None
         self._q_worker: QuestionWorker | None = None
         self._ev_worker: EvaluationWorker | None = None
 
@@ -67,10 +74,15 @@ class MainWindow(QMainWindow):
         self._question.skip_requested.connect(self._on_skip)
         self._feedback.next_question_requested.connect(self._on_next_question)
         self._feedback.flag_requested.connect(self._on_flag)
+        self._feedback.mistake_cause_chosen.connect(self._on_mistake_cause)
+        self._feedback.mistake_note_committed.connect(self._on_mistake_note)
+        self._question.confidence_opt_out.connect(self._on_confidence_opt_out)
+        self._setup.confidence_pref_changed.connect(self._on_confidence_pref_changed)
         self._summary.restart_requested.connect(self._on_restart)
         self._summary.review_mistakes.connect(self._on_review_mistakes)
         self._history.back_requested.connect(self._on_history_back)
 
+        self._apply_confidence_pref(self._load_confidence_pref())
         self._check_for_draft()
 
     def resizeEvent(self, event) -> None:
@@ -108,6 +120,8 @@ class MainWindow(QMainWindow):
         if self._current_question is None:
             return
         self._pending_elapsed = elapsed
+        # Read the rating now: after grading it would be hindsight.
+        self._pending_confidence = self._question.confidence()
         self._overlay.show_with_message(
             "Evaluating answer",
             "Claude is grading your response…",
@@ -130,9 +144,100 @@ class MainWindow(QMainWindow):
             save_draft(self._session.stats)
         except Exception:
             pass
+        self._log_confidence(evaluation)
+        # Journal first: load_evaluation() resets the "what went wrong?" row.
+        self._pending_mistake_id = self._journal_result(answer, evaluation)
         self._feedback.load_evaluation(evaluation)
         self._feedback.set_flagged(self._question_is_flagged(self._current_question))
         self._show_page(PAGE_FEEDBACK)
+
+    # ── Mistake journal ───────────────────────────────────────────────────────
+
+    def _journal_result(self, answer: str, evaluation: Evaluation) -> str | None:
+        """Log a wrong answer (cause=None), or resolve the item once it is right.
+
+        Returns the journal id the feedback row should annotate, or None.
+        A partially-correct score (4–6) neither logs nor resolves.
+        """
+        question = self._current_question
+        if question is None:
+            return None
+        try:
+            if evaluation.score < SCORE_PARTIAL_THRESHOLD:
+                from persistence import log_mistake
+                entry = log_mistake(question, answer, evaluation.model_answer)
+                return str(entry.get("id") or "") or None
+            if evaluation.score >= SCORE_CORRECT_THRESHOLD:
+                from persistence import resolve_mistake
+                resolve_mistake(question)
+        except Exception as exc:
+            self.statusBar().showMessage(f"Could not update the mistake journal: {exc}", 5000)
+        return None
+
+    def _on_mistake_cause(self, cause: str) -> None:
+        """A cause chip was clicked (empty string = the user cleared it)."""
+        self._update_mistake(cause=cause or None, note=self._feedback.mistake_note())
+
+    def _on_mistake_note(self, note: str) -> None:
+        self._update_mistake(note=note)
+
+    def _update_mistake(self, **fields) -> None:
+        if not self._pending_mistake_id:
+            return
+        try:
+            from persistence import update_mistake
+            update_mistake(self._pending_mistake_id, **fields)
+        except Exception as exc:
+            self.statusBar().showMessage(f"Could not update the mistake journal: {exc}", 5000)
+
+    # ── Confidence calibration ────────────────────────────────────────────────
+
+    def _log_confidence(self, evaluation: Evaluation) -> None:
+        """Pair the pre-answer rating with the grade (>= SCORE_CORRECT_THRESHOLD)."""
+        level = self._pending_confidence
+        self._pending_confidence = None
+        if not level or self._current_question is None:
+            return
+        try:
+            from persistence import log_confidence
+            log_confidence(
+                self._current_question, level,
+                evaluation.score >= SCORE_CORRECT_THRESHOLD,
+            )
+        except Exception as exc:
+            self.statusBar().showMessage(f"Could not record confidence: {exc}", 5000)
+
+    @staticmethod
+    def _load_confidence_pref() -> bool:
+        try:
+            from persistence import confidence_prompt_enabled
+            return confidence_prompt_enabled()
+        except Exception:
+            return True
+
+    def _apply_confidence_pref(self, enabled: bool) -> None:
+        self._question.set_confidence_enabled(enabled)
+        self._setup.set_confidence_pref(enabled)
+
+    def _save_confidence_pref(self, enabled: bool) -> None:
+        try:
+            from persistence import set_confidence_prompt_enabled
+            set_confidence_prompt_enabled(enabled)
+        except Exception as exc:
+            self.statusBar().showMessage(f"Could not save the setting: {exc}", 5000)
+
+    def _on_confidence_opt_out(self) -> None:
+        """\u201cDon\u2019t ask\u201d on the question screen: remember it and hide the strip."""
+        self._save_confidence_pref(False)
+        self._apply_confidence_pref(False)
+        self.statusBar().showMessage(
+            "Confidence ratings turned off \u2014 re-enable them under "
+            "\u201cStudy aids\u201d on the setup screen.", 6000
+        )
+
+    def _on_confidence_pref_changed(self, enabled: bool) -> None:
+        self._save_confidence_pref(enabled)
+        self._apply_confidence_pref(enabled)
 
     # ── Flag for review ───────────────────────────────────────────────────────
 

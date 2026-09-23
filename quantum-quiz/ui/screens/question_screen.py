@@ -19,6 +19,8 @@ class QuestionScreen(QWidget):
     # Carries (answer_text, elapsed_seconds)
     answer_submitted = pyqtSignal(str, int)
     skip_requested = pyqtSignal()
+    # The user asked never to be shown the confidence strip again.
+    confidence_opt_out = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -26,6 +28,9 @@ class QuestionScreen(QWidget):
         self._hints: list[str] = []
         self._hints_shown = 0
         self._is_multiple_choice = False
+        # Confidence rating for the current question (1-4), None = not rated.
+        # Always collected BEFORE the answer is graded so it cannot be hindsight.
+        self._confidence: int | None = None
 
         # Elapsed-time tracking
         self._elapsed_timer = QElapsedTimer()
@@ -127,8 +132,14 @@ class QuestionScreen(QWidget):
             "For multiple-choice: press A/B/C/D then Enter."
         )
         self._answer_edit.setMinimumHeight(110)
+        # Accessibility: Tab must leave the answer box, otherwise the confidence
+        # strip and the buttons below it are unreachable from the keyboard.
+        self._answer_edit.setTabChangesFocus(True)
+        self._answer_edit.setAccessibleName("Your answer")
         self._answer_edit.submit_requested.connect(self._on_submit)
         a_layout.addWidget(self._answer_edit)
+
+        a_layout.addWidget(self._build_confidence_row())
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
@@ -149,9 +160,98 @@ class QuestionScreen(QWidget):
         btn_row.addWidget(self._submit_btn)
 
         a_layout.addLayout(btn_row)
+        # The answer pane holds the text box, the confidence strip and the
+        # buttons: give the splitter a floor so none of them can be clipped.
+        a_pane.setMinimumHeight(a_pane.sizeHint().height())
         splitter.addWidget(a_pane)
 
-        splitter.setSizes([500, 220])
+        splitter.setSizes([460, 260])
+
+    # ── Confidence strip ──────────────────────────────────────────────────────
+
+    def _build_confidence_row(self) -> QWidget:
+        """A skippable 1-4 confidence strip, rated before the answer is graded.
+
+        Nothing here blocks submission: the strip is optional, and "Don't ask
+        again" hides it for good (remembered in quiz_settings.json).
+        """
+        from persistence import CONFIDENCE_LABELS
+
+        row = QWidget()
+        row.setAccessibleName("Confidence rating")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        prompt = QLabel("How sure are you?")
+        prompt.setObjectName("muted")
+        prompt.setToolTip(
+            "Optional. Rating your confidence before you submit is what makes\n"
+            "\"confidently wrong\" topics visible later on the History screen."
+        )
+        layout.addWidget(prompt)
+
+        self._confidence_btns: dict[int, QPushButton] = {}
+        for level, label in sorted(CONFIDENCE_LABELS.items()):
+            btn = QPushButton(f"{level} · {label}")
+            btn.setObjectName("chip")
+            btn.setCheckable(True)
+            btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            btn.setAccessibleName(f"Confidence {level} of 4: {label.lower()}")
+            btn.setAccessibleDescription(
+                "Optional confidence rating, recorded with your grade. "
+                "Select again to clear it."
+            )
+            btn.setToolTip(f"{label} — click again to clear")
+            btn.clicked.connect(lambda _checked=False, lv=level: self._on_confidence(lv))
+            layout.addWidget(btn)
+            self._confidence_btns[level] = btn
+
+        layout.addStretch()
+
+        self._confidence_optout_btn = QPushButton("Don't ask again")
+        self._confidence_optout_btn.setObjectName("flat")
+        self._confidence_optout_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._confidence_optout_btn.setAccessibleName("Stop asking for confidence ratings")
+        self._confidence_optout_btn.setToolTip(
+            "Hide the confidence strip permanently (re-enable by deleting\n"
+            "confidence_prompt_enabled from quiz_settings.json)."
+        )
+        self._confidence_optout_btn.clicked.connect(self.confidence_opt_out)
+        layout.addWidget(self._confidence_optout_btn)
+
+        self._confidence_row = row
+        return row
+
+    def _on_confidence(self, level: int) -> None:
+        # Clicking the selected chip again clears the rating (nothing is forced).
+        self._confidence = None if self._confidence == level else level
+        self._sync_confidence_buttons()
+
+    def _sync_confidence_buttons(self) -> None:
+        from persistence import CONFIDENCE_LABELS
+        for level, btn in self._confidence_btns.items():
+            selected = level == self._confidence
+            btn.setChecked(selected)
+            # Never colour alone: the selected chip also carries a check glyph.
+            label = CONFIDENCE_LABELS[level]
+            btn.setText(f"✓ {level} · {label}" if selected else f"{level} · {label}")
+
+    def set_confidence_enabled(self, enabled: bool) -> None:
+        """Show or hide the strip (persisted opt-out lives in quiz_settings.json)."""
+        self._confidence_row.setVisible(bool(enabled))
+        if not enabled:
+            self._confidence = None
+            self._sync_confidence_buttons()
+
+    def confidence_enabled(self) -> bool:
+        # isHidden(), not isVisible(): the screen itself is hidden while another
+        # page of the stack is showing, which says nothing about this row.
+        return not self._confidence_row.isHidden()
+
+    def selected_confidence(self) -> int | None:
+        """The 1-4 rating chosen for the current question, or None if skipped."""
+        return self._confidence
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -166,6 +266,8 @@ class QuestionScreen(QWidget):
         self._question = question
         self._hints = question.hints
         self._hints_shown = 0
+        self._confidence = None
+        self._sync_confidence_buttons()
         self._answer_edit.clear()
         self._hints_label.hide()
         self._hints_label.setText("")

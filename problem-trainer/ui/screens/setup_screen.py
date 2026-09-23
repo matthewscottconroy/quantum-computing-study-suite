@@ -89,6 +89,23 @@ class SetupScreen(QWidget):
         shortcuts.addStretch()
         left.addLayout(shortcuts)
 
+        left.addSpacing(10)
+        journal_lbl = QLabel("Study journal")
+        journal_lbl.setStyleSheet(
+            f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
+        left.addWidget(journal_lbl)
+
+        self._confidence_cb = QCheckBox("◔ Ask how sure I am before each answer")
+        self._confidence_cb.setAccessibleName("Ask for a confidence rating before each answer")
+        self._confidence_cb.setToolTip(
+            "Show the optional 1–4 confidence strip on every problem part and "
+            "derivation step. Pairing it with the result finds the topics you "
+            "are confidently wrong about.")
+        self._confidence_cb.setStyleSheet(f"QCheckBox {{ font-size: 12px; }}")
+        self._confidence_cb.stateChanged.connect(self._on_confidence_toggled)
+        left.addWidget(self._confidence_cb)
+        self.refresh_settings()
+
         tip = QLabel(
             "Grading and step-checking use Claude (Anthropic API key required).\n\n"
             "No key? Every part and step still offers “Show model solution” — the "
@@ -173,6 +190,22 @@ class SetupScreen(QWidget):
 
     def set_flagged_only(self, on: bool) -> None:
         self._flagged_cb.setChecked(on)
+
+    def refresh_settings(self) -> None:
+        """Mirror the persisted confidence-prompt preference on the checkbox."""
+        try:
+            enabled = persistence.confidence_prompt_enabled()
+        except Exception:
+            enabled = True
+        self._confidence_cb.blockSignals(True)    # reading must never write
+        self._confidence_cb.setChecked(enabled)
+        self._confidence_cb.blockSignals(False)
+
+    def _on_confidence_toggled(self) -> None:
+        try:
+            persistence.set_confidence_prompt_enabled(self._confidence_cb.isChecked())
+        except Exception:
+            pass
 
     def refresh_flag_filter(self) -> None:
         """Re-apply the list when the flagged-only filter is active (flags may

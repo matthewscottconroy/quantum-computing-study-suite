@@ -12,6 +12,12 @@ DATA_DIR            = Path(os.environ.get("QUANTUM_STUDY_DATA_DIR")
 HISTORY_FILE        = DATA_DIR / "paper_history.json"
 LIBRARY_FILE        = DATA_DIR / "paper_library.json"
 FLAGGED_FILE        = DATA_DIR / "paper_flagged.json"
+# Suite-wide learning-signal stores (shared with the other nine apps —
+# every app appends to the same two files, keyed by its own APP_ID).
+MISTAKES_FILE       = DATA_DIR / "mistakes.json"
+CONFIDENCE_FILE     = DATA_DIR / "confidence.json"
+# Per-app UI preferences (this app only) — e.g. the confidence-strip opt-out.
+SETTINGS_FILE       = DATA_DIR / "paper_settings.json"
 API_KEY_FILE        = Path.home() / ".config" / "quantum-study" / "api_key.txt"
 MODEL               = "claude-sonnet-4-6"
 DEFAULT_Q_COUNT     = 5

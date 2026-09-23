@@ -44,15 +44,31 @@ qiskit 2.5.2.
 - 90-minute countdown, always visible (turns red under 5 minutes; auto-submits
   at zero)
 - Question navigator: jump to any question, **flag** for review, skip and
-  return; answered/flagged/unanswered states are color-coded. The in-exam
-  flag only marks a question to return to before submitting and is **never
-  persisted** — exam-sim is the one suite app without a `*_flagged.json`
+  return; answered/flagged/unanswered states are colour-coded, and flagged
+  also draws a dashed border so the state survives without colour vision.
+  The in-exam flag only marks a question to return to before submitting and
+  is **never persisted** — exam-sim is the one suite app without a `*_flagged.json`
   review-flag file; missed questions feed the suite review queue
   (`coach.py --review`) through `exam_missed.json` instead
 - **No per-question feedback** during the exam
+- **Confidence strip** under the options: rate how sure you are (1 guessing /
+  2 unsure / 3 fairly sure / 4 certain) with keys `1`-`4` (`0` clears), or by
+  clicking a chip. Optional, per question, and asked *before* anything is
+  revealed, so it can never be hindsight; **Hide** turns it off for good (turn
+  it back on from the home screen). The rating is paired with right/wrong at
+  submit time and written to `confidence.json` — that pairing is what finds
+  *confidently wrong* topics, the unknown unknowns that sink exam scores
 - On submit: results screen with score vs the 47/68 pass bar, a per-section
   table (your % vs exam weight), and a review pane walking every missed
   question with its explanation
+- Every miss is also written to the **mistake journal** (`mistakes.json`) and
+  each review card carries a compact, skippable **"What went wrong?"** row:
+  one chip per cause (misread / didn't know / knew it, slipped / confused two
+  things / out of time / other) plus an optional one-line note. Skipping is
+  fine — the miss is logged with `cause: null` either way, so nothing is lost;
+  tagging it turns a flagged question into analysis ("nine little-endian slips
+  this month"). Answering the same question correctly later flips every row
+  for it to `resolved: true` without discarding the cause
 
 ### Sprint
 - Pick one section, 10 questions, 10-minute timer
@@ -63,6 +79,15 @@ qiskit 2.5.2.
   them with immediate feedback
 - Answer one correctly and it is removed from the missed list; miss it again
   and it stays (timestamp refreshed)
+- The same confidence strip (before **Check Answer**) and the same
+  "What went wrong?" row (on an incorrect answer) as the exam flow
+
+### Home screen
+- A one-line **mistake-journal readout**: how many of this app's mistakes are
+  still open, the most common cause among them, and how many are still
+  untagged
+- **Confidence prompt: on/off** toggle — the same opt-out the **Hide** button
+  writes, so a user who dislikes the prompt is never asked again
 
 ### History
 - Reads `exam_history.json` (read-only — the schema below is untouched)
@@ -165,8 +190,14 @@ questions with identical text or with the same snippet and answer.
 ### Tests
 
 ```bash
-cd exam-sim && python -m pytest        # ~2 s bank/allocation + offscreen Qt screens
+cd exam-sim && python -m pytest        # ~12 s bank/allocation + offscreen Qt screens
 ```
+
+`tests/test_mistake_journal.py` covers the Qt-free journal/confidence/settings
+helpers (schema, clipping, caps, atomic writes, corrupt files) and
+`tests/test_feedback_ui.py` drives the new widgets offscreen end to end
+(rate → miss → tag a cause → answer it correctly → `resolved: true`), plus the
+contrast and focus-ring rules above.
 
 One test is currently marked `xfail`: `correct_index` is 0 for 261 of the
 300 questions and the UI shows options in stored order, so "A" is the right
@@ -192,13 +223,78 @@ screen reads this file; nothing else writes it):
 ```
 
 `exam_missed.json` — one entry per currently-missed question (deduped by id;
-appended on a miss, removed when later answered correctly in Review mode):
+appended on a miss, removed when later answered correctly in Review mode).
+Unchanged by the mistake journal: it still feeds `coach.py --review`, and
+`mistakes.json` is written **in addition to** it, never instead:
 
 ```json
 [{"question_id": "cc_depth", "section": "Create circuits",
   "question": "...", "correct_answer": "3", "chosen": "4",
   "timestamp": 1724000000.0}]
 ```
+
+`mistakes.json` — the suite-wide **mistake journal** (same schema in every
+app). One row per miss occurrence, so repeats are countable; `cause` is `null`
+until you tag it on the results/review screen, and every row for an item flips
+to `resolved: true` once the item is answered correctly:
+
+```json
+[{"id": "cc_depth", "app": "exam-sim", "category": "Create circuits",
+  "question": "How deep is this circuit?", "your_answer": "4",
+  "correct_answer": "3", "cause": "knew_but_slipped",
+  "note": "counted the barrier", "timestamp": 1724000000.0,
+  "resolved": false}]
+```
+
+`cause` is one of `misread`, `didnt_know`, `knew_but_slipped`, `confused`,
+`out_of_time`, `other` — or `null` (logged, not yet categorised). The four
+text fields are clipped to 200 characters.
+
+`confidence.json` — the suite-wide **confidence-calibration** log: one row per
+graded question you rated, written when the session is submitted (exam) or the
+answer checked (review mode):
+
+```json
+[{"id": "cc_depth", "app": "exam-sim", "category": "Create circuits",
+  "confidence": 4, "correct": false, "timestamp": 1724000000.0}]
+```
+
+`exam_settings.json` — this app's own preferences (currently just
+`{"confidence_prompt": true|false}`). App-local; nothing else reads it.
+
+All three are written atomically (temp file in the same directory +
+`os.replace`, so a crash mid-write cannot truncate the journal), tolerate a
+missing or corrupt file by starting fresh instead of raising, and are capped
+so an append-only file cannot grow without bound — the newest
+`persistence.MISTAKES_CAP` (2000) and `persistence.CONFIDENCE_CAP` (5000) rows
+are kept. The pure helpers behind them (`make_mistake_entry`,
+`mistake_entry_for`, `load_mistakes`, `log_mistake`, `update_mistake_cause`,
+`resolve_mistake`, `record_mistakes`, `mistake_summary`, `log_confidence`,
+`record_confidence`, `confidence_enabled`, …) live in `persistence.py` and are
+unit-tested without Qt.
+
+---
+
+## Accessibility
+
+The confidence strip, the cause chips and the note field are all keyboard
+reachable (strong focus policy, `Tab` order, `1`-`4`/`0` shortcuts inside the
+exam and review screens) and draw a visible focus ring — the theme adds
+`:focus` rules for every button kind, radio buttons and combo boxes, widening
+the border by 1 px while shrinking the padding by 1 px so focusing something
+never shifts the layout.
+
+Nothing new signals meaning by colour alone: a selected chip gains a `✓`
+glyph, correct/incorrect lines are prefixed `✓`/`✗` as well as coloured, the
+"Logged as …" confirmation is text, and a flagged question in the navigator
+gets a **dashed** border alongside its colour (the legend says so). Every new
+control carries an accessible name, and question navigator buttons announce
+their state ("Question 7: answered, flagged, confidence 2 of 4").
+
+New text was checked against the dark palette: chip label 12.9:1, selected
+chip 7.5:1, prompts 6.2:1 on the background and 5.6:1 inside a card,
+confirmation line 6.8:1 — all above the 4.5:1 minimum, asserted in
+`tests/test_feedback_ui.py`.
 
 ---
 
@@ -220,17 +316,19 @@ exam-sim/
 │   ├── visualization/         33
 │   ├── results_analysis/      30
 │   └── openqasm/              18
-├── persistence.py             exam_history.json / exam_missed.json
+├── persistence.py             exam_history.json / exam_missed.json +
+│                              mistakes.json / confidence.json / settings
 ├── tests/                     pytest suite: bank shape, allocation, persistence, offscreen screens
 └── ui/
-    ├── theme.py               dark theme (mirrors vqa-trainer)
+    ├── theme.py               dark theme (mirrors vqa-trainer) + focus rings
+    ├── feedback.py            ConfidenceStrip + CauseRow (shared by 3 screens)
     ├── format.py              fenced-code → HTML rendering
     ├── main_window.py         screen controller
     └── screens/
-        ├── home_screen.py       mode picker + history summary + History/Reference buttons
-        ├── exam_screen.py       timer, navigator, flag/skip/return
-        ├── results_screen.py    pass bar, section table, review pane
-        ├── review_screen.py     re-answer missed questions
+        ├── home_screen.py       mode picker, history + journal summary, prompt toggle
+        ├── exam_screen.py       timer, navigator, flag/skip/return, confidence strip
+        ├── results_screen.py    pass bar, section table, review pane + cause rows
+        ├── review_screen.py     re-answer missed questions (confidence + causes)
         ├── history_screen.py    attempts table, per-section accuracy, score-trend chart
         └── reference_screen.py  in-app docs browser (renders <repo>/docs/**/*.md)
 ```

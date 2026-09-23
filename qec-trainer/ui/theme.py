@@ -49,6 +49,37 @@ QPushButton#accent:hover {{ background-color: {ACCENT2}; }}
 QPushButton#accent:disabled {{ background-color: {SURFACE2}; color: {TEXT_MUTED}; }}
 QPushButton#flat {{ background: transparent; border: none; color: {ACCENT}; padding: 4px 8px; }}
 QPushButton#flat:hover {{ color: {TEXT}; }}
+
+/* Keyboard focus must always be visible. Each rule keeps the widget the same
+   size as its unfocused state so tabbing never shifts the layout. */
+QPushButton:focus {{ border: 2px solid {ACCENT}; padding: 7px 17px; }}
+QPushButton#accent:focus {{ border: 2px solid {TEXT}; padding: 8px 26px; }}
+QPushButton#flat:focus {{ border: 2px solid {ACCENT}; border-radius: 4px; padding: 2px 6px; color: {TEXT}; }}
+QRadioButton:focus {{ border: 1px dashed {ACCENT}; border-radius: 4px; }}
+QCheckBox:focus {{ border: 1px dashed {ACCENT}; border-radius: 4px; }}
+QComboBox:focus, QSpinBox:focus {{ border-color: {ACCENT}; }}
+QLineEdit {{
+    background-color: {SURFACE}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 6px;
+    padding: 5px 8px; font-size: 13px; selection-background-color: {ACCENT2};
+}}
+QLineEdit:focus {{ border: 2px solid {ACCENT}; padding: 4px 7px; }}
+
+/* Confidence strip and mistake-journal cause pills. Both are plain buttons so
+   they are tab-reachable; the chosen one is marked with a glyph in its text as
+   well as the accent fill, never by colour alone. */
+QPushButton#pill {{
+    background-color: {SURFACE2}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 12px;
+    padding: 5px 12px; font-size: 12px;
+}}
+QPushButton#pill:hover {{ background-color: {BORDER}; border-color: {ACCENT}; }}
+QPushButton#pill:checked {{
+    background-color: {ACCENT}; color: {BG};
+    border-color: {ACCENT}; font-weight: bold;
+}}
+QPushButton#pill:focus {{ border: 2px solid {ACCENT}; padding: 4px 11px; }}
+QPushButton#pill:disabled {{ color: {TEXT_MUTED}; border-color: {SURFACE2}; }}
 QPlainTextEdit {{
     background-color: {SURFACE}; color: {TEXT};
     border: 1px solid {BORDER}; border-radius: 6px;

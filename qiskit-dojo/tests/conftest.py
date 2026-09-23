@@ -24,6 +24,9 @@ _PERSISTENCE_PATHS = {
     "DATA_DIR": "",
     "HISTORY_FILE": "dojo_history.json",
     "FLAGGED_FILE": "dojo_flagged.json",
+    "MISTAKES_FILE": "mistakes.json",
+    "CONFIDENCE_FILE": "confidence.json",
+    "SETTINGS_FILE": "dojo_settings.json",
 }
 
 

@@ -122,12 +122,26 @@ def test_space_reveals_and_focus_stays_on_screen(qapp, card_screen):
     assert (s.total, s.got_it, s.unsure, s.missed) == (3, 1, 1, 1)
 
 
-def test_no_button_on_card_screen_can_take_focus(card_screen):
+def test_no_drill_button_on_card_screen_can_take_focus(card_screen):
+    """The drill flow must stay un-focusable so Space can never click a button.
+
+    The review-feedback controls (confidence strip, cause row) added on top of
+    that flow are deliberately Tab-reachable for accessibility — they are the
+    only focusable buttons allowed, and they hand focus back when activated.
+    """
     from PyQt6.QtWidgets import QPushButton
 
-    focusable = [b.text() for b in card_screen.findChildren(QPushButton)
-                 if b.focusPolicy() != Qt.FocusPolicy.NoFocus]
-    assert focusable == []
+    drill = (card_screen._end_btn, card_screen._reveal_btn, card_screen._got_btn,
+             card_screen._unsure_btn, card_screen._missed_btn, card_screen._flag_btn)
+    assert all(b.focusPolicy() == Qt.FocusPolicy.NoFocus for b in drill)
+
+    feedback = set(card_screen._confidence_btns.values()) | \
+        set(card_screen._cause_btns.values()) | \
+        {card_screen._confidence_off_btn, card_screen._cause_dismiss_btn}
+    focusable = {b for b in card_screen.findChildren(QPushButton)
+                 if b.focusPolicy() != Qt.FocusPolicy.NoFocus}
+    assert focusable == feedback
+    assert all(b.accessibleName() for b in feedback)     # screen-reader names
     assert card_screen.focusPolicy() == Qt.FocusPolicy.StrongFocus
 
 

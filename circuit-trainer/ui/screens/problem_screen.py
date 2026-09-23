@@ -5,16 +5,37 @@ Supports MULTIPLE_CHOICE (instant auto-grading) and FREE_FORM (Claude grading).
 
 from __future__ import annotations
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextBrowser, QPlainTextEdit,
-    QPushButton, QFrame, QScrollArea, QSplitter,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QTextBrowser,
+    QPlainTextEdit, QLineEdit, QPushButton, QFrame, QScrollArea, QSplitter,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QElapsedTimer, QTimer
 
 from core.models import Problem, Attempt, AnswerFormat
-from persistence import flagged_file
+from persistence import flagged_file, mistakes_file
 from ui import theme
 from ui.widgets.circuit_panel import CircuitPanel
 from ui.widgets.collapsible_panel import CollapsiblePanel
+
+
+# Confidence strip (shown BEFORE the answer is submitted, so it can never be
+# hindsight). Value -> button label; the number is part of the label so the
+# meaning never depends on position or colour.
+CONFIDENCE_CHOICES = [
+    (1, "1 · Guessing"),
+    (2, "2 · Unsure"),
+    (3, "3 · Fairly sure"),
+    (4, "4 · Certain"),
+]
+
+# "What went wrong?" causes (shared mistake-journal contract) -> button label.
+CAUSE_CHOICES = [
+    ("misread",          "Misread it"),
+    ("didnt_know",       "Didn't know"),
+    ("knew_but_slipped", "Knew but slipped"),
+    ("confused",         "Confused two things"),
+    ("out_of_time",      "Out of time"),
+    ("other",            "Other"),
+]
 
 
 class ProblemScreen(QWidget):
@@ -23,6 +44,9 @@ class ProblemScreen(QWidget):
     next_requested      = pyqtSignal()
     skip_requested      = pyqtSignal()
     flag_requested      = pyqtSignal()           # toggle "flag for review" on the shown result
+    cause_chosen        = pyqtSignal(str, str)   # mistake journal: (cause, note)
+    note_committed      = pyqtSignal(str)        # mistake journal: (note)
+    confidence_opt_out  = pyqtSignal()           # "Don't ask again" on the strip
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -31,6 +55,14 @@ class ProblemScreen(QWidget):
         self._choice_btns: list[QPushButton] = []
         self._hints: list[str] = []
         self._hints_shown = 0
+        self._confidence: int | None = None
+        self._confidence_enabled = True
+        self._conf_btns: dict[int, QPushButton] = {}
+        self._cause_btns: dict[str, QPushButton] = {}
+        self._selected_cause: str | None = None
+        self._last_note_sent = ""
+        self._mistake_shown = False
+        self._confidence_locked = False
 
         # Elapsed-time tracking
         self._elapsed_timer = QElapsedTimer()
@@ -127,11 +159,21 @@ class ProblemScreen(QWidget):
         right.setContentsMargins(24, 24, 32, 24)
         right.setSpacing(16)
 
+        self._conf_widget = self._build_confidence_strip()
+        right.addWidget(self._conf_widget)
+
         self._answer_prompt_lbl = QLabel("Select the correct answer:")
         self._answer_prompt_lbl.setStyleSheet(
             f"font-weight:bold; font-size:11px; color:{theme.TEXT_MUTED};"
         )
         right.addWidget(self._answer_prompt_lbl)
+
+        # Verdict line: the right/wrong meaning in words + a glyph, so it never
+        # depends on the green/red choice colouring alone.
+        self._verdict_lbl = QLabel("")
+        self._verdict_lbl.setWordWrap(True)
+        self._verdict_lbl.hide()
+        right.addWidget(self._verdict_lbl)
 
         self._choices_container = QVBoxLayout()
         self._choices_container.setSpacing(8)
@@ -160,6 +202,11 @@ class ProblemScreen(QWidget):
         action_row.addWidget(self._skip_btn)
         action_row.addStretch()
         right.addLayout(action_row)
+
+        # "What went wrong?" sits directly under the answer area (shown only on
+        # a miss) so it is visible without scrolling past the worked solution.
+        self._mistake_widget = self._build_mistake_row()
+        right.addWidget(self._mistake_widget)
 
         # Solution panel (hidden until answered)
         sep = QFrame()
@@ -213,8 +260,19 @@ class ProblemScreen(QWidget):
 
         right.addWidget(self._solution_widget)
         right.addStretch()
+        right_scroll.setWidget(right_widget)
 
-        nav_row = QHBoxLayout()
+        # Flag + Next live in a bar pinned below the scroll area, so they stay
+        # reachable however long the solution (and the new rows above) run.
+        nav_bar = QWidget()
+        nav_bar.setObjectName("navbar")
+        # Scoped to the bar itself: an unscoped rule here would repaint the
+        # accent "Next Problem" button flat as well.
+        nav_bar.setStyleSheet(
+            f"QWidget#navbar {{ background:{theme.SURFACE};"
+            f" border-top:1px solid {theme.BORDER}; }}")
+        nav_row = QHBoxLayout(nav_bar)
+        nav_row.setContentsMargins(24, 10, 32, 10)
         nav_row.setSpacing(10)
         # Flag-for-review toggle: only shown once a result is on screen.
         self._flag_btn = QPushButton("⚑ Flag for review")
@@ -223,6 +281,7 @@ class ProblemScreen(QWidget):
             f"Save this problem to your review list ({flagged_file()}). "
             "Click again to unflag."
         )
+        self._flag_btn.setAccessibleName("Flag this problem for review")
         self._flag_btn.clicked.connect(self.flag_requested)
         self._flag_btn.hide()
         nav_row.addWidget(self._flag_btn)
@@ -232,11 +291,108 @@ class ProblemScreen(QWidget):
         self._next_btn.setEnabled(False)
         self._next_btn.clicked.connect(self.next_requested)
         nav_row.addWidget(self._next_btn)
-        right.addLayout(nav_row)
 
-        right_scroll.setWidget(right_widget)
-        splitter.addWidget(right_scroll)
+        right_column = QWidget()
+        col = QVBoxLayout(right_column)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(0)
+        col.addWidget(right_scroll)
+        col.addWidget(nav_bar)
+
+        splitter.addWidget(right_column)
         splitter.setSizes([550, 450])
+
+    # ── Confidence strip / mistake journal widgets ────────────────────────────
+
+    def _build_confidence_strip(self) -> QWidget:
+        """Optional 1–4 self-rating shown before the answer is submitted."""
+        box = QFrame()
+        box.setObjectName("card")
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(12, 8, 12, 8)
+        lay.setSpacing(6)
+
+        hdr_row = QHBoxLayout()
+        hdr_row.setSpacing(8)
+        hdr = QLabel("Before you answer — how sure are you? (optional)")
+        hdr.setStyleSheet(f"font-size:11px; font-weight:bold; color:{theme.TEXT_MUTED};")
+        hdr.setWordWrap(True)
+        hdr_row.addWidget(hdr)
+        hdr_row.addStretch()
+        self._conf_off_btn = QPushButton("Don't ask again")
+        self._conf_off_btn.setObjectName("flat")
+        self._conf_off_btn.setAccessibleName("Turn off confidence prompts")
+        self._conf_off_btn.setToolTip(
+            "Stop asking for a confidence rating. Re-enable it on the setup screen."
+        )
+        self._conf_off_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._conf_off_btn.clicked.connect(self._on_confidence_off)
+        hdr_row.addWidget(self._conf_off_btn)
+        lay.addLayout(hdr_row)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(6)
+        for value, label in CONFIDENCE_CHOICES:
+            btn = QPushButton(label)
+            btn.setObjectName("confidence")
+            btn.setProperty("baseLabel", label)
+            btn.setAccessibleName(f"Confidence {value} of 4: {label.split('·')[1].strip()}")
+            btn.setAccessibleDescription(
+                "Optional self-rating recorded with the result; press 1 to 4 for the same thing."
+            )
+            btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            btn.clicked.connect(lambda _, v=value: self.set_confidence(v))
+            self._conf_btns[value] = btn
+            btn_row.addWidget(btn)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
+        return box
+
+    def _build_mistake_row(self) -> QWidget:
+        """Compact, skippable 'What went wrong?' row for a wrong answer."""
+        box = QFrame()
+        box.setObjectName("card")
+        box.hide()
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(8)
+
+        hdr = QLabel("What went wrong? (optional — logged either way)")
+        hdr.setWordWrap(True)
+        hdr.setStyleSheet(f"font-size:11px; font-weight:bold; color:{theme.TEXT_MUTED};")
+        lay.addWidget(hdr)
+
+        grid = QGridLayout()
+        grid.setSpacing(6)
+        for i, (cause, label) in enumerate(CAUSE_CHOICES):
+            btn = QPushButton(label)
+            btn.setObjectName("cause")
+            btn.setProperty("baseLabel", label)
+            btn.setAccessibleName(f"Cause: {label}")
+            btn.setAccessibleDescription(
+                "Records why this answer was wrong in your mistake journal."
+            )
+            btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            btn.clicked.connect(lambda _, c=cause: self._on_cause(c))
+            self._cause_btns[cause] = btn
+            grid.addWidget(btn, i // 3, i % 3)
+        lay.addLayout(grid)
+
+        self._note_edit = QLineEdit()
+        self._note_edit.setPlaceholderText("Optional one-line note (what to remember)")
+        self._note_edit.setAccessibleName("Mistake note")
+        self._note_edit.setAccessibleDescription(
+            "Optional note saved with this mistake. Press Enter to save."
+        )
+        self._note_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._note_edit.editingFinished.connect(self.commit_note)
+        lay.addWidget(self._note_edit)
+
+        box.setToolTip(
+            f"Already logged to your mistake journal ({mistakes_file()}). "
+            "Picking a cause categorises it; skipping leaves it uncategorised."
+        )
+        return box
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -254,6 +410,10 @@ class ProblemScreen(QWidget):
         self._hints_label.setText("")
         self._flag_btn.hide()
         self.set_flagged(False)
+        self._verdict_lbl.hide()
+        self._verdict_lbl.setText("")
+        self._reset_confidence()
+        self.hide_mistake_prompt()
 
         # Start elapsed timer for this problem
         self._elapsed_lbl.setText("0:00")
@@ -331,7 +491,8 @@ class ProblemScreen(QWidget):
                 else theme.PARTIAL if attempt.score >= 4
                 else theme.ERROR
             )
-            score_line = f"Score: {attempt.score}/10\n\n{attempt.feedback}"
+            glyph = ("✓" if attempt.score >= 7 else "~" if attempt.score >= 4 else "✗")
+            score_line = f"{glyph} Score: {attempt.score}/10\n\n{attempt.feedback}"
             self._solution_browser.setPlainText(score_line)
             self._solution_browser.setStyleSheet(
                 f"color: {score_color}; font-size: 14px; background: transparent; border: none;"
@@ -366,11 +527,26 @@ class ProblemScreen(QWidget):
             for i, btn in enumerate(self._choice_btns):
                 if i == correct_idx:
                     btn.setObjectName("choice_correct")
+                    btn.setAccessibleDescription("Correct answer")
                 elif i == user_idx and not attempt.is_correct:
                     btn.setObjectName("choice_wrong")
+                    btn.setAccessibleDescription("Your answer — incorrect")
                 btn.setEnabled(False)
                 btn.style().unpolish(btn)
                 btn.style().polish(btn)
+
+            # Verdict in words + glyph (never colour alone).
+            if attempt.is_correct:
+                self._verdict_lbl.setText("✓ Correct")
+                self._verdict_lbl.setStyleSheet(
+                    f"color:{theme.SUCCESS}; font-weight:bold; font-size:13px;")
+            else:
+                correct_label = (problem.choices[correct_idx]
+                                 if problem.choices else str(correct_idx))
+                self._verdict_lbl.setText(f"✗ Incorrect — correct answer: {correct_label}")
+                self._verdict_lbl.setStyleSheet(
+                    f"color:{theme.ERROR}; font-weight:bold; font-size:13px;")
+            self._verdict_lbl.show()
 
             steps_body = "\n\n".join(
                 f"Step {i+1}: {step}" for i, step in enumerate(problem.solution_steps)
@@ -396,6 +572,118 @@ class ProblemScreen(QWidget):
     def is_flagged(self) -> bool:
         return bool(getattr(self, "_flagged", False))
 
+    # ── Confidence strip ──────────────────────────────────────────────────────
+
+    def set_confidence_enabled(self, enabled: bool) -> None:
+        """Show or hide the strip (persisted opt-out lives in persistence)."""
+        self._confidence_enabled = bool(enabled)
+        self._conf_widget.setVisible(self._confidence_enabled)
+
+    def confidence_enabled(self) -> bool:
+        return self._confidence_enabled
+
+    def set_confidence(self, value: int) -> None:
+        """Select a 1–4 rating. Ignored once the answer has been submitted."""
+        if self._confidence_locked or self._answered or value not in self._conf_btns:
+            return
+        self._confidence = value
+        for val, btn in self._conf_btns.items():
+            base = btn.property("baseLabel")
+            chosen = val == value
+            btn.setText(f"✓ {base}" if chosen else base)
+            btn.setObjectName("confidence_on" if chosen else "confidence")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+    def selected_confidence(self) -> int | None:
+        """The chosen rating, or None if the user skipped the strip."""
+        return self._confidence
+
+    def _reset_confidence(self) -> None:
+        self._confidence = None
+        self._confidence_locked = False
+        for btn in self._conf_btns.values():
+            btn.setText(btn.property("baseLabel"))
+            btn.setObjectName("confidence")
+            btn.setEnabled(True)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+        self._conf_off_btn.setEnabled(True)
+        self._conf_widget.setVisible(self._confidence_enabled)
+
+    def _lock_confidence(self) -> None:
+        """Freeze the ratings at submit time so one can never be hindsight.
+
+        "Don't ask again" stays live -- being asked is exactly when someone
+        decides they do not want to be asked.
+        """
+        self._confidence_locked = True
+        for btn in self._conf_btns.values():
+            btn.setEnabled(False)
+
+    def _on_confidence_off(self) -> None:
+        self.set_confidence_enabled(False)
+        self.confidence_opt_out.emit()
+
+    # ── Mistake journal row ───────────────────────────────────────────────────
+
+    def show_mistake_prompt(self, cause: str | None = None) -> None:
+        """Reveal the skippable 'What went wrong?' row under the result."""
+        self._reset_mistake_row()
+        if cause:
+            self._mark_cause(cause)
+        self._mistake_shown = True
+        self._mistake_widget.show()
+
+    def hide_mistake_prompt(self) -> None:
+        self._reset_mistake_row()
+        self._mistake_shown = False
+        self._mistake_widget.hide()
+
+    def mistake_prompt_visible(self) -> bool:
+        return self._mistake_shown
+
+    def selected_cause(self) -> str | None:
+        return self._selected_cause
+
+    def mistake_note(self) -> str:
+        return self._note_edit.text().strip()
+
+    def commit_note(self) -> None:
+        """Emit the typed note once, when it changes (Enter, focus-out, Next)."""
+        if not self._mistake_shown:
+            return
+        note = self.mistake_note()
+        if note and note != self._last_note_sent:
+            self._last_note_sent = note
+            self.note_committed.emit(note)
+
+    def _on_cause(self, cause: str) -> None:
+        self._mark_cause(cause)
+        note = self.mistake_note()
+        self._last_note_sent = note
+        self.cause_chosen.emit(cause, note)
+
+    def _mark_cause(self, cause: str) -> None:
+        self._selected_cause = cause
+        for key, btn in self._cause_btns.items():
+            base = btn.property("baseLabel")
+            chosen = key == cause
+            btn.setText(f"✓ {base}" if chosen else base)
+            btn.setObjectName("cause_on" if chosen else "cause")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+    def _reset_mistake_row(self) -> None:
+        self._selected_cause = None
+        self._last_note_sent = ""
+        self._note_edit.clear()
+        for btn in self._cause_btns.values():
+            btn.setText(btn.property("baseLabel"))
+            btn.setObjectName("cause")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
     # ── Internals ─────────────────────────────────────────────────────────────
 
     def _elapsed_seconds(self) -> int:
@@ -411,6 +699,7 @@ class ProblemScreen(QWidget):
     def _on_choice(self, idx: int) -> None:
         if self._answered:
             return
+        self._lock_confidence()
         self.answer_submitted.emit(idx, self._elapsed_seconds())
 
     def _on_free_form_submit(self) -> None:
@@ -420,6 +709,7 @@ class ProblemScreen(QWidget):
         if not text:
             return
         self._submit_btn.setEnabled(False)
+        self._lock_confidence()
         self.free_form_submitted.emit(text, self._elapsed_seconds())
 
     def _on_hint(self) -> None:
@@ -454,6 +744,16 @@ class ProblemScreen(QWidget):
                 if idx < len(self._choice_btns):
                     self._on_choice(idx)
                     return
+            # 1/2/3/4 — set the confidence rating (before answering only)
+            digit_map = {
+                Qt.Key.Key_1: 1,
+                Qt.Key.Key_2: 2,
+                Qt.Key.Key_3: 3,
+                Qt.Key.Key_4: 4,
+            }
+            if key in digit_map and self._confidence_enabled:
+                self.set_confidence(digit_map[key])
+                return
             # Enter/Return — submit free-form answer
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 if self._free_form_edit.isVisible():

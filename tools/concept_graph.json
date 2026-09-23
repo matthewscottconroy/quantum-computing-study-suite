@@ -1,0 +1,2888 @@
+{
+  "schema": "quantum-study/concept-graph@1",
+  "description": "Curated prerequisite DAG over the study corpus.  Nodes are concepts, not files: each names the docs/lesson-plan/lab/project files that teach it and the app categories that drill it, so tools/concept_map.py can compute per-concept mastery from the shared study history.  Edges are \"needs\": A needs B means B should be solid before A makes sense.  Hand-curated -- run `tools/concept_map.py --check` after every edit.",
+  "mastery": {
+    "threshold": 0.8,
+    "min_evidence": 5.0,
+    "seen_evidence": 0.5,
+    "_comment": "threshold: decayed accuracy (0-1) a concept must reach to count as mastered.  min_evidence: decayed graded-item count required alongside it (dashboard's 14-day half-life supplies the decay).  seen_evidence: below this a concept counts as untouched rather than weak."
+  },
+  "areas": [
+    {
+      "id": "math",
+      "label": "Mathematical foundations",
+      "root": "docs/01_mathematical_foundations"
+    },
+    {
+      "id": "qm",
+      "label": "Quantum mechanics",
+      "root": "docs/02_quantum_mechanics"
+    },
+    {
+      "id": "gates",
+      "label": "Gates & circuits",
+      "root": "docs/03_quantum_gates_and_circuits"
+    },
+    {
+      "id": "algo",
+      "label": "Quantum algorithms",
+      "root": "docs/04_quantum_algorithms"
+    },
+    {
+      "id": "qec",
+      "label": "Quantum error correction",
+      "root": "docs/05_quantum_error_correction"
+    },
+    {
+      "id": "vqa",
+      "label": "Variational algorithms",
+      "root": "docs/06_variational_quantum_algorithms"
+    },
+    {
+      "id": "hw",
+      "label": "Quantum hardware",
+      "root": "docs/07_quantum_hardware"
+    },
+    {
+      "id": "adv",
+      "label": "Advanced topics",
+      "root": "docs/08_advanced_topics"
+    },
+    {
+      "id": "qml",
+      "label": "Quantum machine learning",
+      "root": "docs/09_quantum_machine_learning"
+    },
+    {
+      "id": "chem",
+      "label": "Quantum chemistry",
+      "root": "docs/10_quantum_chemistry"
+    },
+    {
+      "id": "net",
+      "label": "Quantum networking",
+      "root": "docs/11_quantum_networking"
+    },
+    {
+      "id": "qiskit",
+      "label": "Qiskit & certification",
+      "root": "lesson-plans"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "vector_spaces",
+      "label": "Vector spaces, span & independence",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/01_linear_algebra.md",
+        "lesson-plans/01-linear-algebra.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Linear Algebra"
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "complex_numbers",
+      "label": "Complex numbers, polar form & phases",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/02_complex_numbers_and_hilbert_spaces.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Complex Analysis"
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "inner_products",
+      "label": "Inner products & Dirac notation",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/01_linear_algebra.md",
+        "docs/01_mathematical_foundations/02_complex_numbers_and_hilbert_spaces.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Linear Algebra"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Linear Algebra"
+        }
+      ],
+      "needs": [
+        "vector_spaces",
+        "complex_numbers"
+      ]
+    },
+    {
+      "id": "linear_operators",
+      "label": "Linear operators & matrix representations",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/01_linear_algebra.md",
+        "lesson-plans/01-linear-algebra.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Linear Algebra"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Linear Algebra & QM Math"
+        }
+      ],
+      "needs": [
+        "inner_products"
+      ]
+    },
+    {
+      "id": "eigen_spectral",
+      "label": "Eigenvalues, diagonalisation & the spectral theorem",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/01_linear_algebra.md",
+        "docs/01_mathematical_foundations/02_complex_numbers_and_hilbert_spaces.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Linear Algebra"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Linear Algebra"
+        }
+      ],
+      "needs": [
+        "linear_operators"
+      ]
+    },
+    {
+      "id": "unitary_hermitian",
+      "label": "Hermitian & unitary operators",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/01_linear_algebra.md",
+        "docs/01_mathematical_foundations/02_complex_numbers_and_hilbert_spaces.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Linear Algebra"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Linear Algebra"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Gate Unitaries"
+        }
+      ],
+      "needs": [
+        "eigen_spectral"
+      ]
+    },
+    {
+      "id": "pauli_matrices",
+      "label": "The Pauli matrices & their algebra",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/01_linear_algebra.md",
+        "docs/03_quantum_gates_and_circuits/01_single_qubit_gates.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Pauli Matrices"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Commutators"
+        }
+      ],
+      "needs": [
+        "unitary_hermitian"
+      ]
+    },
+    {
+      "id": "hilbert_spaces",
+      "label": "Hilbert spaces, completeness & operator spectral theory",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/02_complex_numbers_and_hilbert_spaces.md",
+        "docs/01_mathematical_foundations/08_analysis_for_quantum_mechanics.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Functional Analysis"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Linear Algebra"
+        }
+      ],
+      "needs": [
+        "inner_products"
+      ]
+    },
+    {
+      "id": "tensor_products",
+      "label": "Tensor products & the partial trace",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/03_tensor_products_and_multipartite_systems.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Linear Algebra"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Linear Algebra"
+        }
+      ],
+      "needs": [
+        "linear_operators"
+      ]
+    },
+    {
+      "id": "multiqubit_registers",
+      "label": "Multi-qubit registers, basis ordering & endianness",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/03_tensor_products_and_multipartite_systems.md"
+      ],
+      "drills": [
+        {
+          "app": "Circuit Trainer",
+          "category": "Notation reading"
+        }
+      ],
+      "needs": [
+        "tensor_products"
+      ]
+    },
+    {
+      "id": "groups",
+      "label": "Groups, subgroups, cosets & homomorphisms",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/04_groups_and_abstract_algebra.md",
+        "lesson-plans/02-abstract-algebra.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Abstract Algebra"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Abstract Algebra"
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "finite_fields",
+      "label": "Rings, fields and GF(2)",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/04_groups_and_abstract_algebra.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Abstract Algebra"
+        }
+      ],
+      "needs": [
+        "groups"
+      ]
+    },
+    {
+      "id": "lie_groups",
+      "label": "Lie groups, Lie algebras & the exponential map",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/04_groups_and_abstract_algebra.md",
+        "docs/01_mathematical_foundations/08_analysis_for_quantum_mechanics.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Abstract Algebra"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Abstract Algebra"
+        }
+      ],
+      "needs": [
+        "groups",
+        "unitary_hermitian"
+      ]
+    },
+    {
+      "id": "pauli_group",
+      "label": "The Pauli group",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/04_groups_and_abstract_algebra.md",
+        "docs/05_quantum_error_correction/04_stabilizer_formalism.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Abstract Algebra"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Pauli Matrices"
+        }
+      ],
+      "needs": [
+        "groups",
+        "pauli_matrices"
+      ]
+    },
+    {
+      "id": "clifford_group",
+      "label": "The Clifford group as a normaliser",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/04_groups_and_abstract_algebra.md",
+        "docs/03_quantum_gates_and_circuits/01_single_qubit_gates.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Abstract Algebra"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Gate Unitaries"
+        }
+      ],
+      "needs": [
+        "pauli_group"
+      ]
+    },
+    {
+      "id": "representations",
+      "label": "Group representations, characters & SU(2)",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/05_representation_theory.md",
+        "lesson-plans/03-representation-theory.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Representation Theory"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Representation Theory"
+        }
+      ],
+      "needs": [
+        "groups",
+        "linear_operators"
+      ]
+    },
+    {
+      "id": "probability",
+      "label": "Probability, expectation, variance & concentration",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/06_probability_and_statistics.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Probability Theory"
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "shannon_entropy",
+      "label": "Shannon entropy & classical information measures",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/06_probability_and_statistics.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Probability Theory"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Information Theory"
+        }
+      ],
+      "needs": [
+        "probability"
+      ]
+    },
+    {
+      "id": "number_theory",
+      "label": "Divisibility, modular arithmetic & Euclid",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/07_number_theory_and_fourier_analysis.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Number Theory"
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "order_finding_math",
+      "label": "Multiplicative order, factoring reduction & continued fractions",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/07_number_theory_and_fourier_analysis.md",
+        "docs/04_quantum_algorithms/06_shors_algorithm.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Number Theory"
+        }
+      ],
+      "needs": [
+        "number_theory"
+      ]
+    },
+    {
+      "id": "dft",
+      "label": "The DFT & Fourier analysis on finite abelian groups",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/07_number_theory_and_fourier_analysis.md",
+        "docs/01_mathematical_foundations/05_representation_theory.md",
+        "docs/04_quantum_algorithms/03_quantum_fourier_transform.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Fourier Analysis"
+        },
+        {
+          "app": "Math Quiz",
+          "category": "Representation Theory"
+        }
+      ],
+      "needs": [
+        "linear_operators",
+        "complex_numbers"
+      ]
+    },
+    {
+      "id": "hidden_subgroup",
+      "label": "The hidden subgroup problem",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/05_representation_theory.md",
+        "docs/04_quantum_algorithms/06_shors_algorithm.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Representation Theory"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        }
+      ],
+      "needs": [
+        "dft",
+        "representations"
+      ]
+    },
+    {
+      "id": "series_matrix_exp",
+      "label": "Taylor series & the matrix exponential",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/08_analysis_for_quantum_mechanics.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Calculus & Real Analysis"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Linear Algebra"
+        }
+      ],
+      "needs": [
+        "eigen_spectral"
+      ]
+    },
+    {
+      "id": "odes",
+      "label": "ODEs, PDEs & separation of variables",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/08_analysis_for_quantum_mechanics.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Ordinary Differential Equations"
+        },
+        {
+          "app": "Math Quiz",
+          "category": "Partial Differential Equations"
+        }
+      ],
+      "needs": [
+        "series_matrix_exp"
+      ]
+    },
+    {
+      "id": "topology_basics",
+      "label": "Metric spaces, topology & homotopy",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/09_topology_and_geometry.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Topology & Geometry"
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "bloch_geometry",
+      "label": "The Bloch sphere as CP¹ & the Hopf fibration",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/09_topology_and_geometry.md",
+        "docs/02_quantum_mechanics/02_qubits_and_the_bloch_sphere.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Topology & Geometry"
+        }
+      ],
+      "needs": [
+        "topology_basics",
+        "qubit_state"
+      ]
+    },
+    {
+      "id": "berry_phase",
+      "label": "Geometric (Berry) phase & holonomy",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/09_topology_and_geometry.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Topology & Geometry"
+        },
+        {
+          "app": "Math Quiz",
+          "category": "Quantum Connections"
+        }
+      ],
+      "needs": [
+        "bloch_geometry",
+        "complex_numbers"
+      ]
+    },
+    {
+      "id": "homology_braids",
+      "label": "Homology, the braid group & anyonic statistics",
+      "area": "math",
+      "docs": [
+        "docs/01_mathematical_foundations/09_topology_and_geometry.md",
+        "docs/08_advanced_topics/04_topological_quantum_computation.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Topology & Geometry"
+        }
+      ],
+      "needs": [
+        "topology_basics",
+        "groups"
+      ]
+    },
+    {
+      "id": "postulates",
+      "label": "The four postulates of quantum mechanics",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/01_postulates_of_quantum_mechanics.md",
+        "lesson-plans/04-quantum-mechanics.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Mechanics"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "States & Measurement"
+        }
+      ],
+      "needs": [
+        "hilbert_spaces",
+        "unitary_hermitian"
+      ]
+    },
+    {
+      "id": "unitary_dynamics",
+      "label": "Unitary time evolution & the Schrödinger equation",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/01_postulates_of_quantum_mechanics.md",
+        "docs/02_quantum_mechanics/06_wave_mechanics_and_schrodinger.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Mechanics"
+        }
+      ],
+      "needs": [
+        "postulates",
+        "series_matrix_exp",
+        "odes"
+      ]
+    },
+    {
+      "id": "qubit_state",
+      "label": "The qubit state space & the Bloch sphere",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/02_qubits_and_the_bloch_sphere.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Mechanics"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "States & Measurement"
+        }
+      ],
+      "needs": [
+        "postulates"
+      ]
+    },
+    {
+      "id": "bloch_rotations",
+      "label": "Rotations on the Bloch sphere",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/02_qubits_and_the_bloch_sphere.md",
+        "docs/03_quantum_gates_and_circuits/01_single_qubit_gates.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Gate Unitaries"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Computing"
+        }
+      ],
+      "needs": [
+        "qubit_state",
+        "pauli_matrices",
+        "lie_groups"
+      ]
+    },
+    {
+      "id": "projective_measurement",
+      "label": "Measurement: the Born rule, projectors & POVMs",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/03_quantum_measurements.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Mechanics"
+        },
+        {
+          "app": "Circuit Trainer",
+          "category": "Measurement probabilities"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "States & Measurement"
+        }
+      ],
+      "needs": [
+        "postulates",
+        "probability"
+      ]
+    },
+    {
+      "id": "uncertainty",
+      "label": "Commutators & the uncertainty principle",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/03_quantum_measurements.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Commutators"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Mechanics"
+        }
+      ],
+      "needs": [
+        "projective_measurement",
+        "pauli_matrices"
+      ]
+    },
+    {
+      "id": "bell_states",
+      "label": "Bell states & entanglement",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/04_entanglement_and_nonlocality.md"
+      ],
+      "drills": [
+        {
+          "app": "Circuit Trainer",
+          "category": "Entanglement detection"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Info"
+        }
+      ],
+      "needs": [
+        "multiqubit_registers",
+        "qubit_state"
+      ]
+    },
+    {
+      "id": "schmidt",
+      "label": "Schmidt decomposition & entanglement entropy",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/04_entanglement_and_nonlocality.md",
+        "docs/01_mathematical_foundations/03_tensor_products_and_multipartite_systems.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Mechanics"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Info"
+        }
+      ],
+      "needs": [
+        "bell_states",
+        "eigen_spectral"
+      ]
+    },
+    {
+      "id": "bell_inequalities",
+      "label": "Bell inequalities, CHSH & nonlocality",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/04_entanglement_and_nonlocality.md",
+        "lesson-plans/08-foundations-of-quantum-mechanics.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Foundations of Quantum Mechanics"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Information Theory"
+        }
+      ],
+      "needs": [
+        "bell_states",
+        "probability"
+      ]
+    },
+    {
+      "id": "teleportation",
+      "label": "Teleportation & superdense coding",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/04_entanglement_and_nonlocality.md",
+        "docs/08_advanced_topics/02_quantum_information_theory.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Info"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Foundations of Quantum Mechanics"
+        }
+      ],
+      "needs": [
+        "bell_states",
+        "projective_measurement"
+      ]
+    },
+    {
+      "id": "density_matrices",
+      "label": "Density matrices & mixed states",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/05_density_matrices_and_open_systems.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Mechanics"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "States & Measurement"
+        }
+      ],
+      "needs": [
+        "tensor_products",
+        "postulates"
+      ]
+    },
+    {
+      "id": "cptp_channels",
+      "label": "CPTP maps & Kraus operators",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/05_density_matrices_and_open_systems.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Mechanics"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Info"
+        }
+      ],
+      "needs": [
+        "density_matrices"
+      ]
+    },
+    {
+      "id": "noise_channels",
+      "label": "Noise channels & decoherence",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/05_density_matrices_and_open_systems.md",
+        "docs/06_variational_quantum_algorithms/06_noise_and_error_mitigation.md"
+      ],
+      "drills": [
+        {
+          "app": "Circuit Trainer",
+          "category": "Noise channel"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Mechanics"
+        }
+      ],
+      "needs": [
+        "cptp_channels"
+      ]
+    },
+    {
+      "id": "wave_mechanics",
+      "label": "Wave mechanics, wells & tunnelling",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/06_wave_mechanics_and_schrodinger.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Partial Differential Equations"
+        }
+      ],
+      "needs": [
+        "odes",
+        "unitary_dynamics"
+      ]
+    },
+    {
+      "id": "harmonic_oscillator",
+      "label": "The harmonic oscillator & ladder operators",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/07_harmonic_oscillator.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Optics"
+        }
+      ],
+      "needs": [
+        "wave_mechanics"
+      ]
+    },
+    {
+      "id": "coherent_states",
+      "label": "Coherent states & the bosonic mode",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/07_harmonic_oscillator.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Optics"
+        }
+      ],
+      "needs": [
+        "harmonic_oscillator"
+      ]
+    },
+    {
+      "id": "angular_momentum",
+      "label": "Angular momentum algebra & hydrogen",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/08_angular_momentum_and_hydrogen.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Representation Theory"
+        }
+      ],
+      "needs": [
+        "representations",
+        "lie_groups",
+        "harmonic_oscillator"
+      ]
+    },
+    {
+      "id": "perturbation_theory",
+      "label": "Perturbation theory & the Rabi problem",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/09_perturbation_theory.md"
+      ],
+      "drills": [
+        {
+          "app": "Math Quiz",
+          "category": "Ordinary Differential Equations"
+        }
+      ],
+      "needs": [
+        "unitary_dynamics",
+        "angular_momentum"
+      ]
+    },
+    {
+      "id": "distance_measures",
+      "label": "Trace distance, fidelity & the diamond norm",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/10_distance_measures_and_lindblad.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Info"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Information Theory"
+        }
+      ],
+      "needs": [
+        "density_matrices",
+        "cptp_channels"
+      ]
+    },
+    {
+      "id": "lindblad",
+      "label": "The Lindblad master equation",
+      "area": "qm",
+      "docs": [
+        "docs/02_quantum_mechanics/10_distance_measures_and_lindblad.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Mechanics"
+        },
+        {
+          "app": "Math Quiz",
+          "category": "Partial Differential Equations"
+        }
+      ],
+      "needs": [
+        "cptp_channels",
+        "odes"
+      ]
+    },
+    {
+      "id": "single_qubit_gates",
+      "label": "Pauli, Hadamard and phase gates",
+      "area": "gates",
+      "docs": [
+        "docs/03_quantum_gates_and_circuits/01_single_qubit_gates.md",
+        "lesson-plans/05-quantum-computing.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Gate Unitaries"
+        },
+        {
+          "app": "Circuit Trainer",
+          "category": "Single-gate output"
+        },
+        {
+          "app": "Circuit Trainer",
+          "category": "Gate / matrix identification"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Computing"
+        }
+      ],
+      "needs": [
+        "pauli_matrices",
+        "qubit_state"
+      ]
+    },
+    {
+      "id": "rotation_gates",
+      "label": "Rotation gates, Euler decomposition & gate identities",
+      "area": "gates",
+      "docs": [
+        "docs/03_quantum_gates_and_circuits/01_single_qubit_gates.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Gate Unitaries"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Computing"
+        },
+        {
+          "app": "Circuit Trainer",
+          "category": "Gate sequence"
+        },
+        {
+          "app": "Circuit Trainer",
+          "category": "Circuit equivalence"
+        }
+      ],
+      "needs": [
+        "single_qubit_gates",
+        "bloch_rotations"
+      ]
+    },
+    {
+      "id": "two_qubit_gates",
+      "label": "Two-qubit & multi-controlled gates: CNOT, CZ, SWAP, Toffoli",
+      "area": "gates",
+      "docs": [
+        "docs/03_quantum_gates_and_circuits/02_multi_qubit_gates.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Gate Unitaries"
+        },
+        {
+          "app": "Circuit Trainer",
+          "category": "Multi-qubit circuit output"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Computing"
+        }
+      ],
+      "needs": [
+        "single_qubit_gates",
+        "multiqubit_registers"
+      ]
+    },
+    {
+      "id": "oracles",
+      "label": "Quantum oracles & reversible embedding",
+      "area": "gates",
+      "docs": [
+        "docs/03_quantum_gates_and_circuits/02_multi_qubit_gates.md",
+        "docs/04_quantum_algorithms/01_quantum_parallelism_and_interference.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Circuits & Gates"
+        }
+      ],
+      "needs": [
+        "two_qubit_gates"
+      ]
+    },
+    {
+      "id": "circuit_model",
+      "label": "The quantum circuit model & notation",
+      "area": "gates",
+      "docs": [
+        "docs/03_quantum_gates_and_circuits/03_circuit_model_and_universality.md",
+        "lesson-plans/05-quantum-computing.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Circuits"
+        },
+        {
+          "app": "Circuit Trainer",
+          "category": "Notation reading"
+        },
+        {
+          "app": "Circuit Trainer",
+          "category": "Circuit composition"
+        },
+        {
+          "app": "Circuit Trainer",
+          "category": "Circuit explanation"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Computing"
+        }
+      ],
+      "needs": [
+        "two_qubit_gates"
+      ]
+    },
+    {
+      "id": "circuit_unitaries",
+      "label": "Composing a circuit unitary",
+      "area": "gates",
+      "docs": [
+        "docs/03_quantum_gates_and_circuits/03_circuit_model_and_universality.md",
+        "docs/03_quantum_gates_and_circuits/01_single_qubit_gates.md"
+      ],
+      "drills": [
+        {
+          "app": "Circuit Trainer",
+          "category": "Circuit unitary"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Circuits & Gates"
+        }
+      ],
+      "needs": [
+        "circuit_model",
+        "tensor_products"
+      ]
+    },
+    {
+      "id": "universality",
+      "label": "Universal gate sets & Solovay-Kitaev",
+      "area": "gates",
+      "docs": [
+        "docs/03_quantum_gates_and_circuits/03_circuit_model_and_universality.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Circuits"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Computing"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Circuits & Gates"
+        }
+      ],
+      "needs": [
+        "circuit_model",
+        "clifford_group"
+      ]
+    },
+    {
+      "id": "gottesman_knill",
+      "label": "Clifford circuits & the Gottesman-Knill theorem",
+      "area": "gates",
+      "docs": [
+        "docs/03_quantum_gates_and_circuits/03_circuit_model_and_universality.md",
+        "docs/05_quantum_error_correction/04_stabilizer_formalism.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Theorems"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Abstract Algebra"
+        }
+      ],
+      "needs": [
+        "clifford_group",
+        "circuit_model"
+      ]
+    },
+    {
+      "id": "complexity_bqp",
+      "label": "BQP, QMA & quantum complexity classes",
+      "area": "gates",
+      "docs": [
+        "docs/03_quantum_gates_and_circuits/04_quantum_circuit_complexity.md",
+        "docs/08_advanced_topics/01_quantum_complexity_theory.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Complexity"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Computing"
+        }
+      ],
+      "needs": [
+        "circuit_model",
+        "probability"
+      ]
+    },
+    {
+      "id": "query_complexity",
+      "label": "Query complexity, oracle separations & the BBBV bound",
+      "area": "gates",
+      "docs": [
+        "docs/03_quantum_gates_and_circuits/04_quantum_circuit_complexity.md",
+        "docs/08_advanced_topics/01_quantum_complexity_theory.md",
+        "docs/04_quantum_algorithms/05_grover_search.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Complexity"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Theorems"
+        }
+      ],
+      "needs": [
+        "complexity_bqp",
+        "oracles",
+        "grover"
+      ]
+    },
+    {
+      "id": "ft_resource_counts",
+      "label": "Fault-tolerant resource measures: T count & depth",
+      "area": "gates",
+      "docs": [
+        "docs/03_quantum_gates_and_circuits/04_quantum_circuit_complexity.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Complexity"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Circuits"
+        }
+      ],
+      "needs": [
+        "universality"
+      ]
+    },
+    {
+      "id": "mbqc",
+      "label": "Measurement-based QC & cluster states",
+      "area": "gates",
+      "docs": [
+        "docs/03_quantum_gates_and_circuits/05_measurement_based_qc.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Circuits"
+        }
+      ],
+      "needs": [
+        "teleportation",
+        "stabilizer_formalism"
+      ]
+    },
+    {
+      "id": "superposition_interference",
+      "label": "Quantum parallelism & interference",
+      "area": "algo",
+      "docs": [
+        "docs/04_quantum_algorithms/01_quantum_parallelism_and_interference.md",
+        "lesson-plans/09-quantum-algorithm-design.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Algorithms"
+        }
+      ],
+      "needs": [
+        "circuit_model",
+        "single_qubit_gates"
+      ]
+    },
+    {
+      "id": "phase_kickback",
+      "label": "Phase kickback",
+      "area": "algo",
+      "docs": [
+        "docs/04_quantum_algorithms/01_quantum_parallelism_and_interference.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Algorithms"
+        }
+      ],
+      "needs": [
+        "superposition_interference",
+        "oracles"
+      ]
+    },
+    {
+      "id": "deutsch_jozsa",
+      "label": "Deutsch-Jozsa, Bernstein-Vazirani & Simon",
+      "area": "algo",
+      "docs": [
+        "docs/04_quantum_algorithms/02_deutsch_jozsa_and_bernstein_vazirani.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        }
+      ],
+      "needs": [
+        "phase_kickback",
+        "finite_fields"
+      ]
+    },
+    {
+      "id": "qft",
+      "label": "The quantum Fourier transform",
+      "area": "algo",
+      "docs": [
+        "docs/04_quantum_algorithms/03_quantum_fourier_transform.md",
+        "lesson-plans/09-quantum-algorithm-design.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        }
+      ],
+      "needs": [
+        "dft",
+        "rotation_gates",
+        "two_qubit_gates"
+      ]
+    },
+    {
+      "id": "qpe",
+      "label": "Quantum phase estimation",
+      "area": "algo",
+      "docs": [
+        "docs/04_quantum_algorithms/04_quantum_phase_estimation.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        }
+      ],
+      "needs": [
+        "qft",
+        "eigen_spectral"
+      ]
+    },
+    {
+      "id": "grover",
+      "label": "Grover search & the diffusion operator",
+      "area": "algo",
+      "docs": [
+        "docs/04_quantum_algorithms/05_grover_search.md",
+        "projects/project5_grover_sat.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        }
+      ],
+      "needs": [
+        "oracles",
+        "superposition_interference"
+      ]
+    },
+    {
+      "id": "amplitude_amplification",
+      "label": "Amplitude amplification & quantum counting",
+      "area": "algo",
+      "docs": [
+        "docs/04_quantum_algorithms/05_grover_search.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        }
+      ],
+      "needs": [
+        "grover",
+        "qpe"
+      ]
+    },
+    {
+      "id": "shor",
+      "label": "Shor's factoring algorithm",
+      "area": "algo",
+      "docs": [
+        "docs/04_quantum_algorithms/06_shors_algorithm.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        }
+      ],
+      "needs": [
+        "qpe",
+        "order_finding_math"
+      ]
+    },
+    {
+      "id": "hhl",
+      "label": "HHL & quantum linear systems",
+      "area": "algo",
+      "docs": [
+        "docs/04_quantum_algorithms/07_hhl_quantum_linear_systems.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        }
+      ],
+      "needs": [
+        "qpe",
+        "hamiltonian_simulation"
+      ]
+    },
+    {
+      "id": "no_cloning",
+      "label": "The no-cloning theorem",
+      "area": "algo",
+      "docs": [
+        "docs/05_quantum_error_correction/01_why_qec_is_hard.md",
+        "docs/08_advanced_topics/02_quantum_information_theory.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Theorems"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Foundations of Quantum Mechanics"
+        }
+      ],
+      "needs": [
+        "unitary_hermitian",
+        "postulates"
+      ]
+    },
+    {
+      "id": "qkd",
+      "label": "Quantum key distribution & BB84",
+      "area": "algo",
+      "docs": [
+        "docs/04_quantum_algorithms/08_quantum_cryptography.md",
+        "projects/project4_bb84.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Theorems"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Info"
+        }
+      ],
+      "needs": [
+        "no_cloning",
+        "projective_measurement"
+      ]
+    },
+    {
+      "id": "quantum_walks",
+      "label": "Discrete, Szegedy & continuous-time quantum walks",
+      "area": "algo",
+      "docs": [
+        "docs/04_quantum_algorithms/09_quantum_walks.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        }
+      ],
+      "needs": [
+        "superposition_interference",
+        "probability"
+      ]
+    },
+    {
+      "id": "qec_obstacles",
+      "label": "Why QEC is hard: cloning, continuity, collapse",
+      "area": "qec",
+      "docs": [
+        "docs/05_quantum_error_correction/01_why_qec_is_hard.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Error Correction"
+        },
+        {
+          "app": "QEC Trainer",
+          "category": "Repetition Code"
+        }
+      ],
+      "needs": [
+        "no_cloning",
+        "projective_measurement",
+        "noise_channels"
+      ]
+    },
+    {
+      "id": "classical_ecc",
+      "label": "Classical linear codes over GF(2) & the [7,4,3] Hamming code",
+      "area": "qec",
+      "docs": [
+        "docs/05_quantum_error_correction/02_classical_error_correction.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Error Correction"
+        }
+      ],
+      "needs": [
+        "finite_fields",
+        "probability"
+      ]
+    },
+    {
+      "id": "repetition_codes",
+      "label": "[[n,k,d]] codes: bit-flip, phase-flip & Shor's nine-qubit code",
+      "area": "qec",
+      "docs": [
+        "docs/05_quantum_error_correction/03_repetition_code.md"
+      ],
+      "drills": [
+        {
+          "app": "QEC Trainer",
+          "category": "Repetition Code"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Error Correction"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Error Correction"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Computing"
+        }
+      ],
+      "needs": [
+        "classical_ecc",
+        "qec_obstacles"
+      ]
+    },
+    {
+      "id": "stabilizer_formalism",
+      "label": "Stabiliser groups & stabiliser states",
+      "area": "qec",
+      "docs": [
+        "docs/05_quantum_error_correction/04_stabilizer_formalism.md",
+        "lesson-plans/05-quantum-computing.md"
+      ],
+      "drills": [
+        {
+          "app": "QEC Trainer",
+          "category": "Stabilizer Formalism"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Computing"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Representation Theory"
+        }
+      ],
+      "needs": [
+        "pauli_group",
+        "repetition_codes"
+      ]
+    },
+    {
+      "id": "syndrome_measurement",
+      "label": "Logical operators & syndrome extraction",
+      "area": "qec",
+      "docs": [
+        "docs/05_quantum_error_correction/04_stabilizer_formalism.md"
+      ],
+      "drills": [
+        {
+          "app": "QEC Trainer",
+          "category": "Stabilizer Formalism"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Error Correction"
+        }
+      ],
+      "needs": [
+        "stabilizer_formalism"
+      ]
+    },
+    {
+      "id": "css_codes",
+      "label": "The CSS construction",
+      "area": "qec",
+      "docs": [
+        "docs/05_quantum_error_correction/05_css_codes_and_steane.md"
+      ],
+      "drills": [
+        {
+          "app": "QEC Trainer",
+          "category": "Steane Code"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Computing"
+        }
+      ],
+      "needs": [
+        "stabilizer_formalism",
+        "classical_ecc"
+      ]
+    },
+    {
+      "id": "steane_code",
+      "label": "The Steane [[7,1,3]] code & transversal gates",
+      "area": "qec",
+      "docs": [
+        "docs/05_quantum_error_correction/05_css_codes_and_steane.md",
+        "projects/project3_steane_simulator.md"
+      ],
+      "drills": [
+        {
+          "app": "QEC Trainer",
+          "category": "Steane Code"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Error Correction"
+        }
+      ],
+      "needs": [
+        "css_codes",
+        "syndrome_measurement"
+      ]
+    },
+    {
+      "id": "toric_code",
+      "label": "The toric code",
+      "area": "qec",
+      "docs": [
+        "docs/05_quantum_error_correction/06_surface_code.md",
+        "docs/08_advanced_topics/04_topological_quantum_computation.md"
+      ],
+      "drills": [
+        {
+          "app": "QEC Trainer",
+          "category": "Surface Code"
+        }
+      ],
+      "needs": [
+        "stabilizer_formalism",
+        "homology_braids"
+      ]
+    },
+    {
+      "id": "surface_code",
+      "label": "The planar surface code & MWPM decoding",
+      "area": "qec",
+      "docs": [
+        "docs/05_quantum_error_correction/06_surface_code.md"
+      ],
+      "drills": [
+        {
+          "app": "QEC Trainer",
+          "category": "Surface Code"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Error Correction"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Computing"
+        }
+      ],
+      "needs": [
+        "toric_code",
+        "css_codes"
+      ]
+    },
+    {
+      "id": "threshold_theorem",
+      "label": "The threshold theorem",
+      "area": "qec",
+      "docs": [
+        "docs/05_quantum_error_correction/07_fault_tolerance.md"
+      ],
+      "drills": [
+        {
+          "app": "QEC Trainer",
+          "category": "Fault Tolerance"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Theorems"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Error Correction"
+        }
+      ],
+      "needs": [
+        "surface_code",
+        "qec_obstacles"
+      ]
+    },
+    {
+      "id": "ft_gates",
+      "label": "Fault-tolerant gates, magic states & lattice surgery",
+      "area": "qec",
+      "docs": [
+        "docs/05_quantum_error_correction/07_fault_tolerance.md"
+      ],
+      "drills": [
+        {
+          "app": "QEC Trainer",
+          "category": "Fault Tolerance"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Error Correction"
+        }
+      ],
+      "needs": [
+        "threshold_theorem",
+        "steane_code",
+        "ft_resource_counts"
+      ]
+    },
+    {
+      "id": "bosonic_codes",
+      "label": "Cat, GKP and binomial codes",
+      "area": "qec",
+      "docs": [
+        "docs/05_quantum_error_correction/08_bosonic_codes.md"
+      ],
+      "drills": [
+        {
+          "app": "QEC Trainer",
+          "category": "Bosonic Codes"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Optics"
+        }
+      ],
+      "needs": [
+        "coherent_states",
+        "stabilizer_formalism"
+      ]
+    },
+    {
+      "id": "qldpc_codes",
+      "label": "qLDPC & hypergraph product codes",
+      "area": "qec",
+      "docs": [
+        "docs/05_quantum_error_correction/09_qldpc_codes.md"
+      ],
+      "drills": [
+        {
+          "app": "QEC Trainer",
+          "category": "Surface Code"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Error Correction"
+        }
+      ],
+      "needs": [
+        "css_codes",
+        "surface_code"
+      ]
+    },
+    {
+      "id": "variational_principle",
+      "label": "The variational principle & the VQE loop",
+      "area": "vqa",
+      "docs": [
+        "docs/06_variational_quantum_algorithms/01_vqe_fundamentals.md",
+        "projects/project1_vqe_h2.md"
+      ],
+      "drills": [
+        {
+          "app": "VQA Trainer",
+          "category": "VQE Fundamentals"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "VQA"
+        }
+      ],
+      "needs": [
+        "eigen_spectral",
+        "postulates"
+      ]
+    },
+    {
+      "id": "pauli_hamiltonians",
+      "label": "Hamiltonians as Pauli sums",
+      "area": "vqa",
+      "docs": [
+        "docs/06_variational_quantum_algorithms/01_vqe_fundamentals.md"
+      ],
+      "drills": [
+        {
+          "app": "VQA Trainer",
+          "category": "VQE Fundamentals"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Many-Body Physics"
+        }
+      ],
+      "needs": [
+        "pauli_matrices",
+        "tensor_products"
+      ]
+    },
+    {
+      "id": "fermion_mappings",
+      "label": "Fermion-to-qubit mappings & qubit tapering",
+      "area": "vqa",
+      "docs": [
+        "docs/06_variational_quantum_algorithms/01_vqe_fundamentals.md",
+        "docs/08_advanced_topics/03_many_body_physics_and_simulation.md",
+        "docs/10_quantum_chemistry/02_qubit_mappings.md"
+      ],
+      "drills": [
+        {
+          "app": "VQA Trainer",
+          "category": "VQE Fundamentals"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Many-Body Physics"
+        }
+      ],
+      "needs": [
+        "pauli_hamiltonians",
+        "second_quantization"
+      ]
+    },
+    {
+      "id": "ansatz_design",
+      "label": "Ansatz design: HEA, UCCSD, HVA, ADAPT",
+      "area": "vqa",
+      "docs": [
+        "docs/06_variational_quantum_algorithms/02_ansatz_design.md"
+      ],
+      "drills": [
+        {
+          "app": "VQA Trainer",
+          "category": "Ansatz Design"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Qiskit"
+        }
+      ],
+      "needs": [
+        "variational_principle",
+        "two_qubit_gates"
+      ]
+    },
+    {
+      "id": "parameter_shift",
+      "label": "The parameter-shift rule",
+      "area": "vqa",
+      "docs": [
+        "docs/06_variational_quantum_algorithms/03_parameter_shift_gradient.md"
+      ],
+      "drills": [
+        {
+          "app": "VQA Trainer",
+          "category": "Parameter Shift"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "VQA"
+        }
+      ],
+      "needs": [
+        "rotation_gates",
+        "variational_principle"
+      ]
+    },
+    {
+      "id": "gradient_optimisers",
+      "label": "Quantum natural gradient, SPSA & shot noise",
+      "area": "vqa",
+      "docs": [
+        "docs/06_variational_quantum_algorithms/03_parameter_shift_gradient.md"
+      ],
+      "drills": [
+        {
+          "app": "VQA Trainer",
+          "category": "Parameter Shift"
+        }
+      ],
+      "needs": [
+        "parameter_shift",
+        "probability"
+      ]
+    },
+    {
+      "id": "qaoa",
+      "label": "QAOA and MaxCut",
+      "area": "vqa",
+      "docs": [
+        "docs/06_variational_quantum_algorithms/04_qaoa.md"
+      ],
+      "drills": [
+        {
+          "app": "VQA Trainer",
+          "category": "QAOA"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "VQA"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        }
+      ],
+      "needs": [
+        "ansatz_design",
+        "pauli_hamiltonians"
+      ]
+    },
+    {
+      "id": "barren_plateaus",
+      "label": "Barren plateaus",
+      "area": "vqa",
+      "docs": [
+        "docs/06_variational_quantum_algorithms/05_barren_plateaus.md"
+      ],
+      "drills": [
+        {
+          "app": "VQA Trainer",
+          "category": "Barren Plateaus"
+        }
+      ],
+      "needs": [
+        "ansatz_design",
+        "probability"
+      ]
+    },
+    {
+      "id": "error_mitigation",
+      "label": "ZNE, PEC, CDR & virtual distillation",
+      "area": "vqa",
+      "docs": [
+        "docs/06_variational_quantum_algorithms/06_noise_and_error_mitigation.md"
+      ],
+      "drills": [
+        {
+          "app": "VQA Trainer",
+          "category": "Noise & Mitigation"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Qiskit"
+        }
+      ],
+      "needs": [
+        "noise_channels",
+        "variational_principle"
+      ]
+    },
+    {
+      "id": "optimal_control",
+      "label": "GRAPE, Krotov, CRAB & the quantum speed limit",
+      "area": "vqa",
+      "docs": [
+        "docs/06_variational_quantum_algorithms/07_quantum_optimal_control.md"
+      ],
+      "drills": [
+        {
+          "app": "VQA Trainer",
+          "category": "Optimal Control"
+        }
+      ],
+      "needs": [
+        "unitary_dynamics",
+        "parameter_shift"
+      ]
+    },
+    {
+      "id": "superconducting_qubits",
+      "label": "Superconducting qubits: transmon, control & readout",
+      "area": "hw",
+      "docs": [
+        "docs/07_quantum_hardware/01_superconducting_qubits.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Hardware"
+        }
+      ],
+      "needs": [
+        "harmonic_oscillator",
+        "perturbation_theory",
+        "bloch_rotations"
+      ]
+    },
+    {
+      "id": "trapped_ions",
+      "label": "Trapped ions & the Mølmer-Sørensen gate",
+      "area": "hw",
+      "docs": [
+        "docs/07_quantum_hardware/02_trapped_ion_qubits.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Hardware"
+        }
+      ],
+      "needs": [
+        "harmonic_oscillator",
+        "angular_momentum"
+      ]
+    },
+    {
+      "id": "other_platforms",
+      "label": "Photonic, NV, Rydberg, Majorana & silicon platforms",
+      "area": "hw",
+      "docs": [
+        "docs/07_quantum_hardware/03_photonic_and_other_platforms.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Hardware"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Optics"
+        }
+      ],
+      "needs": [
+        "coherent_states",
+        "mbqc"
+      ]
+    },
+    {
+      "id": "benchmarking",
+      "label": "T1/T2, randomized benchmarking, GST & quantum volume",
+      "area": "hw",
+      "docs": [
+        "docs/07_quantum_hardware/04_benchmarking_and_characterization.md",
+        "labs/lab3_reading_calibration.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Hardware"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Mechanics"
+        }
+      ],
+      "needs": [
+        "noise_channels",
+        "clifford_group"
+      ]
+    },
+    {
+      "id": "modern_benchmarking",
+      "label": "Mirror circuits, XEB, layer fidelity & EPLG",
+      "area": "hw",
+      "docs": [
+        "docs/07_quantum_hardware/05_modern_benchmarking.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Hardware"
+        }
+      ],
+      "needs": [
+        "benchmarking"
+      ]
+    },
+    {
+      "id": "data_encoding",
+      "label": "Data encoding & quantum feature maps",
+      "area": "qml",
+      "docs": [
+        "docs/09_quantum_machine_learning/01_data_encoding.md"
+      ],
+      "drills": [],
+      "needs": [
+        "qubit_state",
+        "rotation_gates",
+        "probability"
+      ]
+    },
+    {
+      "id": "quantum_kernels",
+      "label": "Quantum kernel methods & exponential concentration",
+      "area": "qml",
+      "docs": [
+        "docs/09_quantum_machine_learning/02_quantum_kernels.md"
+      ],
+      "drills": [],
+      "needs": [
+        "data_encoding",
+        "distance_measures",
+        "barren_plateaus"
+      ]
+    },
+    {
+      "id": "entanglement_distribution",
+      "label": "Entanglement distribution & quantum networks",
+      "area": "net",
+      "docs": [
+        "docs/11_quantum_networking/01_entanglement_distribution.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Info"
+        }
+      ],
+      "needs": [
+        "teleportation",
+        "distance_measures",
+        "noise_channels"
+      ]
+    },
+    {
+      "id": "repeaters_distillation",
+      "label": "Quantum repeaters & entanglement distillation",
+      "area": "net",
+      "docs": [
+        "docs/11_quantum_networking/02_repeaters_and_distillation.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Info"
+        }
+      ],
+      "needs": [
+        "entanglement_distribution",
+        "qec_obstacles"
+      ]
+    },
+    {
+      "id": "second_quantization",
+      "label": "Second quantization & the electronic structure Hamiltonian",
+      "area": "chem",
+      "docs": [
+        "docs/10_quantum_chemistry/01_second_quantization.md"
+      ],
+      "drills": [
+        {
+          "app": "VQA Trainer",
+          "category": "VQE Fundamentals"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Many-Body Physics"
+        }
+      ],
+      "needs": [
+        "hilbert_spaces",
+        "harmonic_oscillator"
+      ]
+    },
+    {
+      "id": "active_spaces",
+      "label": "Active spaces, ansätze & chemical accuracy",
+      "area": "chem",
+      "docs": [
+        "docs/10_quantum_chemistry/03_active_spaces_and_ansatze.md"
+      ],
+      "drills": [
+        {
+          "app": "VQA Trainer",
+          "category": "Ansatz Design"
+        },
+        {
+          "app": "VQA Trainer",
+          "category": "VQE Fundamentals"
+        }
+      ],
+      "needs": [
+        "fermion_mappings",
+        "ansatz_design"
+      ]
+    },
+    {
+      "id": "beyond_vqe",
+      "label": "Beyond VQE: phase estimation, qubitization & resource estimates",
+      "area": "chem",
+      "docs": [
+        "docs/10_quantum_chemistry/04_beyond_vqe.md"
+      ],
+      "drills": [
+        {
+          "app": "VQA Trainer",
+          "category": "VQE Fundamentals"
+        }
+      ],
+      "needs": [
+        "active_spaces",
+        "qpe",
+        "qsvt"
+      ]
+    },
+    {
+      "id": "von_neumann_entropy",
+      "label": "Von Neumann entropy & quantum mutual information",
+      "area": "adv",
+      "docs": [
+        "docs/08_advanced_topics/02_quantum_information_theory.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Info"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Information Theory"
+        }
+      ],
+      "needs": [
+        "density_matrices",
+        "shannon_entropy"
+      ]
+    },
+    {
+      "id": "holevo_capacity",
+      "label": "The Holevo bound & channel capacity",
+      "area": "adv",
+      "docs": [
+        "docs/08_advanced_topics/02_quantum_information_theory.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Info"
+        },
+        {
+          "app": "Problem Trainer",
+          "category": "Information Theory"
+        }
+      ],
+      "needs": [
+        "von_neumann_entropy",
+        "cptp_channels"
+      ]
+    },
+    {
+      "id": "many_body_models",
+      "label": "Ising, Heisenberg & Hubbard models",
+      "area": "adv",
+      "docs": [
+        "docs/08_advanced_topics/03_many_body_physics_and_simulation.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Many-Body Physics"
+        }
+      ],
+      "needs": [
+        "pauli_hamiltonians"
+      ]
+    },
+    {
+      "id": "hamiltonian_simulation",
+      "label": "Trotterization & Hamiltonian simulation",
+      "area": "adv",
+      "docs": [
+        "docs/08_advanced_topics/03_many_body_physics_and_simulation.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Many-Body Physics"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        }
+      ],
+      "needs": [
+        "many_body_models",
+        "series_matrix_exp"
+      ]
+    },
+    {
+      "id": "anyons",
+      "label": "Anyons, fusion rules & non-abelian braiding",
+      "area": "adv",
+      "docs": [
+        "docs/08_advanced_topics/04_topological_quantum_computation.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Many-Body Physics"
+        }
+      ],
+      "needs": [
+        "toric_code",
+        "homology_braids"
+      ]
+    },
+    {
+      "id": "majorana_tqc",
+      "label": "Kitaev chain, Majoranas & topological QC",
+      "area": "adv",
+      "docs": [
+        "docs/08_advanced_topics/04_topological_quantum_computation.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Many-Body Physics"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Quantum Hardware"
+        }
+      ],
+      "needs": [
+        "anyons",
+        "fermion_mappings"
+      ]
+    },
+    {
+      "id": "qsvt",
+      "label": "Block encodings, quantum signal processing & QSVT",
+      "area": "adv",
+      "docs": [
+        "docs/08_advanced_topics/05_qsvt.md"
+      ],
+      "drills": [
+        {
+          "app": "Flashcard Drill",
+          "category": "Algorithms"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Quantum Algorithm Design"
+        }
+      ],
+      "needs": [
+        "qpe",
+        "distance_measures"
+      ]
+    },
+    {
+      "id": "qiskit_circuits",
+      "label": "Building circuits with QuantumCircuit",
+      "area": "qiskit",
+      "docs": [
+        "lesson-plans/06-qiskit.md",
+        "labs/lab1_account_and_first_job.md"
+      ],
+      "drills": [
+        {
+          "app": "Qiskit Dojo",
+          "category": "Create circuits"
+        },
+        {
+          "app": "Exam Simulator",
+          "category": "Create circuits"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Qiskit"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Qiskit API"
+        }
+      ],
+      "needs": [
+        "circuit_model"
+      ]
+    },
+    {
+      "id": "qiskit_operations",
+      "label": "Qiskit gate library & quantum_info operators",
+      "area": "qiskit",
+      "docs": [
+        "lesson-plans/06-qiskit.md"
+      ],
+      "drills": [
+        {
+          "app": "Qiskit Dojo",
+          "category": "Quantum operations"
+        },
+        {
+          "app": "Exam Simulator",
+          "category": "Quantum operations"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Qiskit"
+        },
+        {
+          "app": "Flashcard Drill",
+          "category": "Qiskit API"
+        }
+      ],
+      "needs": [
+        "qiskit_circuits",
+        "two_qubit_gates",
+        "circuit_unitaries"
+      ]
+    },
+    {
+      "id": "transpiling",
+      "label": "The transpiler: layout, routing & optimisation levels",
+      "area": "qiskit",
+      "docs": [
+        "lesson-plans/10-transpiling.md",
+        "projects/project2_transpiler_pass.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Transpiling"
+        }
+      ],
+      "needs": [
+        "circuit_model",
+        "universality"
+      ]
+    },
+    {
+      "id": "qiskit_run",
+      "label": "Running circuits: backends, ISA circuits, sessions & batches",
+      "area": "qiskit",
+      "docs": [
+        "lesson-plans/06-qiskit.md",
+        "labs/lab1_account_and_first_job.md",
+        "labs/lab2_sessions_and_batch.md"
+      ],
+      "drills": [
+        {
+          "app": "Qiskit Dojo",
+          "category": "Run circuits"
+        },
+        {
+          "app": "Exam Simulator",
+          "category": "Run circuits"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Qiskit"
+        }
+      ],
+      "needs": [
+        "qiskit_circuits",
+        "transpiling"
+      ]
+    },
+    {
+      "id": "sampler_primitive",
+      "label": "SamplerV2: PUBs, shots & BitArray results",
+      "area": "qiskit",
+      "docs": [
+        "lesson-plans/06-qiskit.md",
+        "lesson-plans/11-certification-prep.md"
+      ],
+      "drills": [
+        {
+          "app": "Qiskit Dojo",
+          "category": "Sampler"
+        },
+        {
+          "app": "Exam Simulator",
+          "category": "Sampler"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Qiskit"
+        }
+      ],
+      "needs": [
+        "qiskit_run",
+        "projective_measurement"
+      ]
+    },
+    {
+      "id": "estimator_primitive",
+      "label": "EstimatorV2: observables, precision & expectation values",
+      "area": "qiskit",
+      "docs": [
+        "lesson-plans/06-qiskit.md",
+        "lesson-plans/11-certification-prep.md"
+      ],
+      "drills": [
+        {
+          "app": "Qiskit Dojo",
+          "category": "Estimator"
+        },
+        {
+          "app": "Exam Simulator",
+          "category": "Estimator"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Qiskit"
+        }
+      ],
+      "needs": [
+        "qiskit_run",
+        "pauli_hamiltonians"
+      ]
+    },
+    {
+      "id": "qiskit_visualization",
+      "label": "Visualisation: histograms, Bloch, qsphere & city plots",
+      "area": "qiskit",
+      "docs": [
+        "lesson-plans/06-qiskit.md"
+      ],
+      "drills": [
+        {
+          "app": "Qiskit Dojo",
+          "category": "Visualization"
+        },
+        {
+          "app": "Exam Simulator",
+          "category": "Visualization"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Qiskit"
+        }
+      ],
+      "needs": [
+        "qiskit_circuits",
+        "qubit_state"
+      ]
+    },
+    {
+      "id": "results_analysis",
+      "label": "Results analysis: endianness, marginals & error bars",
+      "area": "qiskit",
+      "docs": [
+        "lesson-plans/06-qiskit.md",
+        "labs/lab3_reading_calibration.md"
+      ],
+      "drills": [
+        {
+          "app": "Qiskit Dojo",
+          "category": "Results analysis"
+        },
+        {
+          "app": "Exam Simulator",
+          "category": "Results analysis"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Qiskit"
+        }
+      ],
+      "needs": [
+        "sampler_primitive",
+        "estimator_primitive",
+        "probability"
+      ]
+    },
+    {
+      "id": "openqasm",
+      "label": "OpenQASM 2 and 3",
+      "area": "qiskit",
+      "docs": [
+        "lesson-plans/07-qasm.md"
+      ],
+      "drills": [
+        {
+          "app": "Qiskit Dojo",
+          "category": "OpenQASM"
+        },
+        {
+          "app": "Exam Simulator",
+          "category": "OpenQASM"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "QASM"
+        }
+      ],
+      "needs": [
+        "qiskit_circuits"
+      ]
+    },
+    {
+      "id": "qiskit_debugging",
+      "label": "Debugging Qiskit circuits & primitive calls",
+      "area": "qiskit",
+      "docs": [
+        "lesson-plans/06-qiskit.md",
+        "labs/lab5_full_workflow.md"
+      ],
+      "drills": [
+        {
+          "app": "Qiskit Dojo",
+          "category": "Debugging"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Qiskit"
+        }
+      ],
+      "needs": [
+        "qiskit_operations",
+        "sampler_primitive"
+      ]
+    },
+    {
+      "id": "qiskit_modernization",
+      "label": "Migrating legacy Qiskit code to the V2 primitives",
+      "area": "qiskit",
+      "docs": [
+        "lesson-plans/06-qiskit.md",
+        "lesson-plans/11-certification-prep.md"
+      ],
+      "drills": [
+        {
+          "app": "Qiskit Dojo",
+          "category": "Modernization"
+        },
+        {
+          "app": "Quantum Quiz",
+          "category": "Qiskit"
+        }
+      ],
+      "needs": [
+        "sampler_primitive",
+        "estimator_primitive"
+      ]
+    },
+    {
+      "id": "runtime_error_suppression",
+      "label": "Runtime error suppression & mitigation options",
+      "area": "qiskit",
+      "docs": [
+        "labs/lab4_error_suppression.md",
+        "labs/lab5_full_workflow.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Qiskit"
+        },
+        {
+          "app": "VQA Trainer",
+          "category": "Noise & Mitigation"
+        }
+      ],
+      "needs": [
+        "error_mitigation",
+        "qiskit_run"
+      ]
+    },
+    {
+      "id": "cert_exam",
+      "label": "C1000-179 exam readiness",
+      "area": "qiskit",
+      "docs": [
+        "lesson-plans/11-certification-prep.md"
+      ],
+      "drills": [
+        {
+          "app": "Quantum Quiz",
+          "category": "Qiskit Certification (C1000-179)"
+        }
+      ],
+      "needs": [
+        "qiskit_operations",
+        "results_analysis",
+        "openqasm",
+        "qiskit_visualization",
+        "qiskit_modernization"
+      ]
+    },
+    {
+      "id": "reading_papers",
+      "label": "Reading the primary literature",
+      "area": "qiskit",
+      "docs": [
+        "lesson-plans/12-reading-ladder.md"
+      ],
+      "drills": [],
+      "needs": [
+        "qsvt",
+        "surface_code",
+        "qaoa"
+      ]
+    }
+  ]
+}

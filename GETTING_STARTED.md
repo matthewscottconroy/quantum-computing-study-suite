@@ -33,9 +33,9 @@ study history in `~/.local/share/quantum-study/` (a few JSON files per app — s
 table in [README.md](README.md#shared-data-directory)), the API-key file described next
 if you create it, a Jupyter kernelspec named `quantum-study` under
 `~/.local/share/jupyter/kernels/` (only with `./setup.sh --dev`), and the usual pip and
-matplotlib caches under `~/.cache/`. `QUANTUM_STUDY_DATA_DIR`
-redirects the history directory for `coach.py`, `dashboard.py`, `launch.py` and every app
-except qec-trainer and vqa-trainer, which still use the default path.
+matplotlib caches under `~/.cache/`. `QUANTUM_STUDY_DATA_DIR` redirects the history
+directory for `coach.py`, `dashboard.py`, `launch.py`, `tools/concept_map.py` and all ten
+apps; set it before launching, since it is read at import time.
 
 ## 2. The one optional piece: an API key
 
@@ -55,7 +55,7 @@ echo "sk-ant-..." > ~/.config/quantum-study/api_key.txt
 
 What works today with **no key at all**:
 
-- **flashcard-drill** — all 550 cards on the SM-2 scheduler, fully offline
+- **flashcard-drill** — all 856 cards on the SM-2 scheduler, fully offline
 - **exam-sim** — full timed 68-question mocks, section sprints, missed-question review,
   score-trend history; fully offline
 - **qiskit-dojo** — all 72 coding katas, execution-graded locally (only the optional
@@ -68,8 +68,11 @@ What works today with **no key at all**:
 - the **Reference** button in every app (the whole `docs/` corpus, rendered in-app)
 - **docs/**, **lesson-plans/**, **notebooks/**, **labs/** (fake-backend paths),
   **projects/** — all reading and executable material
-- `python coach.py` and `python dashboard.py`, including `--readiness` and `--calibrate`
+- `python coach.py` and `python dashboard.py` in full, including `--readiness`,
+  `--calibrate`, `--mistakes`, `--calibration` and `--item-analysis`
+- `python tools/concept_map.py` — the prerequisite graph, scored against your history
 - the **phone deck** — `python tools/export_cards.py` and the published web deck below
+- the **mistake journal** and **confidence rating** in every app — both are local JSON
 
 With a key: **quantum-quiz**, **math-quiz** and **paper-drill** become live, and the
 free-form / rubric grading switches on everywhere else.
@@ -84,7 +87,7 @@ open this on your phone and use **Add to Home Screen**:
 
 **<https://matthewscottconroy.github.io/quantum-computing-study-suite/>**
 
-That is all 550 cards in one self-contained page: no app, no account, no network once it
+That is all 856 cards in one self-contained page: no app, no account, no network once it
 has loaded. Rate cards Again / Good / Easy and it schedules them for you (Leitner boxes,
 in the phone's own storage — separate from the desktop app's SM-2 schedule, which it
 never reads or writes). On your own fork, GitHub Pages has to be enabled once by hand —
@@ -145,6 +148,7 @@ The workflow every resource here is designed around:
 | docs ch. 5 (QEC) | qec-trainer |
 | docs ch. 6 (VQA) | vqa-trainer |
 | docs ch. 7–8 (hardware, advanced) | quantum-quiz |
+| docs ch. 9–11 (QML, chemistry, networking) | quantum-quiz; ch. 10 pairs with vqa-trainer |
 | any paper you're reading | paper-drill |
 
    The Chapter 1 core track is files 01–03; the extended files 04–09 are read on demand
@@ -156,38 +160,86 @@ The workflow every resource here is designed around:
    (execution-graded katas), work long-form problems and guided derivations in
    **problem-trainer**, run the executable **notebooks/** alongside each docs chapter,
    and take timed **exam-sim** mocks to measure readiness.
-5. **Flag what stumped you.** Every trainer has a **⚑ Flag for review** toggle on the
-   screen where you answer or see the verdict — the problem, card, kata, result or
-   feedback screen, depending on the app. Flag anything you got wrong for a reason
-   you can name, or got right by luck. circuit-trainer, flashcard-drill, math-quiz,
-   paper-drill, problem-trainer, qiskit-dojo and quantum-quiz list their flags (with
-   Unflag) on their History screen; qec-trainer and vqa-trainer have no flag list there —
+5. **Say how sure you are, before you look.** Every app shows an optional 1–4 strip —
+   *guessing / unsure / fairly sure / certain* — before the answer is revealed. It costs
+   one keystroke, it never affects your score, and it is the only thing in the suite that
+   can tell "right" from "right and knew it". Rate honestly; a rating you inflate buys you
+   nothing. Switch it off per app if you hate it — the setting sticks.
+6. **When you get one wrong, spend ten seconds on why.** The result screen shows six
+   cause pills — *misread / didn't know / knew but slipped / confused / out of time /
+   other* — plus an optional note. One click, then move on; the mistake is already
+   recorded either way, so skipping only costs you the category. Answering the same item
+   correctly later resolves it on its own.
+
+   This is the step people skip, and it is the one that pays. **One mistake is noise;
+   forty mistakes with causes is a diagnosis.** "Nine little-endian misreads this month"
+   tells you to slow down your reading, not to re-study endianness — and you cannot tell
+   those apart from a list of flags.
+
+   Flagging still exists and is different: **⚑ Flag for review** is a bookmark you set
+   deliberately, including on questions you got *right* by luck. circuit-trainer,
+   flashcard-drill, math-quiz, paper-drill, problem-trainer, qiskit-dojo and quantum-quiz
+   list their flags (with Unflag) on their History screen; qec-trainer and vqa-trainer
    unflag from the result screen, or run a "flagged only" session from the setup screen
    (flashcard-drill and problem-trainer offer the same session mode). exam-sim's in-exam
-   "Flag for review" is different: it only marks a question to come back to during the
-   mock; missed exam questions enter the review queue automatically.
-6. **Track and steer** with the console tools:
+   "Flag for review" is different again: it only marks a question to come back to during
+   the mock; missed exam questions enter the review queue automatically.
+7. **Track and steer** with the console tools:
    - `python coach.py` — the daily driver. Reads every app's history and prescribes
      today's session: weakest categories, due reviews, a kata, a sprint.
+   - `python coach.py --mistakes` — **the payoff for step 6.** Your mistakes ranked by
+     cause, the concepts behind each one, the last 14 days against the 14 before (so you
+     can see a cause shrinking), and the unresolved list oldest first. Weekly.
+   - `python coach.py --calibration` — **the payoff for step 5.** Your measured accuracy
+     at each confidence level against what a calibrated learner hits (roughly
+     25 / 50 / 75 / 95 % at levels 1–4), an overconfidence index, and then the list that
+     matters: **confidently wrong** — the topics you rated *fairly sure* or *certain* and
+     still got wrong. Treat those as unlearned, not as slips. Nothing else surfaces them.
+   - `python coach.py --item-analysis` — which exam-bank questions still teach you
+     something: always-missed, always-correct, mixed (the ones worth your time),
+     seen-but-undecided and never-attempted. Three attempts earn a verdict; below that
+     the question is listed as needing more.
    - `python coach.py --review` — the unified review queue: every flag from every app,
-     plus missed exam questions and recent low scores, oldest and worst first. Work
-     through it, then unflag items as they stick (History screen; result screen in
-     qec-trainer and vqa-trainer).
+     plus missed exam questions, unresolved mistakes and recent low scores, oldest and
+     worst first. Work through it, then unflag items as they stick (History screen;
+     result screen in qec-trainer and vqa-trainer).
    - `python coach.py --badges` — the IBM Quantum Learning badge checklist.
    - `python coach.py --readiness` — once you have real exam-sim and dojo history, a
      projected C1000-179 score with a confidence band and a per-section evidence table.
      It refuses to guess: with thin data it says so and tells you what would earn a
      number (one full 68-question mock covers all eight sections at once).
-   - `python coach.py --calibrate` — checks the SM-2 intervals against your measured
-     recall and says whether the schedule is running too long or too short.
-   - `python dashboard.py` — the raw mastery report, plus a retention view (weekly
-     review table and a fitted forgetting curve).
+   - `python coach.py --calibrate` — a different thing from `--calibration`: this one
+     checks the SM-2 *intervals* against your measured recall and says whether the
+     schedule is running too long or too short.
+   - `python dashboard.py` — the raw mastery report, a mistakes-by-cause panel, a
+     confidence panel, and a retention view (weekly review table and a fitted forgetting
+     curve).
 
-   If you installed the nudge on Day 1, the plan arrives on its own each morning; the
-   rest of these are worth a look weekly rather than daily.
+   Every one of these reports refuses to invent a number: with no data they say so, and
+   a confidence level with fewer than five observations is left unjudged. If you installed
+   the nudge on Day 1, the plan arrives on its own each morning; the rest are worth a look
+   weekly rather than daily.
 
-Follow the ladder order in [docs/README.md](docs/README.md) (Rung 1 → 8). The
-recommended pace and per-chapter time estimates are in that file.
+Follow the ladder order in [docs/README.md](docs/README.md) (Rung 1 → 11; rungs 9–11 —
+quantum machine learning, quantum chemistry, quantum networking — are electives, not
+prerequisites for anything below them). The recommended pace and per-chapter time
+estimates are in that file.
+
+### When you don't know what to read next
+
+The ladder is one fixed order for everyone. The concept map is *your* order:
+
+```bash
+python tools/concept_map.py --next 10
+```
+
+It loads a curated prerequisite DAG over the corpus — 128 concepts, 236 edges — scores
+every concept against your actual history using `dashboard.py`'s own decay, and lists the
+concepts whose prerequisites you have already mastered but which you have not started.
+Each row names the files that teach it and the app categories that drill it, so the answer
+is a reading list and a session, not a label. `--area qec` narrows it, `--html` writes an
+interactive graph to `exports/concept_map.html`, and `--check` validates the graph against
+the repo. With no history it simply says everything is untouched and points at layer 0.
 
 ## 5. If your goal is the IBM certification
 
@@ -218,10 +270,31 @@ cert track — the exam assumes the concepts, and tests the API.
   tools/verify_docs.py --all` from the venv). The full test suite is `make test`
   (`tools/run_tests.sh`) after `./setup.sh --dev`; see [CONTRIBUTING.md](CONTRIBUTING.md).
 - Your history lives in `~/.local/share/quantum-study/`, including the SM-2 schedule
-  (`flashcard_schedule.json`). Back it up like any other data; nothing in the suite
-  deletes it. Phone-deck and Anki progress live on those devices and are not part of it.
+  (`flashcard_schedule.json`) and the two cross-app journals (`mistakes.json`,
+  `confidence.json`). Back it up like any other data; nothing in the suite deletes it.
+  Phone-deck and Anki progress live on those devices and are not part of it.
 - The exam-sim **History** screen, `coach.py --readiness` and `dashboard.py --retention`
   are the places that show progress over time — glance at them weekly.
+
+### Studying on more than one machine
+
+Your history is what makes `coach.py` worth running, and it is per-machine by default —
+a laptop and a desktop will each prescribe from half a picture. `tools/sync_history.sh`
+turns the data directory into a git repository of its own and syncs it to a **private**
+remote you control (never this public repo, and never a submodule of it — the script
+refuses to run if the data directory sits inside this checkout):
+
+```bash
+tools/sync_history.sh init --remote <your private remote>   # once, on the first machine
+tools/sync_history.sh push                                  # commit + push
+git clone <your private remote> ~/.local/share/quantum-study   # on the second machine
+tools/sync_history.sh auto                                  # pull then push; safe from cron
+```
+
+`status` reports the remote and how far ahead or behind you are, `--dry-run` shows what
+any command would do and changes nothing, and nothing here ever force-pushes. A genuine
+conflict — the same file edited on two machines before a sync — exits 3 and leaves the
+merge to you. Sync before and after a session and the coach sees one history.
 
 ## 7. Known limitations (documented, not blockers)
 

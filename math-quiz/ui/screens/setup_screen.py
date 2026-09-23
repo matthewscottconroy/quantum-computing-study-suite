@@ -17,6 +17,7 @@ class SetupScreen(QWidget):
     quiz_started        = pyqtSignal(object)   # QuizConfig
     history_requested   = pyqtSignal()
     reference_requested = pyqtSignal()
+    confidence_pref_changed = pyqtSignal(bool)  # "ask me how sure I am" toggle
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -119,6 +120,28 @@ class SetupScreen(QWidget):
             type_card.layout().addWidget(cb)
         right.addWidget(type_card)
 
+        aids_card = self._make_card("Study aids")
+        self._confidence_cb = QCheckBox("Ask how sure I am before each answer")
+        self._confidence_cb.setChecked(True)
+        self._confidence_cb.setToolTip(
+            "Rate your confidence 1\u20134 before submitting. The pairing of "
+            "confidence and grade is what reveals the topics you are "
+            "confidently wrong about."
+        )
+        self._confidence_cb.setAccessibleName(
+            "Ask how sure I am before each answer"
+        )
+        self._confidence_cb.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # Visible keyboard focus: an accent indicator border plus an underline,
+        # so the cue is not carried by colour alone.
+        self._confidence_cb.setStyleSheet(
+            f"QCheckBox:focus {{ color: {theme.ACCENT}; text-decoration: underline; }}"
+            f"QCheckBox::indicator:focus {{ border: 1px solid {theme.ACCENT}; }}"
+        )
+        self._confidence_cb.toggled.connect(self.confidence_pref_changed)
+        aids_card.layout().addWidget(self._confidence_cb)
+        right.addWidget(aids_card)
+
         right.addStretch()
         content.addLayout(right, 2)
 
@@ -142,6 +165,19 @@ class SetupScreen(QWidget):
         self._begin_btn.clicked.connect(self._on_begin)
         btn_row.addWidget(self._begin_btn)
         root.addLayout(btn_row)
+
+    # ── Confidence preference ─────────────────────────────────────────────────
+
+    def set_confidence_pref(self, enabled: bool) -> None:
+        """Reflect the stored preference without re-emitting the change."""
+        blocked = self._confidence_cb.blockSignals(True)
+        try:
+            self._confidence_cb.setChecked(bool(enabled))
+        finally:
+            self._confidence_cb.blockSignals(blocked)
+
+    def confidence_pref(self) -> bool:
+        return self._confidence_cb.isChecked()
 
     def _make_card(self, title: str) -> QFrame:
         card = QFrame()

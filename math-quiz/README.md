@@ -30,6 +30,17 @@ by Claude with structured feedback. Lighter than `quantum-quiz` — no Qiskit de
 - **Flag for review** — bookmark any graded question from the feedback screen; flagged
   questions are listed (and can be unflagged) on the history screen and picked up by
   the suite-wide `coach.py` review queue via `math_flagged.json`
+- **Mistake journal** — a wrong answer (graded below 4/10) is recorded in the
+  suite-wide `mistakes.json` together with *why* it was wrong: one tap on
+  Misread / Didn't know / Knew but slipped / Confused / Ran out of time / Other,
+  plus an optional one-line note. A bookmark tells you *what* to revisit; the cause
+  tells you the pattern ("nine little-endian slips this month"). Answering the same
+  question correctly later resolves the entry
+- **Confidence calibration** — rate how sure you are (1 guessing → 4 certain) *before*
+  submitting, and the rating is paired with the grade in the suite-wide
+  `confidence.json`. This is what surfaces the topics you are *confidently wrong*
+  about — the unknown unknowns that sink an exam. Entirely optional, and "Don't ask"
+  turns it off for good
 
 ---
 
@@ -80,6 +91,10 @@ python main.py
 ### Question Screen
 
 - Free-text answer box
+- **How sure are you?** — an optional 1–4 confidence strip above the buttons
+  (1 Guessing · 2 Unsure · 3 Fairly sure · 4 Certain). Rate before you submit, or
+  ignore it; clicking the chosen chip again clears it. **Don't ask** hides the strip
+  permanently — re-enable it under **Study aids** on the setup screen
 - **Hint** button (up to 3 hints)
 - **Skip** to advance without answering
 - **Submit Answer** sends to Claude for grading
@@ -96,6 +111,10 @@ flagged-for-review list.
   you just answered. Click again to remove it.
 - **History → Flagged for review** lists every bookmarked question (newest first, with
   subject and date). Select one and click **Unflag selected** to remove it.
+- **What went wrong?** appears on the feedback screen whenever the grade is below
+  4/10. The mistake is already journalled by then (with `cause: null`), so the row is
+  pure upside: one tap adds the cause, the text field adds a one-line note, and
+  **Next Question** is never blocked. Nothing here is modal.
 
 ### Reference
 
@@ -145,18 +164,19 @@ math-quiz/
 ├── ui/
 │   ├── main_window.py           Screen controller (6 pages)
 │   ├── screens/
-│   │   ├── setup_screen.py      Subject/difficulty/type configuration
-│   │   ├── question_screen.py   Question display and answer entry
-│   │   ├── feedback_screen.py   Score, verdict, collapsible panels, flag toggle
+│   │   ├── setup_screen.py      Subject/difficulty/type configuration + study aids
+│   │   ├── question_screen.py   Question display, answer entry, confidence strip
+│   │   ├── feedback_screen.py   Score, verdict, collapsible panels, flag + mistake row
 │   │   ├── summary_screen.py    Session chart (matplotlib)
 │   │   ├── history_screen.py    Lifetime stats + flagged-for-review list
 │   │   └── reference_screen.py  In-app docs/ Markdown browser
 │   └── widgets/
 │       ├── collapsible_panel.py Animated expand/collapse
 │       ├── loading_overlay.py   Spinner overlay
+│       ├── chip_button.py       Checkable pill (confidence + mistake-cause chips)
 │       ├── pill_badge.py        Verdict badge
 │       └── score_bar.py         Animated score bar
-└── persistence.py               JSON session history + flagged questions
+└── persistence.py               JSON history, flags, mistake journal, confidence, settings
 ```
 
 ---
@@ -237,10 +257,91 @@ suite-wide flag schema (shared by every app and read by `coach.py --review`):
 `label` is the question text truncated to 80 characters, `category` is the subject.
 Flagging is a toggle: flagging an already-flagged question removes its entry.
 
-Set `QUANTUM_STUDY_DATA_DIR` to relocate all three files (history, draft, flagged);
-the default directory is unchanged.
+### Mistake journal — `mistakes.json`
+
+Every app in the suite appends to this one file, so the journal is suite-wide:
+
+```json
+{
+  "id": "fee39328a8253945",
+  "app": "math-quiz",
+  "category": "Linear Algebra",
+  "question": "State the spectral theorem for Hermitian operators.",
+  "your_answer": "Every Hermitian operator is unitary.",
+  "correct_answer": "the model answer",
+  "cause": "confused",
+  "note": "mixed up Hermitian and unitary",
+  "timestamp": 1757400000.0,
+  "resolved": false
+}
+```
+
+- `id` — SHA-1 (16 hex chars) of `subject` + the whitespace-collapsed question text, so
+  the same question re-worded across lines is still the same item. The topic is
+  deliberately *not* part of it.
+- `category` — the subject.
+- `cause` — `misread`, `didnt_know`, `knew_but_slipped`, `confused`, `out_of_time`,
+  `other`, or `null` (logged but not yet categorised).
+- `question`, `your_answer`, `correct_answer` and `note` are collapsed to one line and
+  truncated to 200 characters.
+- A wrong answer is written **immediately** with `cause: null`, so skipping the
+  "what went wrong?" row never loses the mistake. Choosing a cause updates that same
+  entry. Missing the same item again while it is still open updates it rather than
+  duplicating it.
+- `resolved` flips to `true` when the same item (matched on `app` + `id`) is later
+  graded ≥ `SCORE_CORRECT_THRESHOLD`. Missing it again after that opens a fresh entry.
+
+### Confidence calibration — `confidence.json`
+
+Also suite-wide, one row per rated answer:
+
+```json
+{
+  "id": "fee39328a8253945",
+  "app": "math-quiz",
+  "category": "Linear Algebra",
+  "confidence": 4,
+  "correct": false,
+  "timestamp": 1757400000.0
+}
+```
+
+`confidence` is 1 = guessing, 2 = unsure, 3 = fairly sure, 4 = certain, always chosen
+before the answer is submitted. `correct` is `score >= SCORE_CORRECT_THRESHOLD` (7/10).
+`id` is the same item id as the journal uses, so the two files join on `app` + `id`.
+`persistence.confidently_wrong_counts()` reads the "rated ≥ 3 and still wrong" rows —
+the unknown unknowns.
+
+### App settings — `math_settings.json`
+
+`{"confidence_prompt": true}` — this app's own preferences, new file, nothing else
+touched. It remembers the **Don't ask** opt-out so the strip is never shown again
+until it is re-enabled from the setup screen.
+
+Both new files tolerate a missing or corrupt file (they start fresh rather than
+crashing) and are written as UTF-8 atomically (temp file + `os.replace`). Each is
+capped at its newest 5 000 rows — the cap is on the whole shared file, not per app,
+so the journal cannot grow without bound however many apps append to it.
+
+Set `QUANTUM_STUDY_DATA_DIR` to relocate every file above (history, draft, flagged,
+mistakes, confidence, settings); the default directory is unchanged.
 
 Spaced repetition uses time-based decay with a 14-day half-life: a record from 14 days
 ago carries half the weight of one from today, 28 days ago a quarter, and so on.
 Subjects and topics whose decayed average score is low receive a proportionally
 higher weight in future topic sampling.
+
+---
+
+## Accessibility
+
+The confidence strip, the mistake-cause chips and the note field are all keyboard
+reachable (Tab/Space) with a 2 px accent focus ring, and each carries an accessible
+name — e.g. "Confidence 4 of 4: Certain", "Cause of mistake: Knew but slipped". No
+new control encodes meaning in colour alone: a chip's leading glyph flips from "○"
+to "✓" and its label goes bold as well as gaining the accent border, and the state is
+mirrored into the accessible description (both states carry a glyph, so selecting one
+never shifts or elides its label). Chip text stays `#e6edf3` in both states — 12.9:1 on the
+unselected fill and 9.4:1 on the accent-tinted selected fill, against a 4.5:1
+requirement (there is a unit test for this in
+`tests/test_mistakes_confidence.py`).

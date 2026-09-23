@@ -13,6 +13,8 @@ from ui.screens.reference_screen import ReferenceScreen
 from ui.widgets.loading_overlay import LoadingOverlay
 from persistence import (
     save_session, toggle_flag, is_flagged, make_flag_id, make_flag_label,
+    log_mistake, set_mistake_cause, resolve_mistake, log_confidence,
+    MISTAKE_SCORE_THRESHOLD,
 )
 from workers.generation_worker import GenerationWorker
 from workers.grading_worker import GradingWorker
@@ -58,6 +60,7 @@ class MainWindow(QMainWindow):
         self._feedback.next_requested.connect(self._go_next_question)
         self._feedback.done_requested.connect(self._on_done)
         self._feedback.flag_requested.connect(self._on_flag)
+        self._feedback.mistake_cause_selected.connect(self._on_mistake_cause)
         self._summary.drill_again.connect(self._drill_again)
         self._summary.back_requested.connect(self._go_input)
         self._history.back_requested.connect(self._go_input)
@@ -70,6 +73,11 @@ class MainWindow(QMainWindow):
         self._attempts: list[QuestionAttempt] = []
         self._current_attempt: QuestionAttempt | None = None
         self._stats = SessionStats()
+        # Learning signals: the journal entry the "What went wrong?" row edits,
+        # and whether the shown grade came from a grading failure (a stand-in
+        # 0 that says nothing about the learner, so nothing is logged for it).
+        self._mistake_item_id: str | None = None
+        self._grade_failed = False
 
     def _on_drill_requested(self, config) -> None:
         self._config = config
@@ -112,6 +120,7 @@ class MainWindow(QMainWindow):
 
     def _on_graded(self, evaluation) -> None:
         self._question.hide_grading()
+        self._grade_failed = False
         self._current_attempt.evaluation = evaluation
         self._attempts.append(self._current_attempt)
         self._stats.total += 1
@@ -130,6 +139,7 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if btn == QMessageBox.StandardButton.Yes:
+            self._grade_failed = True
             self._current_attempt.evaluation = Evaluation(
                 score=0, verdict=Verdict.INCORRECT,
                 feedback=f"Grading failed: {err}", model_answer="",
@@ -149,6 +159,7 @@ class MainWindow(QMainWindow):
         except Exception:
             flagged = False
         self._feedback.set_flagged(flagged)
+        self._record_learning_signals(attempt)
         self._stack.setCurrentIndex(PAGE_FEEDBACK)
 
     # ------------------------------------------------------------------
@@ -178,6 +189,56 @@ class MainWindow(QMainWindow):
             except Exception:
                 new_state = False
         self._feedback.set_flagged(new_state)
+
+    # ------------------------------------------------------------------
+    # Learning signals — mistake journal and confidence calibration
+    # ------------------------------------------------------------------
+
+    def _record_learning_signals(self, attempt: QuestionAttempt) -> None:
+        """Pair the pre-answer confidence with the grade and, on a wrong
+        answer (score < 4), log the mistake before the cause is known.
+
+        Nothing is recorded for a grading failure: the score of 0 shown there
+        is a stand-in for "never graded", not evidence about the learner.
+        Every write is best-effort — a broken data dir must not derail the
+        drill, exactly as with flagging.
+        """
+        self._mistake_item_id = None
+        if self._grade_failed:
+            self._feedback.show_mistake_prompt(False)
+            return
+
+        ev = attempt.evaluation
+        score = ev.score if ev else 0
+        wrong = score < MISTAKE_SCORE_THRESHOLD
+        item_id = self._flag_id_for(attempt)
+        category = self._paper_title()
+
+        if attempt.confidence:
+            try:
+                log_confidence(item_id, category, attempt.confidence, not wrong)
+            except Exception:
+                pass
+        try:
+            if wrong:
+                log_mistake(item_id, category, attempt.question.text,
+                            attempt.answer_text, ev.model_answer if ev else "")
+                self._mistake_item_id = item_id
+            else:
+                # Same item answered correctly later — close out its entries.
+                resolve_mistake(item_id)
+        except Exception:
+            pass
+        self._feedback.show_mistake_prompt(wrong)
+
+    def _on_mistake_cause(self, cause: str, note: str) -> None:
+        """Fill in (or clear) the cause/note on the entry just logged."""
+        if not self._mistake_item_id:
+            return
+        try:
+            set_mistake_cause(self._mistake_item_id, cause or None, note)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
 

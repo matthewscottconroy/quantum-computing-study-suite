@@ -10,6 +10,11 @@ DATA_DIR        = Path(os.environ.get("QUANTUM_STUDY_DATA_DIR")
                        or (Path.home() / ".local" / "share" / "quantum-study"))
 HISTORY_FILE    = DATA_DIR / "problems_history.json"
 FLAGGED_FILE    = DATA_DIR / "problems_flagged.json"   # "flag for review" entries
+# Suite-wide study-analytics files, shared by every app (entries carry an "app"
+# field); see persistence.py for the schemas.
+MISTAKES_FILE   = DATA_DIR / "mistakes.json"           # mistake journal
+CONFIDENCE_FILE = DATA_DIR / "confidence.json"         # confidence calibration
+SETTINGS_FILE   = DATA_DIR / "problems_settings.json"  # this app's own UI prefs
 API_KEY_FILE    = Path.home() / ".config" / "quantum-study" / "api_key.txt"
 MODEL           = "claude-sonnet-4-6"
 MAX_STEP_TRIES  = 2          # failed tries before "show model step" is offered

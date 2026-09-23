@@ -38,6 +38,13 @@ def isolated_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(persistence, "_HISTORY_FILE", data_dir / "trainer_history.json")
     if hasattr(persistence, "_FLAGGED_FILE"):
         monkeypatch.setattr(persistence, "_FLAGGED_FILE", data_dir / "trainer_flagged.json")
+    for attr, name in (
+        ("_MISTAKES_FILE", "mistakes.json"),
+        ("_CONFIDENCE_FILE", "confidence.json"),
+        ("_PREFS_FILE", "trainer_prefs.json"),
+    ):
+        if hasattr(persistence, attr):
+            monkeypatch.setattr(persistence, attr, data_dir / name)
     return data_dir
 
 

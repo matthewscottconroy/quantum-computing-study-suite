@@ -61,6 +61,28 @@ QPushButton#nav {{
     padding: 0; min-width: 34px; max-width: 34px; min-height: 30px; max-height: 30px;
     font-size: 12px; border-radius: 4px;
 }}
+/* Small pill button used by the confidence strip and the mistake-cause row.
+   A checked chip also gains a "v" glyph in its text, so its state never
+   depends on colour alone. */
+QPushButton#chip {{
+    background-color: {SURFACE2}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 11px;
+    padding: 3px 10px; font-size: 12px;
+}}
+QPushButton#chip:hover {{ border-color: {ACCENT}; }}
+QPushButton#chip:checked {{
+    background-color: {ACCENT}; color: {BG};
+    border-color: {ACCENT}; font-weight: bold;
+}}
+/* Visible keyboard focus. Border width grows by 1px and padding shrinks by
+   1px, so focusing a control never shifts the layout. */
+QPushButton:focus {{ border: 2px solid {ACCENT}; padding: 7px 17px; }}
+QPushButton#chip:focus {{ border: 2px solid {TEXT}; padding: 2px 9px; }}
+QPushButton#nav:focus {{ border: 2px solid {TEXT}; padding: 0; }}
+QPushButton#accent:focus {{ border: 2px solid {TEXT}; padding: 8px 26px; }}
+QPushButton#flat:focus {{ border: 1px solid {ACCENT}; border-radius: 4px; padding: 3px 7px; }}
+QRadioButton:focus {{ border: 1px solid {ACCENT}; border-radius: 4px; }}
+QComboBox:focus {{ border-color: {ACCENT}; }}
 QTextBrowser {{ background-color: transparent; color: {TEXT}; border: none; font-size: 15px; }}
 QLabel {{ background: transparent; }}
 QLabel#heading {{ font-size: 22px; font-weight: bold; color: {TEXT}; }}

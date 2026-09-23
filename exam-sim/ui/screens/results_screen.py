@@ -6,9 +6,11 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QScrollArea, QProgressBar, QHeaderView,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from core.models import ExamResult
+from core.models import ExamAttempt, ExamResult
 from config import SECTIONS, section_weight, pass_mark_for
+import persistence
 from ui import theme
+from ui.feedback import CauseRow
 from ui.format import question_html
 
 
@@ -17,6 +19,7 @@ class ResultsScreen(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._cause_rows: list[CauseRow] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -65,6 +68,9 @@ class ResultsScreen(QWidget):
         # right: review pane of missed questions
         right = QVBoxLayout()
         rev_lbl = QLabel("REVIEW — MISSED QUESTIONS")
+        rev_lbl.setToolTip(
+            "Every miss is already in the mistake journal; tag why you missed "
+            "it to make the journal useful.")
         rev_lbl.setStyleSheet(
             f"font-weight: bold; color: {theme.TEXT_MUTED}; font-size: 11px;")
         right.addWidget(rev_lbl)
@@ -81,6 +87,7 @@ class ResultsScreen(QWidget):
         btn_row.addStretch()
         home_btn = QPushButton("Back to Home")
         home_btn.setObjectName("accent")
+        home_btn.setAccessibleName("Back to home screen")
         home_btn.clicked.connect(self.home_requested)
         btn_row.addWidget(home_btn)
         root.addLayout(btn_row)
@@ -141,9 +148,10 @@ class ResultsScreen(QWidget):
             w = item.widget()
             if w:
                 w.deleteLater()
+        self._cause_rows = []
         missed = result.missed
         if not missed:
-            lbl = QLabel("Nothing missed — a clean run.")
+            lbl = QLabel("✓ Nothing missed — a clean run.")
             lbl.setStyleSheet(f"color: {theme.SUCCESS}; font-size: 14px;")
             self._review_layout.addWidget(lbl)
         for attempt in missed:
@@ -159,9 +167,9 @@ class ResultsScreen(QWidget):
                 f'<span style="color:{theme.SECTION_COLORS.get(q.section, theme.ACCENT)};'
                 f'font-size:11px;font-weight:bold;">{html.escape(q.section.upper())}</span>'
                 f"<div style='font-size:14px;'>{question_html(q.question)}</div>"
-                f'<div style="color:{theme.ERROR};">Your answer: '
+                f'<div style="color:{theme.ERROR};">✗ Your answer: '
                 f"{html.escape(chosen)}</div>"
-                f'<div style="color:{theme.SUCCESS};">Correct: '
+                f'<div style="color:{theme.SUCCESS};">✓ Correct: '
                 f"{html.escape(correct)}</div>"
                 f'<div style="color:{theme.TEXT_MUTED};font-size:13px;">'
                 f"{html.escape(q.explanation)}</div>"
@@ -169,5 +177,26 @@ class ResultsScreen(QWidget):
             body.setWordWrap(True)
             body.setTextFormat(Qt.TextFormat.RichText)
             lay.addWidget(body)
+            # "What went wrong?" — the miss is already journalled with
+            # cause=null, this only fills the cause in. Skipping is fine.
+            row = CauseRow()
+            row.chosen.connect(
+                lambda cause, note, a=attempt: self._on_cause(a, cause, note))
+            lay.addWidget(row)
+            self._cause_rows.append(row)
             self._review_layout.addWidget(card)
         self._review_layout.addStretch()
+
+    # ------------------------------------------------------- mistake journal
+    def _on_cause(self, attempt: ExamAttempt, cause: str, note: str) -> None:
+        """Categorise this miss in mistakes.json (never blocks the UI)."""
+        try:
+            if not persistence.update_mistake_cause(
+                    attempt.question.id, cause, note):
+                # No row to update (journal write failed earlier): log one now
+                # rather than losing the categorisation.
+                persistence.log_mistake(persistence.mistake_entry_for(
+                    attempt.question, attempt.chosen_index,
+                    cause=cause, note=note))
+        except Exception:
+            pass

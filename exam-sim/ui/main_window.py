@@ -7,7 +7,9 @@ from config import (
     SPRINT_QUESTION_COUNT, SPRINT_MINUTES,
 )
 from bank import build_exam_set, build_sprint_set
-from persistence import save_result, record_misses
+from persistence import (
+    save_result, record_misses, record_mistakes, record_confidence,
+)
 from ui.screens.home_screen import HomeScreen
 from ui.screens.exam_screen import ExamScreen
 from ui.screens.results_screen import ResultsScreen
@@ -78,6 +80,10 @@ class MainWindow(QMainWindow):
         try:
             save_result(result)
             record_misses(result)
+            # Cause-analysis journal + confidence pairings, written in
+            # addition to exam_missed.json (which is left untouched).
+            record_mistakes(result)
+            record_confidence(result)
         except Exception as exc:
             QMessageBox.warning(self, "Persistence",
                                 f"Could not save session: {exc}")

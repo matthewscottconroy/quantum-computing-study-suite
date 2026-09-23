@@ -51,6 +51,10 @@ class MainWindow(QMainWindow):
         self._viva_pending: tuple[Question, str, Evaluation] | None = None
         self._current_is_followup: bool = False
 
+        # Mistake journal: the item id logged for the answer now on screen
+        # (None when the answer was not wrong, or when the write failed).
+        self._journal_id: str | None = None
+
         self._stack = QStackedWidget()
         self.setCentralWidget(self._stack)
 
@@ -75,8 +79,11 @@ class MainWindow(QMainWindow):
         self._setup_screen.reference_requested.connect(self._on_reference)
         self._question_screen.answer_submitted.connect(self._on_answer_submitted)
         self._question_screen.skip_requested.connect(self._on_skip)
+        self._question_screen.confidence_opt_out.connect(self._on_confidence_opt_out)
         self._feedback_screen.next_question_requested.connect(self._on_next_question)
         self._feedback_screen.flag_requested.connect(self._on_flag_toggled)
+        self._feedback_screen.mistake_cause_selected.connect(self._on_mistake_cause)
+        self._feedback_screen.mistake_note_saved.connect(self._on_mistake_note)
         self._summary_screen.restart_requested.connect(self._on_restart)
         self._summary_screen.review_mistakes.connect(self._on_review_mistakes)
         self._history_screen.back_requested.connect(self._on_history_back)
@@ -113,6 +120,7 @@ class MainWindow(QMainWindow):
         self._current_question = question
         self._current_is_followup = False
         self._overlay.hide_overlay()
+        self._question_screen.set_confidence_enabled(self._confidence_prompt_enabled())
         self._question_screen.load_question(
             question=question,
             context=context,
@@ -157,7 +165,118 @@ class MainWindow(QMainWindow):
             pass
         self._feedback_screen.load_evaluation(evaluation)
         self._feedback_screen.set_flagged(self._current_question_flagged())
+        self._record_mistake_and_confidence(answer, evaluation)
         self._show_page(PAGE_FEEDBACK)
+
+    # ── Mistake journal & confidence calibration ──────────────────────────────
+
+    @staticmethod
+    def _journal_item_id(question: Question) -> str:
+        from persistence import mistake_item_id
+        return mistake_item_id(question.subject, question.text)
+
+    @staticmethod
+    def _confidence_prompt_enabled() -> bool:
+        try:
+            from persistence import confidence_prompt_enabled
+            return confidence_prompt_enabled()
+        except Exception:
+            return True
+
+    def _on_confidence_opt_out(self) -> None:
+        """"Don't ask again" — hide the strip now and remember it."""
+        try:
+            from persistence import set_confidence_prompt_enabled
+            set_confidence_prompt_enabled(False)
+        except Exception:
+            pass
+        self._question_screen.set_confidence_enabled(False)
+
+    def _record_mistake_and_confidence(self, answer: str, evaluation: Evaluation) -> None:
+        """Log the confidence pairing, and journal the answer when it was wrong.
+
+        Thresholds follow the verdicts the user sees: the journal opens on an
+        "Incorrect" answer (score < SCORE_PARTIAL_THRESHOLD) and closes — marking
+        the item resolved — as soon as the same item is answered at or above that
+        bar again; calibration counts an answer correct at the "Correct" verdict
+        (score >= SCORE_CORRECT_THRESHOLD).  Every write is best-effort: a broken
+        data directory must never interrupt a session.
+        """
+        from config import SCORE_CORRECT_THRESHOLD, SCORE_PARTIAL_THRESHOLD
+
+        question = self._current_question
+        self._journal_id = None
+        if question is None:
+            return
+        item_id = self._journal_item_id(question)
+
+        confidence = self._question_screen.selected_confidence()
+        if confidence:
+            try:
+                from persistence import log_confidence
+                log_confidence(
+                    item_id,
+                    question.subject,
+                    confidence,
+                    evaluation.score >= SCORE_CORRECT_THRESHOLD,
+                )
+            except Exception:
+                pass
+
+        if evaluation.score < SCORE_PARTIAL_THRESHOLD:
+            try:
+                from persistence import log_mistake
+                entry = log_mistake(
+                    item_id,
+                    category=question.subject,
+                    question=question.text,
+                    your_answer=answer,
+                    correct_answer=evaluation.model_answer,
+                )
+            except Exception as exc:
+                self._feedback_screen.show_mistake_journal()
+                self._feedback_screen.set_mistake_status(f"✗ Could not save: {exc}")
+                return
+            self._journal_id = item_id
+            self._feedback_screen.show_mistake_journal(
+                cause=entry.get("cause"), note=entry.get("note", "")
+            )
+            return
+
+        # Answered well enough this time: close out any open journal entry.
+        try:
+            from persistence import resolve_mistake
+            resolve_mistake(item_id)
+        except Exception:
+            pass
+
+    def _on_mistake_cause(self, cause: str) -> None:
+        if self._journal_id is None:
+            return
+        try:
+            from persistence import CAUSE_LABELS, set_mistake_cause
+            set_mistake_cause(
+                self._journal_id, cause or None, note=self._feedback_screen.mistake_note()
+            )
+        except Exception as exc:
+            self._feedback_screen.set_mistake_status(f"✗ Could not save: {exc}")
+            return
+        self._feedback_screen.set_mistake_status(
+            f"✓ Saved as “{CAUSE_LABELS[cause]}”" if cause else "✓ Category cleared"
+        )
+
+    def _on_mistake_note(self, note: str) -> None:
+        if self._journal_id is None:
+            return
+        try:
+            from persistence import set_mistake_cause
+            set_mistake_cause(
+                self._journal_id, self._feedback_screen.selected_cause(), note=note
+            )
+        except Exception as exc:
+            self._feedback_screen.set_mistake_status(f"✗ Could not save: {exc}")
+            return
+        self._feedback_screen.set_mistake_status("✓ Note saved" if note else "✓ Note cleared")
 
     # ── Flag for review ───────────────────────────────────────────────────────
 
@@ -237,6 +356,7 @@ class MainWindow(QMainWindow):
         self._current_question = question
         self._current_is_followup = True
         self._overlay.hide_overlay()
+        self._question_screen.set_confidence_enabled(self._confidence_prompt_enabled())
         self._question_screen.load_question(
             question=question,
             context=context,

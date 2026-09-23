@@ -1,5 +1,48 @@
 # Training Roadmap — Skills-Gap Analysis and Proposed Features
 
+> **Status (2026-09-23): round 3 — error analysis, corpus breadth and navigation.**
+> Round 2 made the habit stick and made progress measurable; round 3 asks *why* the
+> wrong answers are wrong, widens the corpus past the core ladder, and stops the
+> ladder being the only way to navigate it.
+>
+> **Learning from mistakes.** All ten apps now write two cross-app journals under the
+> shared data directory. `mistakes.json` files every wrong answer under one of six
+> causes — `misread`, `didnt_know`, `knew_but_slipped`, `confused`, `out_of_time`,
+> `other` — chosen from a row of pills on the result screen (one click, skippable; the
+> mistake is journalled either way, and re-answering the item correctly resolves it).
+> `confidence.json` pairs a 1–4 rating taken *before* the reveal with the verdict.
+> Reading them: `coach.py --mistakes` (causes ranked, recurring concepts, a 14-day
+> trend against the 14 days before, the unresolved list), `coach.py --calibration`
+> (measured accuracy per confidence level against the calibrated 25/50/75/95 % targets,
+> an overconfidence index, a Brier score, and the **confidently wrong** list — the
+> topics rated *fairly sure* or *certain* and still missed, which nothing else in the
+> suite surfaces), and `coach.py --item-analysis` (the 300-question exam bank split
+> into always-missed / always-correct / mixed / never-attempted). `dashboard.py` gained
+> a condensed panel for each journal. Both files are new — neither touches a
+> `*_history.json` schema — and every report degrades to "no data" rather than a
+> number when the evidence is thin.
+>
+> **Corpus breadth.** Three application chapters — `docs/09_quantum_machine_learning/`
+> (4 files), `docs/10_quantum_chemistry/` (4) and `docs/11_quantum_networking/` (3) —
+> plus `docs/07_quantum_hardware/05_modern_benchmarking.md`. The corpus is 70 chapter
+> files in 11 chapters (was 58 in 8); the ladder in `docs/README.md` runs Rung 1 → 11,
+> with 9–11 as electives rather than prerequisites.
+>
+> **Navigation and reach.** `tools/concept_map.py` is a curated prerequisite DAG over
+> the corpus — 128 concepts, 236 edges, 16 layers — scored with `dashboard.py`'s own
+> decay, answering "what am I ready to learn next?" (`--next`, `--area`, `--html`,
+> `--dot`, `--check`). `tools/gen_cloze.py` generates a **Cloze** flashcard category
+> from every chapter's Key Formulas section, conservative by construction (an
+> unparseable formula is dropped, never guessed): 306 generated cards on top of the 550
+> hand-written ones, so the deck is 856 in 15 categories. `tools/sync_history.sh` makes
+> the study-history directory a git repository of its own, synced to a private remote,
+> so a second machine is not a second history. And `QUANTUM_STUDY_DATA_DIR` finally
+> reaches qec-trainer and vqa-trainer — all ten apps honour it, and the caveat that
+> used to appear in the README and GETTING_STARTED is gone.
+>
+> No round-3 analysis section was written before the work; this block is the record.
+> The round-1 and round-2 analyses below are preserved unchanged.
+
 > **Status (2026-09-16): round 2 — all four tiers implemented.** Tier 1 (friction) →
 > `tools/export_cards.py` + `.github/workflows/pages.yml` (Anki `.apkg`, `cards.json`
 > and the self-contained web deck published to

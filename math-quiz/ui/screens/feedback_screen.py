@@ -2,26 +2,45 @@
 
 from __future__ import annotations
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextBrowser,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextBrowser,
     QPushButton, QListWidget, QListWidgetItem, QFrame, QScrollArea,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 
 from core.models import Evaluation
+from persistence import MISTAKE_CAUSES, TEXT_FIELD_MAX
 from ui import theme
+from ui.widgets.chip_button import ChipButton
 from ui.widgets.score_bar import ScoreBar
 from ui.widgets.collapsible_panel import CollapsiblePanel
 from config import SCORE_CORRECT_THRESHOLD, SCORE_PARTIAL_THRESHOLD
+
+# Cause code → button label, in the order they are shown.
+CAUSE_LABELS: dict[str, str] = {
+    "misread":          "Misread it",
+    "didnt_know":       "Didn\u2019t know",
+    "knew_but_slipped": "Knew but slipped",
+    "confused":         "Confused two things",
+    "out_of_time":      "Ran out of time",
+    "other":            "Other",
+}
+NOTE_MAX_CHARS = TEXT_FIELD_MAX      # the journal clips to this anyway
 
 
 class FeedbackScreen(QWidget):
     next_question_requested = pyqtSignal()
     flag_requested = pyqtSignal()          # toggle "flag for review" on this question
+    # Mistake journal: cause code chosen ("" when the user unselects it again).
+    mistake_cause_chosen = pyqtSignal(str)
+    mistake_note_committed = pyqtSignal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._flagged = False
+        self._cause_buttons: dict[str, ChipButton] = {}
+        self._cause: str | None = None
+        self._last_note_emitted = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -83,6 +102,9 @@ class FeedbackScreen(QWidget):
         self._feedback_browser = QTextBrowser()
         self._feedback_browser.setMaximumHeight(120)
         root.addWidget(self._feedback_browser)
+
+        # ── What went wrong? (mistake journal) ────────────────────────────────
+        root.addWidget(self._build_mistake_row())
 
         # ── Model answer (collapsible) ────────────────────────────────────────
         self._model_answer_widget = QTextBrowser()
@@ -146,6 +168,69 @@ class FeedbackScreen(QWidget):
         bar_layout.addWidget(next_btn)
         outer.addWidget(bar)
 
+    def _build_mistake_row(self) -> QFrame:
+        """Compact, skippable "what went wrong?" row for a wrong answer.
+
+        The mistake itself is already journalled by the time this appears
+        (cause=null); these buttons only add the diagnosis, which is the part
+        that turns a pile of wrong answers into a pattern. Nothing here blocks
+        the flow: "Next Question" stays live and no modal is ever shown.
+        """
+        self._mistake_container = QFrame()
+        self._mistake_container.setObjectName("card")
+        layout = QVBoxLayout(self._mistake_container)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(8)
+
+        header = QLabel("What went wrong?")
+        header.setStyleSheet(
+            f"font-size: 11px; font-weight: bold; color: {theme.TEXT_MUTED};"
+        )
+        layout.addWidget(header)
+
+        hint = QLabel(
+            "Optional \u2014 one tap records the cause in your mistake journal. "
+            "Skip it and the mistake is still logged."
+        )
+        hint.setObjectName("muted")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        chips = QHBoxLayout()
+        chips.setSpacing(8)
+        for code in MISTAKE_CAUSES:
+            label = CAUSE_LABELS.get(code, code)
+            chip = ChipButton(
+                label,
+                accessible_name=f"Cause of mistake: {label}",
+                tooltip=f"Record \u201c{label}\u201d as the cause (click again to clear)",
+                parent=self._mistake_container,
+            )
+            chip.clicked.connect(lambda _checked, c=code: self._on_cause_clicked(c))
+            self._cause_buttons[code] = chip
+            chips.addWidget(chip)
+        chips.addStretch()
+        layout.addLayout(chips)
+
+        self._note_edit = QLineEdit()
+        self._note_edit.setMaxLength(NOTE_MAX_CHARS)
+        self._note_edit.setPlaceholderText(
+            "Add a one-line note (optional) \u2014 press Enter to save"
+        )
+        self._note_edit.setAccessibleName("Note about this mistake")
+        self._note_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._note_edit.setStyleSheet(
+            f"QLineEdit {{ background: {theme.SURFACE2}; color: {theme.TEXT};"
+            f" border: 1px solid {theme.BORDER}; border-radius: 6px;"
+            "  padding: 6px 10px; font-size: 13px; }"
+            f"QLineEdit:focus {{ border: 2px solid {theme.ACCENT}; padding: 5px 9px; }}"
+        )
+        self._note_edit.editingFinished.connect(self._on_note_committed)
+        layout.addWidget(self._note_edit)
+
+        self._mistake_container.hide()
+        return self._mistake_container
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def load_evaluation(self, ev: Evaluation) -> None:
@@ -177,6 +262,9 @@ class FeedbackScreen(QWidget):
         else:
             self._followup_container.hide()
 
+        # A graded score below the "partially correct" threshold is a mistake.
+        self.reset_mistake_row(ev.score < SCORE_PARTIAL_THRESHOLD)
+
     def set_flagged(self, flagged: bool) -> None:
         """Reflect the question's flagged state on the toggle button."""
         self._flagged = flagged
@@ -190,6 +278,43 @@ class FeedbackScreen(QWidget):
 
     def is_flagged(self) -> bool:
         return self._flagged
+
+    # ── Mistake journal row ───────────────────────────────────────────────────
+
+    def reset_mistake_row(self, visible: bool) -> None:
+        """Clear any previous cause/note and show or hide the row."""
+        self._cause = None
+        self._last_note_emitted = ""
+        for chip in self._cause_buttons.values():
+            chip.setChecked(False)
+        self._note_edit.clear()
+        self._mistake_container.setVisible(bool(visible))
+
+    def mistake_prompt_visible(self) -> bool:
+        return not self._mistake_container.isHidden()
+
+    def mistake_cause(self) -> str | None:
+        return self._cause
+
+    def mistake_note(self) -> str:
+        return self._note_edit.text().strip()
+
+    def _on_cause_clicked(self, code: str) -> None:
+        """Single-select; clicking the chosen cause again clears it."""
+        chosen = self._cause_buttons[code].isChecked()
+        for other, chip in self._cause_buttons.items():
+            if other != code:
+                chip.setChecked(False)
+        self._cause = code if chosen else None
+        self.mistake_cause_chosen.emit(self._cause or "")
+
+    def _on_note_committed(self) -> None:
+        """editingFinished also fires on focus-out, so only emit real changes."""
+        note = self.mistake_note()
+        if note == self._last_note_emitted:
+            return
+        self._last_note_emitted = note
+        self.mistake_note_committed.emit(note)
 
 
 def _verdict_color(verdict: str) -> str:

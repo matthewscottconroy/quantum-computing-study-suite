@@ -10,6 +10,9 @@ Usage:
     python coach.py --review      # unified SRS review queue
     python coach.py --readiness   # C1000-179 exam-readiness projection
     python coach.py --calibrate   # SM-2 intervals vs measured recall
+    python coach.py --mistakes    # error analysis: mistakes by CAUSE
+    python coach.py --calibration # confidence vs accuracy (--confidence)
+    python coach.py --item-analysis  # exam-bank question difficulty
 
 Data dir defaults to dashboard.DATA_DIR (~/.local/share/quantum-study/)
 and can be overridden with the QUANTUM_STUDY_DATA_DIR environment variable.
@@ -22,6 +25,21 @@ required.  The app comes from the entry's "app" field, else from the file
 prefix (quiz_ -> quantum-quiz, math_ -> math-quiz, ...); undated entries
 take the file's mtime.  Items dedupe by (app, id); --review shows the
 REVIEW_CAP oldest and says how many more were dropped.
+
+Tier-5 signal files (written by the apps, only ever read here):
+mistakes.json is the cross-app mistake journal — {"id", "app", "category",
+"question", "your_answer", "correct_answer", "cause", "note", "timestamp",
+"resolved"} — where cause is one of "misread" / "didnt_know" /
+"knew_but_slipped" / "confused" / "out_of_time" / "other", or null for
+"logged but not categorised yet".  confidence.json pairs a 1-4 confidence
+taken BEFORE the reveal with the verdict — {"id", "app", "category",
+"confidence", "correct", "timestamp"}.  Both degrade to "no data" when
+absent, empty or corrupt; their schema helpers live in dashboard.py so this
+module and the dashboard read them identically.  Unresolved mistakes join
+--review alongside flags and exam misses, deduped by (app, id).
+
+--item-analysis additionally parses exam-sim/bank/<section>/<id>.py with ast
+(never importing it) to name every one of the 300 bank questions.
 
 Read-only extras: --readiness reads exam_history.json (per-section results),
 dojo_history.json and flashcard_history.json; --calibrate additionally reads
@@ -47,6 +65,7 @@ Coach state is stored in <data dir>/coach_state.json:
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import math
 import os
@@ -695,11 +714,15 @@ def flagged_counts(items: list[dict]) -> dict[str, int]:
 
 def collect_review_items(histories: dict[str, list],
                          notes: Optional[list[str]] = None) -> list[dict]:
-    """Merge flagged items (all apps), exam misses, and recent low scores.
+    """Merge flagged items, exam misses, unresolved journal mistakes and
+    recent low scores (all apps).
 
     Sorted oldest+worst first (timestamp asc, score asc) and deduped by
-    (app, id, why).  NOT capped — build_review_queue()/render_review()
-    apply REVIEW_CAP.  Each item: {app, id, label, category, ts, score, why}.
+    (app, id, why).  Unresolved mistakes.json entries are additionally
+    deduped against the flags and exam misses by (app, id) alone — one wrong
+    answer belongs in the queue once, whichever file recorded it.  NOT
+    capped — build_review_queue()/render_review() apply REVIEW_CAP.  Each
+    item: {app, id, label, category, ts, score, why}.
     """
     items: list[dict] = []
     seen: set[tuple[str, str, str]] = set()
@@ -730,7 +753,24 @@ def collect_review_items(histories: dict[str, list],
                   "ts": _epoch(m.get("timestamp")), "score": 0.0,
                   "why": "missed exam question"})
 
-    # 3. Low-scoring quiz / problem attempts in the last 30 days
+    # 3. Unresolved mistake-journal entries from every app.  A mistake that
+    #    already arrived as a flag or an exam miss is not repeated: the
+    #    journal adds the cause, not a second row.
+    seen_items = {(i["app"], i["id"]) for i in items}
+    for entry in unresolved_mistakes(load_mistakes()):
+        key = (entry["app"], entry["id"])
+        if key in seen_items:
+            continue
+        seen_items.add(key)
+        cause = entry["cause"]
+        why = ("mistake: " + CAUSE_LABELS[cause] if cause
+               else "mistake: cause not set")
+        push({"app": entry["app"], "id": entry["id"],
+              "label": _short(entry["question"] or entry["id"]),
+              "category": _short(entry["category"]),
+              "ts": entry["timestamp"], "score": 0.0, "why": why})
+
+    # 4. Low-scoring quiz / problem attempts in the last 30 days
     cutoff = _NOW - REVIEW_WINDOW_DAYS * 86400.0
     for app in ("math-quiz", "quantum-quiz"):
         for s in _clean_sessions(histories.get(app, [])):
@@ -923,6 +963,11 @@ def build_plan(histories: dict[str, list], state: dict) -> dict:
                         if isinstance(m, dict)
                         and m.get("question_id") is not None})
 
+    mistakes = load_mistakes()
+    confidence = load_confidence()
+    mistake_unresolved = len(unresolved_mistakes(mistakes))
+    conf_wrong = len(dashboard.confidently_wrong(confidence))
+
     diag = state.get("diagnostic") or None
     diag_rungs = diag.get("rungs") if isinstance(diag, dict) else None
     if not isinstance(diag_rungs, dict):
@@ -938,6 +983,9 @@ def build_plan(histories: dict[str, list], state: dict) -> dict:
         if flagged_total:
             detail.append(f"{flagged_total} flagged across "
                           f"{len(flagged_by_app)} app(s)")
+        journal = sum(1 for i in review if i["why"].startswith("mistake: "))
+        if journal:
+            detail.append(f"{journal} from the mistake journal")
         if review_dropped:
             detail.append(f"+{review_dropped} more past the cap of "
                           f"{REVIEW_CAP}")
@@ -1027,6 +1075,11 @@ def build_plan(histories: dict[str, list], state: dict) -> dict:
         "diagnostic": diag,
         "weak_rungs": weak_rung_list,
         "teaser": plan_teaser(histories),
+        "mistake_total": len(mistakes),
+        "mistake_unresolved": mistake_unresolved,
+        "confidence_total": len(confidence),
+        "confidently_wrong": conf_wrong,
+        "signals": signals_teaser(mistakes, confidence),
     }
 
 
@@ -1142,6 +1195,8 @@ def render_plan(plan: dict, state: dict) -> None:
 
     if plan.get("teaser"):
         _line(console, plan["teaser"])
+    if plan.get("signals"):
+        _line(console, plan["signals"])
 
     # The plan itself
     print()
@@ -2110,6 +2165,843 @@ def render_calibration(c: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tier-5 signals: the mistake journal (--mistakes), confidence calibration
+# (--calibration) and exam-bank item analysis (--item-analysis).
+#
+# The apps write two new cross-app files as you answer; the coach only reads
+# them.  The schema, the cause vocabulary and the tolerant loaders live in
+# dashboard.py, so the dashboard's panels and these reports cannot drift.
+#
+#   mistakes.json    a wrong answer + WHY it was wrong.  A flagged item is a
+#                    bookmark; a cause turns nine scattered slips into "nine
+#                    little-endian misreads this month", which is actionable.
+#   confidence.json  a 1-4 confidence captured BEFORE the reveal, paired with
+#                    the verdict.  It separates "right" from "right and knew
+#                    it", and — the money output — finds the topics you were
+#                    CONFIDENT about and still got wrong.
+#
+# Every path here works when the files are absent, empty, corrupt or thin:
+# the reports say what is missing instead of inventing a number.
+# ---------------------------------------------------------------------------
+
+MISTAKES_FILE = dashboard.MISTAKES_FILE
+CONFIDENCE_FILE = dashboard.CONFIDENCE_FILE
+MISTAKE_CAUSES = dashboard.MISTAKE_CAUSES
+UNCATEGORISED = dashboard.UNCATEGORISED
+CAUSE_LABELS = dashboard.CAUSE_LABELS
+CAUSE_ADVICE = dashboard.CAUSE_ADVICE
+CONFIDENCE_LABELS = dashboard.CONFIDENCE_LABELS
+CONFIDENCE_TARGET = dashboard.CONFIDENCE_TARGET
+CONFIDENT_LEVEL = dashboard.CONFIDENT_LEVEL
+
+# Pure, Qt-free helpers re-exported so that tests (and the apps) have one
+# import site for the schema.  coach.py and dashboard.py never write either
+# journal — each app's own persistence module owns the writing.
+make_mistake_entry = dashboard.make_mistake_entry
+make_confidence_entry = dashboard.make_confidence_entry
+normalise_mistake = dashboard.normalise_mistake
+normalise_confidence = dashboard.normalise_confidence
+latest_mistakes = dashboard.latest_mistakes
+unresolved_mistakes = dashboard.unresolved_mistakes
+cause_of = dashboard.cause_of
+
+CONFIDENCE_MIN_OBS = dashboard.CONFIDENCE_MIN_OBS          # N = 20
+CONFIDENCE_MIN_LEVEL_OBS = dashboard.CONFIDENCE_MIN_LEVEL_OBS   # 5
+
+MISTAKE_TREND_DAYS = 14        # trend = this window vs the one before it
+MISTAKE_TREND_MIN_OBS = 4      # fewer dated mistakes than this => no trend
+MISTAKE_MIN_DOMINANT = 5       # categorised mistakes before "what this means"
+MISTAKE_TOP_CONCEPTS = 8       # recurring-concept rows printed
+MISTAKE_LIST_CAP = 15          # unresolved rows printed
+CONFIDENTLY_WRONG_CAP = 10     # confidently-wrong topic rows printed
+
+# Exam-bank item analysis.  The bank is 300 one-question modules under
+# exam-sim/bank/<section>/<id>.py; they are parsed with ast (never imported),
+# so the coach stays stdlib-only and runs no app code.
+EXAM_BANK_DIR = Path(__file__).resolve().parent / "exam-sim" / "bank"
+ITEM_MIN_ATTEMPTS = 3          # below this an item is "needs more attempts"
+ITEM_LIST_CAP = 15             # rows printed per item-analysis bucket
+
+
+def load_mistakes() -> list[dict]:
+    """mistakes.json from the coach's (overridable) data dir, oldest first."""
+    return dashboard.load_mistakes(_path(MISTAKES_FILE))
+
+
+def load_confidence() -> list[dict]:
+    """confidence.json from the coach's data dir, oldest first."""
+    return dashboard.load_confidence(_path(CONFIDENCE_FILE))
+
+
+# -- (a) --mistakes: error analysis -----------------------------------------
+
+def mistake_trend(entries: list[dict], window_days: float = MISTAKE_TREND_DAYS,
+                  now: Optional[float] = None) -> dict:
+    """Per-cause counts in the last *window_days* vs the window before it.
+
+    Undated entries (timestamp 0) are excluded — they cannot be placed on a
+    timeline — and are reported separately by the caller.  ``direction`` is
+    "shrinking" / "growing" / "flat", the question the report actually asks.
+    """
+    now = _NOW if now is None else now
+    span = window_days * 86400.0
+    recent_cut, prev_cut = now - span, now - 2 * span
+    recent: dict[str, int] = {}
+    previous: dict[str, int] = {}
+    dated = 0
+    for entry in entries:
+        ts = entry["timestamp"]
+        if ts <= 0:
+            continue
+        cause = cause_of(entry)
+        if ts >= recent_cut:
+            dated += 1
+            recent[cause] = recent.get(cause, 0) + 1
+        elif ts >= prev_cut:
+            dated += 1
+            previous[cause] = previous.get(cause, 0) + 1
+    rows = []
+    for cause in sorted(set(recent) | set(previous),
+                        key=lambda c: (-(recent.get(c, 0)
+                                         + previous.get(c, 0)), c)):
+        r, p = recent.get(cause, 0), previous.get(cause, 0)
+        if r < p:
+            direction = "shrinking"
+        elif r > p:
+            direction = "growing"
+        else:
+            direction = "flat"
+        rows.append({"cause": cause, "label": CAUSE_LABELS.get(cause, cause),
+                     "recent": r, "previous": p, "delta": r - p,
+                     "direction": direction})
+    return {"window_days": window_days, "rows": rows, "n_dated": dated,
+            "judged": dated >= MISTAKE_TREND_MIN_OBS}
+
+
+def recurring_concepts(entries: list[dict],
+                       top_n: int = MISTAKE_TOP_CONCEPTS) -> list[dict]:
+    """Most-repeated (app, category) concepts, worst first.
+
+    A category is the concept; entries without one fall back to a per-item
+    row so nothing disappears into an unnamed bucket.
+    """
+    groups: dict[tuple[str, str], dict] = {}
+    for entry in entries:
+        category = entry["category"] or f"item {entry['id']}"
+        key = (entry["app"], category)
+        row = groups.setdefault(key, {"app": key[0], "concept": key[1],
+                                      "n": 0, "items": set(),
+                                      "causes": {}, "unresolved": 0,
+                                      "last_ts": 0.0})
+        row["n"] += 1
+        row["items"].add(entry["id"])
+        cause = cause_of(entry)
+        row["causes"][cause] = row["causes"].get(cause, 0) + 1
+        row["last_ts"] = max(row["last_ts"], entry["timestamp"])
+    for row in groups.values():
+        row["n_items"] = len(row["items"])
+        del row["items"]
+        top = sorted(row["causes"].items(), key=lambda kv: (-kv[1], kv[0]))
+        row["top_cause"] = top[0][0] if top else UNCATEGORISED
+    rows = sorted(groups.values(),
+                  key=lambda r: (-r["n"], -r["n_items"], -r["last_ts"],
+                                 r["app"], r["concept"]))
+    # unresolved-per-concept is computed against the latest state of each item
+    latest = {(e["app"], e["id"]): e for e in latest_mistakes(entries)}
+    for row in rows:
+        row["unresolved"] = sum(
+            1 for (app, _ident), e in latest.items()
+            if app == row["app"]
+            and (e["category"] or f"item {e['id']}") == row["concept"]
+            and not e["resolved"])
+    return rows[:top_n]
+
+
+def build_mistake_report(entries: Optional[list[dict]] = None) -> dict:
+    """Everything --mistakes prints.  Safe on absent / empty / thin data."""
+    if entries is None:
+        entries = load_mistakes()
+    panel = dashboard.mistakes_panel(entries)
+
+    by_cause = []
+    for row in panel["rows"]:
+        cause = row["cause"]
+        cats: dict[str, int] = {}
+        for entry in entries:
+            if cause_of(entry) != cause:
+                continue
+            label = entry["category"] or f"item {entry['id']}"
+            cats[f"{label} [{entry['app']}]"] = cats.get(
+                f"{label} [{entry['app']}]", 0) + 1
+        by_cause.append({
+            **row,
+            "categories": sorted(cats.items(),
+                                 key=lambda kv: (-kv[1], kv[0]))[:5],
+            "advice": CAUSE_ADVICE.get(cause, ""),
+        })
+
+    unresolved = unresolved_mistakes(entries)
+    undated = sum(1 for e in entries if e["timestamp"] <= 0)
+    categorised = sum(1 for e in entries if cause_of(e) != UNCATEGORISED)
+
+    notes: list[str] = []
+    if not (_path(MISTAKES_FILE).exists()):
+        notes.append(f"no {MISTAKES_FILE} in {DATA_DIR} yet")
+    elif not entries:
+        notes.append(f"{MISTAKES_FILE} holds no usable entries "
+                     f"(empty, corrupt, or every row missing an \"id\")")
+    if undated:
+        notes.append(f"{undated} "
+                     + ("entry has" if undated == 1 else "entries have")
+                     + " no usable timestamp and "
+                     + ("is" if undated == 1 else "are")
+                     + " left out of the trend")
+    if categorised < MISTAKE_MIN_DOMINANT and entries:
+        notes.append(f"only {categorised} of {len(entries)} mistake(s) have a "
+                     f"cause; {MISTAKE_MIN_DOMINANT} are needed before the "
+                     f"'what this means' reading is worth acting on")
+    if len(entries) >= dashboard.JOURNAL_READ_CAP:
+        notes.append(f"only the newest {dashboard.JOURNAL_READ_CAP} entries "
+                     f"are read (growth cap)")
+
+    return {
+        "panel": panel,
+        "entries": entries,
+        "n": panel["n"],
+        "n_items": panel["n_items"],
+        "n_categorised": categorised,
+        "by_cause": by_cause,
+        "concepts": recurring_concepts(entries),
+        "trend": mistake_trend(entries),
+        "unresolved": unresolved,
+        "unresolved_shown": unresolved[:MISTAKE_LIST_CAP],
+        "unresolved_dropped": max(0, len(unresolved) - MISTAKE_LIST_CAP),
+        "apps": panel["apps"],
+        "dominant": panel["dominant"] if categorised >= MISTAKE_MIN_DOMINANT
+                    else None,
+        "notes": notes,
+    }
+
+
+def render_mistake_report(r: dict) -> None:
+    console = _console()
+    _heading(console, "Mistake Journal — what went wrong, and why")
+    print()
+    for note in r["notes"]:
+        _line(console, f"note: {note}", "dim")
+    if r["notes"]:
+        print()
+
+    if not r["n"]:
+        _line(console,
+              "Nothing logged yet.  Every app now asks 'what went wrong?' "
+              "after a wrong answer — one click, skippable.", "dim")
+        _line(console,
+              "Until a mistake carries a cause it is a bookmark, not "
+              "analysis.", "dim")
+        print()
+        return
+
+    panel = r["panel"]
+    span = ""
+    if panel["first_ts"] and panel["last_ts"]:
+        span = (f", {_fmt_date(panel['first_ts'])} to "
+                f"{_fmt_date(panel['last_ts'])}")
+    _line(console,
+          f"{r['n']} mistake(s) over {r['n_items']} item(s) across "
+          f"{len(r['apps'])} app(s){span} — {panel['n_unresolved']} "
+          f"unresolved, {panel['n_resolved']} cleared", "bold")
+    print()
+
+    _line(console, "BY CAUSE", "bold")
+    for row in r["by_cause"]:
+        _line(console,
+              f"  {row['label']:<22}{row['n']:>4}  "
+              f"{dashboard.signal_bar(row['n'] / r['n'])} "
+              f"{row['pct']:>3.0f}%")
+        if row["categories"]:
+            detail = ", ".join(f"{name} x{n}" for name, n in row["categories"])
+            _line(console, f"      {detail}", "dim")
+    print()
+
+    _line(console, "TOP RECURRING CONCEPTS", "bold")
+    if r["concepts"]:
+        for i, c in enumerate(r["concepts"], 1):
+            _line(console,
+                  f"  {i:2}. {_short(c['concept'])} [{c['app']}] — "
+                  f"{c['n']} mistake(s) over {c['n_items']} item(s), "
+                  f"{c['unresolved']} unresolved, mostly "
+                  f"{CAUSE_LABELS.get(c['top_cause'], c['top_cause'])}")
+    else:
+        _line(console, "  nothing repeats yet", "dim")
+    print()
+
+    trend = r["trend"]
+    _line(console, f"TREND — last {trend['window_days']:.0f} days vs the "
+                   f"{trend['window_days']:.0f} before", "bold")
+    if not trend["judged"]:
+        _line(console,
+              f"  only {trend['n_dated']} dated mistake(s) in the last "
+              f"{trend['window_days'] * 2:.0f} days — "
+              f"{MISTAKE_TREND_MIN_OBS} needed before a direction means "
+              f"anything", "dim")
+    else:
+        for row in trend["rows"]:
+            arrow = {"shrinking": "v", "growing": "^", "flat": "="}[
+                row["direction"]]
+            _line(console,
+                  f"  {row['label']:<22}{row['previous']:>4} -> "
+                  f"{row['recent']:<4} {arrow} {row['direction']}")
+    print()
+
+    _line(console, "UNRESOLVED, OLDEST FIRST", "bold")
+    if not r["unresolved"]:
+        _line(console, "  none — every logged mistake has been re-answered "
+                       "correctly since.", "green")
+    else:
+        for i, e in enumerate(r["unresolved_shown"], 1):
+            cause = cause_of(e)
+            label = _short(e["question"] or e["id"])
+            cat = f" [{_short(e['category'])}]" if e["category"] else ""
+            _line(console,
+                  f"  {i:2}. {e['app']} — {label}{cat} — "
+                  f"{CAUSE_LABELS.get(cause, cause)} "
+                  f"({_fmt_date(e['timestamp'])})")
+            if e["note"]:
+                _line(console, f"      note: {_short(e['note'])}", "dim")
+        if r["unresolved_dropped"]:
+            _line(console,
+                  f"  ... {r['unresolved_dropped']} more — clear these "
+                  f"first.", "dim")
+    print()
+
+    _line(console, "WHAT THIS MEANS", "bold")
+    if r["dominant"]:
+        _line(console,
+              f"  Dominant cause: {CAUSE_LABELS[r['dominant']]} "
+              f"({r['panel']['counts'][r['dominant']]} of {r['n']}).",
+              "yellow")
+        _line(console, f"  {CAUSE_ADVICE[r['dominant']]}")
+    else:
+        _line(console,
+              f"  No dominant cause yet — {r['n_categorised']} of {r['n']} "
+              f"mistake(s) are categorised "
+              f"({MISTAKE_MIN_DOMINANT} needed).", "dim")
+    if r["panel"]["uncategorised"]:
+        _line(console, f"  {CAUSE_ADVICE[UNCATEGORISED]} "
+                       f"({r['panel']['uncategorised']} waiting)", "dim")
+    _line(console,
+          "  Unresolved mistakes are already in `python coach.py --review`.",
+          "dim")
+    print()
+
+
+# -- (b) --calibration: confidence vs accuracy ------------------------------
+
+def build_confidence_report(obs: Optional[list[dict]] = None) -> dict:
+    """Everything --calibration prints.  Refuses a verdict below N obs."""
+    if obs is None:
+        obs = load_confidence()
+    panel = dashboard.calibration_panel(obs)
+
+    judged = [row for row in panel["levels"] if row["judged"]]
+    mean_abs_gap = (sum(abs(row["gap"]) for row in judged) / len(judged)
+                    if judged else None)
+    # Brier score over the stated confidences (0 = perfect, 0.25 = a coin
+    # flip claimed at 50%).  Lower is better; it punishes confident misses
+    # far harder than hesitant ones, which is exactly the failure mode here.
+    brier = (sum((CONFIDENCE_TARGET[o["confidence"]]
+                  - (1.0 if o["correct"] else 0.0)) ** 2 for o in obs)
+             / len(obs)) if obs else None
+
+    worst_items: dict[tuple[str, str], dict] = {}
+    for o in obs:
+        if o["confidence"] < CONFIDENT_LEVEL or o["correct"]:
+            continue
+        key = (o["app"], o["id"])
+        row = worst_items.setdefault(key, {"app": o["app"], "id": o["id"],
+                                           "category": o["category"], "n": 0,
+                                           "max_confidence": 0,
+                                           "last_ts": 0.0})
+        row["n"] += 1
+        row["max_confidence"] = max(row["max_confidence"], o["confidence"])
+        row["last_ts"] = max(row["last_ts"], o["timestamp"])
+    items = sorted(worst_items.values(),
+                   key=lambda r: (-r["n"], -r["max_confidence"],
+                                  -r["last_ts"], r["app"], r["id"]))
+
+    notes: list[str] = []
+    if not _path(CONFIDENCE_FILE).exists():
+        notes.append(f"no {CONFIDENCE_FILE} in {DATA_DIR} yet")
+    elif not obs:
+        notes.append(f"{CONFIDENCE_FILE} holds no usable observations "
+                     f"(empty, corrupt, or every row missing an id / a "
+                     f"1-4 confidence / a correct flag)")
+    if len(obs) >= dashboard.JOURNAL_READ_CAP:
+        notes.append(f"only the newest {dashboard.JOURNAL_READ_CAP} "
+                     f"observations are read (growth cap)")
+
+    conf_wrong = panel["confidently_wrong"]
+    return {
+        "panel": panel,
+        "n": panel["n"],
+        "accuracy": panel["accuracy"],
+        "levels": panel["levels"],
+        "overconfidence": panel["overconfidence"],
+        "mean_abs_gap": mean_abs_gap,
+        "brier": brier,
+        "verdict": panel["verdict"],
+        "enough": panel["enough"],
+        "min_obs": CONFIDENCE_MIN_OBS,
+        "min_level_obs": CONFIDENCE_MIN_LEVEL_OBS,
+        "confidently_wrong": conf_wrong,
+        "confidently_wrong_shown": conf_wrong[:CONFIDENTLY_WRONG_CAP],
+        "confidently_wrong_dropped": max(
+            0, len(conf_wrong) - CONFIDENTLY_WRONG_CAP),
+        "n_confident": panel["n_confident"],
+        "n_confidently_wrong": panel["n_confidently_wrong"],
+        "confident_error_rate": panel["confident_error_rate"],
+        "worst_items": items[:CONFIDENTLY_WRONG_CAP],
+        "apps": panel["apps"],
+        "notes": notes,
+    }
+
+
+def render_confidence_report(c: dict) -> None:
+    console = _console()
+    _heading(console, "Confidence Calibration — did you know that you knew?")
+    print()
+    for note in c["notes"]:
+        _line(console, f"note: {note}", "dim")
+    if c["notes"]:
+        print()
+
+    if not c["n"]:
+        _line(console,
+              "No confidence ratings yet.  Each app shows a 1-4 strip before "
+              "the answer is revealed — optional, and skippable for good.",
+              "dim")
+        _line(console,
+              "Nothing else in the suite can tell 'right' from 'right and "
+              "knew it'.", "dim")
+        print()
+        return
+
+    _line(console,
+          f"{c['n']} rated answer(s) across {len(c['apps'])} app(s) — "
+          f"{c['accuracy'] * 100:.0f}% correct overall", "bold")
+    print()
+
+    _line(console, f"  {'confidence':<18}{'n':>5}{'correct':>9}"
+                   f"{'measured':>10}{'calibrated':>12}   verdict")
+    for row in c["levels"]:
+        if not row["n"]:
+            _line(console,
+                  f"  {row['level']} {row['label']:<16}{0:>5}{'-':>9}"
+                  f"{'-':>10}{row['target'] * 100:>11.0f}%   not used yet",
+                  "dim")
+            continue
+        if not row["judged"]:
+            verdict = f"n < {c['min_level_obs']}, not judged"
+        else:
+            gap = row["gap"] * 100.0
+            if gap < -10:
+                verdict = f"OVERconfident ({gap:+.0f} pts)"
+            elif gap > 10:
+                verdict = f"underconfident ({gap:+.0f} pts)"
+            else:
+                verdict = f"calibrated ({gap:+.0f} pts)"
+        _line(console,
+              f"  {row['level']} {row['label']:<16}{row['n']:>5}"
+              f"{row['correct']:>9}{row['accuracy'] * 100:>9.0f}%"
+              f"{row['target'] * 100:>11.0f}%   {verdict}")
+    _line(console,
+          f"  (a calibrated learner scores about 25/50/75/95% at levels 1-4; "
+          f"a level is judged only at n >= {c['min_level_obs']})", "dim")
+    print()
+
+    if not c["enough"]:
+        _line(console, f"Verdict: {c['verdict']}", "bold yellow")
+        _line(console,
+              f"  {CONFIDENCE_MIN_OBS} rated answers is the floor for an "
+              f"overconfidence number; {CONFIDENCE_MIN_OBS - c['n']} more to "
+              f"go.  The confidently-wrong list below is still real — it is "
+              f"a list of things that happened, not an estimate.")
+    else:
+        _line(console, f"Verdict: {c['verdict']}", "bold")
+        _line(console,
+              f"  overconfidence index {c['overconfidence']:+.0f} pts "
+              f"(claimed accuracy minus measured; positive = you believe "
+              f"yourself more than the marking does)")
+        if c["mean_abs_gap"] is not None:
+            _line(console,
+                  f"  mean absolute gap across judged levels "
+                  f"{c['mean_abs_gap'] * 100:.0f} pts; Brier score "
+                  f"{c['brier']:.3f} (0 = perfect, 0.25 = a coin flip "
+                  f"called at 50%)")
+    print()
+
+    _line(console, "CONFIDENTLY WRONG — the unknown unknowns", "bold red")
+    if not c["confidently_wrong"]:
+        _line(console,
+              f"  None: every answer you rated {CONFIDENT_LEVEL}+ was "
+              f"correct.  That is the good outcome.", "green")
+    else:
+        rate = c["confident_error_rate"]
+        _line(console,
+              f"  {c['n_confidently_wrong']} of {c['n_confident']} confident "
+              f"answer(s) were wrong ({rate * 100:.0f}%).  These sink exam "
+              f"scores because nothing else flags them as shaky.")
+        for i, row in enumerate(c["confidently_wrong_shown"], 1):
+            ids = ", ".join(row["ids"][:3])
+            more = f" +{len(row['ids']) - 3}" if len(row["ids"]) > 3 else ""
+            _line(console,
+                  f"  {i:2}. {_short(row['category'])} [{row['app']}] — "
+                  f"{row['n']} wrong at mean confidence "
+                  f"{row['mean_confidence']:.1f} ({ids}{more})")
+        if c["confidently_wrong_dropped"]:
+            _line(console,
+                  f"  ... {c['confidently_wrong_dropped']} more topic(s)",
+                  "dim")
+        _line(console,
+              "  Treat these as unlearned, not as slips: re-read the source, "
+              "then drill them.")
+    print()
+
+
+# -- (c) --item-analysis: which bank questions carry signal -----------------
+
+def _bank_question(path: Path) -> Optional[dict]:
+    """id / section / difficulty of one bank module, parsed without importing.
+
+    Returns None for a file that does not hold a literal ``Question(id=...)``
+    call — a malformed or experimental module must not break the report.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, ValueError):
+        return None
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "Question"):
+            continue
+        fields: dict[str, object] = {}
+        for kw in node.keywords:
+            if kw.arg not in ("id", "section", "difficulty", "options"):
+                continue
+            try:
+                fields[kw.arg] = ast.literal_eval(kw.value)
+            except (ValueError, TypeError, SyntaxError, MemoryError,
+                    RecursionError):
+                continue
+        ident = fields.get("id")
+        if isinstance(ident, str) and ident.strip():
+            options = fields.get("options")
+            return {
+                "id": ident.strip(),
+                "section": str(fields.get("section") or "").strip()
+                           or "(unknown section)",
+                "difficulty": str(fields.get("difficulty") or "").strip()
+                              or "unknown",
+                "n_options": len(options) if isinstance(options, list) else 0,
+            }
+    return None
+
+
+def load_exam_bank(bank_dir: Optional[Path] = None) -> list[dict]:
+    """Every exam-sim bank question, by static parse ([] when not found)."""
+    root = Path(bank_dir) if bank_dir is not None else EXAM_BANK_DIR
+    try:
+        if not root.is_dir():
+            return []
+        files = sorted(p for p in root.glob("*/*.py")
+                       if p.name != "__init__.py")
+    except OSError:
+        return []
+    out: list[dict] = []
+    seen: set[str] = set()
+    for path in files:
+        q = _bank_question(path)
+        if q is None or q["id"] in seen:
+            continue
+        seen.add(q["id"])
+        out.append(q)
+    out.sort(key=lambda q: (q["section"], q["id"]))
+    return out
+
+
+def build_item_analysis(bank: Optional[list[dict]] = None,
+                        confidence: Optional[list[dict]] = None,
+                        mistakes: Optional[list[dict]] = None,
+                        missed: Optional[list[dict]] = None) -> dict:
+    """Per-question difficulty across the 300-question exam bank.
+
+    Graded attempts come from confidence.json (the only per-attempt log of
+    "this id, right or wrong").  For an item with no graded attempt the
+    journal still proves something: a mistakes.json row is one wrong attempt,
+    and a resolved one adds the later correct attempt; an exam_missed.json
+    row is one wrong attempt.  That merge is stated in the report, because it
+    is evidence of a different strength.
+
+    States: "always correct" (no signal left in the item), "always missed"
+    (a real gap — or an ambiguous/broken item worth re-reading), "mixed"
+    (the item discriminates), "needs more attempts" (below
+    ITEM_MIN_ATTEMPTS) and "never attempted".
+    """
+    if bank is None:
+        bank = load_exam_bank()
+    if confidence is None:
+        confidence = load_confidence()
+    if mistakes is None:
+        mistakes = load_mistakes()
+    if missed is None:
+        missed = _load_list("exam_missed.json")
+
+    records: dict[str, dict] = {}
+
+    def record(ident: str) -> dict:
+        return records.setdefault(ident, {
+            "id": ident, "section": "", "difficulty": "", "in_bank": False,
+            "attempts": 0, "correct": 0, "graded": 0, "last_ts": 0.0,
+            "sources": set()})
+
+    for q in bank:
+        row = record(q["id"])
+        row.update(section=q["section"], difficulty=q["difficulty"],
+                   in_bank=True)
+
+    for o in confidence:
+        if o["app"] != "exam-sim":
+            continue
+        row = record(o["id"])
+        row["attempts"] += 1
+        row["graded"] += 1
+        row["correct"] += 1 if o["correct"] else 0
+        row["last_ts"] = max(row["last_ts"], o["timestamp"])
+        row["sources"].add("confidence.json")
+        if not row["section"] and o["category"]:
+            row["section"] = o["category"]
+
+    for e in latest_mistakes(mistakes):
+        if e["app"] != "exam-sim" or records.get(e["id"], {}).get("graded"):
+            continue
+        row = record(e["id"])
+        row["attempts"] += 2 if e["resolved"] else 1
+        row["correct"] += 1 if e["resolved"] else 0
+        row["last_ts"] = max(row["last_ts"], e["timestamp"])
+        row["sources"].add("mistakes.json")
+        if not row["section"] and e["category"]:
+            row["section"] = e["category"]
+
+    for m in missed:
+        if not isinstance(m, dict) or m.get("question_id") is None:
+            continue
+        ident = str(m["question_id"]).strip()
+        if not ident or records.get(ident, {}).get("attempts"):
+            continue
+        row = record(ident)
+        row["attempts"] += 1
+        row["last_ts"] = max(row["last_ts"], _epoch(m.get("timestamp")))
+        row["sources"].add("exam_missed.json")
+        if not row["section"]:
+            row["section"] = str(m.get("section") or "").strip()
+
+    for row in records.values():
+        row["sources"] = sorted(row["sources"])
+        row["section"] = row["section"] or "(unknown section)"
+        row["difficulty"] = row["difficulty"] or "unknown"
+        n = row["attempts"]
+        row["p_value"] = (row["correct"] / n) if n else None
+        if n == 0:
+            row["state"] = "never attempted"
+        elif n < ITEM_MIN_ATTEMPTS:
+            row["state"] = "needs more attempts"
+        elif row["correct"] == n:
+            row["state"] = "always correct"
+        elif row["correct"] == 0:
+            row["state"] = "always missed"
+        else:
+            row["state"] = "mixed"
+
+    def bucket(state: str) -> list[dict]:
+        rows = [r for r in records.values() if r["state"] == state]
+        rows.sort(key=lambda r: (-r["attempts"],
+                                 r["p_value"] if r["p_value"] is not None
+                                 else 1.0, r["section"], r["id"]))
+        return rows
+
+    always_missed = bucket("always missed")
+    always_correct = bucket("always correct")
+    mixed = bucket("mixed")
+    needs_more = bucket("needs more attempts")
+    never = bucket("never attempted")
+    observed = [r for r in records.values() if r["attempts"]]
+    unknown = sorted(r["id"] for r in observed if not r["in_bank"])
+
+    notes: list[str] = []
+    if not bank:
+        notes.append(f"exam bank not found at {EXAM_BANK_DIR} — analysing "
+                     f"only the question ids that appear in your data")
+    if not observed:
+        notes.append("no per-question exam attempts on file yet; "
+                     "confidence.json (exam-sim rows) is what feeds this")
+    if unknown:
+        notes.append(f"{len(unknown)} answered "
+                     + ("id is" if len(unknown) == 1 else "ids are")
+                     + " not in the bank (renamed or removed questions): "
+                     f"{', '.join(unknown[:5])}"
+                     + (" ..." if len(unknown) > 5 else ""))
+    graded = sum(r["graded"] for r in records.values())
+    if observed and graded < sum(r["attempts"] for r in observed):
+        notes.append("some rows rest on journal evidence (a logged mistake = "
+                     "one wrong attempt) rather than graded attempts")
+
+    return {
+        "bank_size": len(bank),
+        "bank_present": bool(bank),
+        "bank_dir": str(EXAM_BANK_DIR),
+        "min_attempts": ITEM_MIN_ATTEMPTS,
+        "items": sorted(records.values(),
+                        key=lambda r: (r["section"], r["id"])),
+        "n_items": len(records),
+        "n_observed": len(observed),
+        "n_attempts": sum(r["attempts"] for r in records.values()),
+        "n_graded": graded,
+        "always_missed": always_missed,
+        "always_correct": always_correct,
+        "mixed": mixed,
+        "needs_more": needs_more,
+        "never_attempted": never,
+        "unknown_ids": unknown,
+        "sections": _item_sections(records.values()),
+        "notes": notes,
+    }
+
+
+def _item_sections(rows) -> list[dict]:
+    """Per-section attempt/accuracy roll-up for the item-analysis header."""
+    by_section: dict[str, dict] = {}
+    for row in rows:
+        s = by_section.setdefault(row["section"],
+                                  {"section": row["section"], "items": 0,
+                                   "attempted": 0, "attempts": 0,
+                                   "correct": 0})
+        s["items"] += 1
+        if row["attempts"]:
+            s["attempted"] += 1
+        s["attempts"] += row["attempts"]
+        s["correct"] += row["correct"]
+    out = list(by_section.values())
+    for s in out:
+        s["p_value"] = (s["correct"] / s["attempts"]) if s["attempts"] else None
+    out.sort(key=lambda s: (-s["attempts"], s["section"]))
+    return out
+
+
+def render_item_analysis(a: dict) -> None:
+    console = _console()
+    _heading(console, "Item Analysis — which exam questions still teach you "
+                      "something")
+    print()
+    for note in a["notes"]:
+        _line(console, f"note: {note}", "dim")
+    if a["notes"]:
+        print()
+
+    _line(console,
+          f"Bank: {a['bank_size']} question(s) parsed from {a['bank_dir']}"
+          if a["bank_present"] else "Bank: not found", "bold")
+    _line(console,
+          f"Attempts on file: {a['n_attempts']} over {a['n_observed']} "
+          f"question(s) ({a['n_graded']} graded by confidence.json)")
+    print()
+
+    if a["sections"] and a["n_observed"]:
+        _line(console, f"  {'section':<22}{'seen':>6}{'/of':>6}"
+                       f"{'attempts':>10}{'correct':>9}")
+        for s in a["sections"]:
+            if not s["attempts"]:
+                continue
+            pct = f"{s['p_value'] * 100:.0f}%"
+            _line(console,
+                  f"  {_short(s['section']):<22}{s['attempted']:>6}"
+                  f"{s['items']:>6}{s['attempts']:>10}{pct:>9}")
+        print()
+
+    def show(title: str, rows: list[dict], meaning: str, style: str = "",
+             empty: str = "none") -> None:
+        _line(console, f"{title} ({len(rows)})", "bold" + (f" {style}"
+                                                           if style else ""))
+        _line(console, f"  {meaning}", "dim")
+        if not rows:
+            _line(console, f"  {empty}", "dim")
+        for row in rows[:ITEM_LIST_CAP]:
+            _line(console,
+                  f"   - {row['id']} [{_short(row['section'])}] — "
+                  f"{row['correct']}/{row['attempts']} correct"
+                  + (f", {row['difficulty']}" if row["in_bank"] else
+                     ", not in bank"))
+        if len(rows) > ITEM_LIST_CAP:
+            _line(console, f"   ... {len(rows) - ITEM_LIST_CAP} more", "dim")
+        print()
+
+    show("ALWAYS MISSED", a["always_missed"],
+         f"missed on every one of >= {a['min_attempts']} attempts: a real "
+         f"gap, or an ambiguous / broken item — re-read the explanation and "
+         f"decide which.", "red")
+    show("ALWAYS CORRECT", a["always_correct"],
+         f"correct on every one of >= {a['min_attempts']} attempts: no "
+         f"signal left, stop spending exam time on these.", "green")
+    show("MIXED — these discriminate", a["mixed"],
+         "sometimes right, sometimes wrong: the questions actually worth "
+         "drilling.")
+    show("NEEDS MORE ATTEMPTS", a["needs_more"],
+         f"seen, but fewer than {a['min_attempts']} times — no verdict yet.")
+    _line(console,
+          f"NEVER ATTEMPTED ({len(a['never_attempted'])})", "bold")
+    _line(console,
+          "  no attempt on file; run more full exams to cover the bank.",
+          "dim")
+    print()
+    _line(console,
+          "  (single-learner item analysis: 'everyone' is you, across "
+          "attempts.  A 4-option item missed every time is either unlearned "
+          "or badly worded — the explanation tells you which.)", "dim")
+    print()
+
+
+# -- (e) one-line teaser for the default plan -------------------------------
+
+def signals_teaser(mistakes: Optional[list[dict]] = None,
+                   confidence: Optional[list[dict]] = None) -> Optional[str]:
+    """One line about the two new datasets, or None when both are empty."""
+    entries = load_mistakes() if mistakes is None else mistakes
+    obs = load_confidence() if confidence is None else confidence
+    parts: list[str] = []
+    flags: list[str] = []
+
+    if obs:
+        wrong = dashboard.confidently_wrong(obs)
+        if wrong:
+            parts.append(f"{len(wrong)} confidently-wrong topic(s)")
+        else:
+            parts.append(f"{len(obs)} confidence rating(s), none "
+                         f"confidently wrong")
+        flags.append("`coach.py --calibration`")
+    if entries:
+        panel = dashboard.mistakes_panel(entries)
+        top = panel["dominant"]
+        detail = (f", top cause: {CAUSE_LABELS[top]} "
+                  f"({panel['counts'][top]})" if top else "")
+        parts.append(f"{panel['n_unresolved']} unresolved mistake(s){detail}")
+        flags.append("`coach.py --mistakes`")
+    if not parts:
+        return None
+    return "Signals: " + " · ".join(parts) + " — " + ", ".join(flags)
+
+
+# ---------------------------------------------------------------------------
 # One-line readiness / retention teaser for the default plan
 # ---------------------------------------------------------------------------
 
@@ -2294,6 +3186,17 @@ def main(argv: Optional[list[str]] = None) -> None:
                       help="C1000-179 exam-readiness projection")
     mode.add_argument("--calibrate", action="store_true",
                       help="SM-2 schedule vs measured flashcard recall")
+    mode.add_argument("--mistakes", action="store_true",
+                      help="error analysis from the cross-app mistake "
+                           "journal (mistakes.json)")
+    mode.add_argument("--calibration", "--confidence", action="store_true",
+                      dest="calibration",
+                      help="confidence vs accuracy, and the topics you were "
+                           "confident about and still got wrong "
+                           "(confidence.json)")
+    mode.add_argument("--item-analysis", action="store_true",
+                      dest="item_analysis",
+                      help="which exam-bank questions still carry signal")
     args = parser.parse_args(argv)
 
     state = load_state()
@@ -2318,6 +3221,18 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     if args.calibrate:
         render_calibration(build_calibration(histories))
+        return
+
+    if args.mistakes:
+        render_mistake_report(build_mistake_report())
+        return
+
+    if args.calibration:
+        render_confidence_report(build_confidence_report())
+        return
+
+    if args.item_analysis:
+        render_item_analysis(build_item_analysis())
         return
 
     # Default: today's plan.

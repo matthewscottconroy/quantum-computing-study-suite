@@ -20,6 +20,10 @@ class ExamAttempt:
     question: Question
     chosen_index: int | None = None
     flagged: bool = False
+    # 1-4 self-rated confidence, captured before the answer is revealed
+    # (None = not rated / prompt switched off). In-session only; the graded
+    # pairing is written to confidence.json when the session is submitted.
+    confidence: int | None = None
 
     @property
     def answered(self) -> bool:

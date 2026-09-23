@@ -28,6 +28,15 @@ _TIMER_OPTIONS = [
 ]
 
 
+def _confidence_pref() -> bool:
+    """Is the card screen's confidence strip switched on?  Defaults to yes."""
+    try:
+        from persistence.review_store import confidence_enabled
+        return confidence_enabled()
+    except Exception:
+        return True
+
+
 def _avg_secs_per_card() -> float | None:
     """Typical seconds per card across saved sessions (median), or None.
 
@@ -209,6 +218,26 @@ class SetupScreen(QWidget):
         timer_card.layout().addWidget(self._timer_combo)
         right.addWidget(timer_card)
 
+        feedback_card = self._card("Self-assessment")
+        self._confidence_cb = QCheckBox("Ask my confidence before each reveal")
+        self._confidence_cb.setObjectName("conf_pref")
+        self._confidence_cb.setChecked(_confidence_pref())
+        self._confidence_cb.setAccessibleName("Ask my confidence before each reveal")
+        self._confidence_cb.setToolTip(
+            "A 1-4 strip on the card front, before the answer can be seen — it is "
+            "what separates “right” from “right and knew it”.")
+        self._confidence_cb.stateChanged.connect(self._on_confidence_pref_toggled)
+        feedback_card.layout().addWidget(self._confidence_cb)
+        conf_hint = QLabel(
+            "Missed cards are also journalled: a skippable “what went wrong?” row "
+            "records the cause (misread / didn’t know / knew but slipped / …) so the "
+            "pattern shows up, not just the card.  Your SM-2 schedule is unaffected."
+        )
+        conf_hint.setWordWrap(True)
+        conf_hint.setStyleSheet(f"font-size: 11px; color: {theme.TEXT_MUTED};")
+        feedback_card.layout().addWidget(conf_hint)
+        right.addWidget(feedback_card)
+
         tip_card = self._card("How it works")
         tip = QLabel(
             "Reveal the answer (Space), then rate yourself:\n\n"
@@ -261,6 +290,11 @@ class SetupScreen(QWidget):
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
+        if getattr(self, "_confidence_cb", None) is not None:
+            # "Don't ask" on the card screen writes the same setting.
+            self._confidence_cb.blockSignals(True)
+            self._confidence_cb.setChecked(_confidence_pref())
+            self._confidence_cb.blockSignals(False)
         self._load_mastery()
         self._avg_secs = _avg_secs_per_card()
         self._update_estimate(self._count_spin.value())
@@ -488,6 +522,14 @@ class SetupScreen(QWidget):
         finally:
             self._suspend_refresh = False
         self._validate()
+
+    def _on_confidence_pref_toggled(self) -> None:
+        """Persist the opt-out the card screen's “Don't ask” button also writes."""
+        try:
+            from persistence.review_store import set_confidence_enabled
+            set_confidence_enabled(self._confidence_cb.isChecked())
+        except Exception:
+            pass        # the preference simply stays as it was on disk
 
     def _on_flagged_toggled(self) -> None:
         flagged = self._flagged_cb.isChecked()

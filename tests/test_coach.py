@@ -1610,3 +1610,671 @@ def test_nan_and_infinity_in_json_never_reach_the_readiness_maths(data_dir,
     estimator = next(s for s in r["sections"] if s["name"] == "Estimator")
     assert estimator["freshness"] == 0.0
     assert estimator["measured"] is False
+
+
+# ---------------------------------------------------------------------------
+# Tier-5 signals: --mistakes (error analysis), --calibration (confidence vs
+# accuracy) and --item-analysis (exam-bank question difficulty).
+#
+# The schema and the tolerant loaders live in dashboard.py and are tested
+# there; what is asserted here is the ANALYSIS -- the cause breakdown, the
+# trend, the confidently-wrong list, the item states, and the way unresolved
+# mistakes join the review queue.  Every path is exercised at three
+# densities (absent, thin, rich) because the real data dir is empty.
+# ---------------------------------------------------------------------------
+
+# The coach snapshots "now" once, at import, into coach._NOW; every trend
+# window is measured from it.  Anchoring the fixtures to the same instant
+# keeps the windows deterministic for the whole run.
+T5_NOW = coach._NOW
+
+
+def m_entry(ident, app="quantum-quiz", cause="misread", ts=T5_NOW,
+            resolved=False, category="Algorithms", **kw):
+    return coach.make_mistake_entry(id=ident, app=app, category=category,
+                                    cause=cause, timestamp=ts,
+                                    resolved=resolved, **kw)
+
+
+def c_entry(ident, level, correct, app="exam-sim", category="Sampler",
+            ts=T5_NOW):
+    return coach.make_confidence_entry(id=ident, app=app, category=category,
+                                       confidence=level, correct=correct,
+                                       timestamp=ts)
+
+
+def run_coach(args, tmp_path, stdin=None):
+    """coach.py in a subprocess against *tmp_path* as the data dir."""
+    env = dict(os.environ, QUANTUM_STUDY_DATA_DIR=str(tmp_path),
+               COLUMNS="200")
+    return subprocess.run([sys.executable, *args], cwd=ROOT, env=env,
+                          stdin=stdin, capture_output=True, text=True,
+                          timeout=120)
+
+
+@pytest.fixture
+def thin_signals(data_dir):
+    """A handful of entries: real, but under every reporting threshold."""
+    write_json(data_dir, "mistakes.json", [
+        m_entry("Algorithms::grover", cause="misread", ts=T5_NOW - 3 * DAY,
+                question="How many Grover iterations for N=4?",
+                note="counted the oracle twice"),
+        m_entry("cc_depth", app="exam-sim", category="Create circuits",
+                cause="didnt_know", ts=T5_NOW - 2 * DAY),
+        m_entry("fc_t1", app="flashcard-drill", category="Quantum Hardware",
+                cause=None, ts=T5_NOW - DAY),
+    ])
+    write_json(data_dir, "confidence.json", [
+        c_entry("Algorithms::grover", 4, False, app="quantum-quiz",
+                category="Algorithms"),
+        c_entry("cc_depth", 2, False, category="Create circuits"),
+        c_entry("fc_t1", 1, False, app="flashcard-drill",
+                category="Quantum Hardware"),
+    ])
+    return data_dir
+
+
+@pytest.fixture
+def rich_signals(data_dir):
+    """Weeks of data: over every threshold, with a shrinking cause."""
+    entries = []
+    for week in range(4):                       # week 0 oldest
+        ts = T5_NOW - (28 - week * 7) * DAY
+        for k in range(6 - week):               # misread shrinks 6 -> 3
+            entries.append(m_entry(f"mis_{week}_{k}", cause="misread", ts=ts))
+        for k in range(2):
+            entries.append(m_entry(f"dk_{week}_{k}", app="exam-sim",
+                                   category="Sampler", cause="didnt_know",
+                                   ts=ts, resolved=(week == 0)))
+        entries.append(m_entry(f"un_{week}", app="math-quiz",
+                               category="Linear Algebra", cause=None, ts=ts))
+    write_json(data_dir, "mistakes.json", entries)
+
+    obs = []
+    for i in range(40):                         # level 4: 60% (overconfident)
+        obs.append(c_entry(f"c4_{i}", 4, i % 5 < 3, category="Estimator"))
+    for i in range(20):                         # level 3: 40% on one topic
+        obs.append(c_entry(f"c3_{i}", 3, i % 5 < 2, category="Sampler"))
+    for i in range(10):                         # level 1: 20%, calibrated
+        obs.append(c_entry(f"c1_{i}", 1, i < 2, category="OpenQASM"))
+    write_json(data_dir, "confidence.json", obs)
+    return data_dir
+
+
+class TestSignalLoadingInTheCoach:
+    def test_the_coach_reads_its_own_data_dir(self, thin_signals):
+        assert coach._path(coach.MISTAKES_FILE).parent == coach.DATA_DIR
+        assert [e["id"] for e in coach.load_mistakes()] \
+            == ["Algorithms::grover", "cc_depth", "fc_t1"]
+        assert len(coach.load_confidence()) == 3
+
+    def test_absent_and_corrupt_files_never_crash_a_report(self, data_dir):
+        assert coach.load_mistakes() == [] and coach.load_confidence() == []
+        (data_dir / "mistakes.json").write_text("{not json")
+        (data_dir / "confidence.json").write_text('{"nope": 1}')
+        assert coach.load_mistakes() == [] and coach.load_confidence() == []
+        assert coach.build_mistake_report()["n"] == 0
+        assert coach.build_confidence_report()["n"] == 0
+        assert coach.build_item_analysis()["n_observed"] == 0
+
+    def test_the_schema_helpers_are_the_dashboard_ones(self):
+        assert coach.make_mistake_entry is coach.dashboard.make_mistake_entry
+        assert coach.MISTAKE_CAUSES == coach.dashboard.MISTAKE_CAUSES
+        assert coach.CONFIDENCE_MIN_OBS == 20
+
+
+class TestMistakeReport:
+    def test_empty_report_says_nothing_is_logged(self, data_dir):
+        r = coach.build_mistake_report()
+        assert r["n"] == 0 and r["by_cause"] == [] and r["concepts"] == []
+        assert r["unresolved"] == [] and r["dominant"] is None
+        assert any("no mistakes.json" in n for n in r["notes"])
+
+    def test_thin_report_refuses_a_dominant_cause(self, thin_signals):
+        r = coach.build_mistake_report()
+        assert r["n"] == 3 and r["n_categorised"] == 2
+        assert r["dominant"] is None           # < MISTAKE_MIN_DOMINANT
+        assert any("are needed before" in n for n in r["notes"])
+        assert r["trend"]["judged"] is False
+
+    def test_rich_report_names_the_dominant_cause_and_its_fix(self,
+                                                              rich_signals):
+        r = coach.build_mistake_report()
+        assert r["n"] == 30
+        assert r["dominant"] == "misread"
+        top = r["by_cause"][0]
+        assert (top["cause"], top["n"]) == ("misread", 18)
+        assert top["advice"] == coach.CAUSE_ADVICE["misread"]
+        assert {row["cause"] for row in r["by_cause"]} \
+            == {"misread", "didnt_know", coach.UNCATEGORISED}
+
+    def test_each_cause_lists_the_categories_underneath_it(self,
+                                                           rich_signals):
+        r = coach.build_mistake_report()
+        dk = next(row for row in r["by_cause"] if row["cause"] == "didnt_know")
+        assert dk["categories"] == [("Sampler [exam-sim]", 8)]
+
+    def test_every_cause_has_a_what_this_means_line(self):
+        for cause in coach.MISTAKE_CAUSES + (coach.UNCATEGORISED,):
+            assert coach.CAUSE_ADVICE[cause].strip()
+            assert coach.CAUSE_LABELS[cause].strip()
+        # the three the brief calls out by name say the right thing
+        assert "re-read" in coach.CAUSE_ADVICE["misread"].lower()
+        assert "drilling" in coach.CAUSE_ADVICE["knew_but_slipped"]
+        assert "chapter" in coach.CAUSE_ADVICE["didnt_know"]
+
+    def test_trend_compares_two_windows_and_names_the_direction(self):
+        entries = ([m_entry(f"r{i}", cause="misread", ts=T5_NOW - DAY)
+                    for i in range(2)]
+                   + [m_entry(f"p{i}", cause="misread", ts=T5_NOW - 20 * DAY)
+                      for i in range(5)]
+                   + [m_entry(f"g{i}", cause="confused", ts=T5_NOW - 2 * DAY)
+                      for i in range(3)])
+        trend = coach.mistake_trend(entries, now=T5_NOW)
+        rows = {row["cause"]: row for row in trend["rows"]}
+        assert trend["judged"] is True and trend["n_dated"] == 10
+        assert (rows["misread"]["previous"], rows["misread"]["recent"]) == (5, 2)
+        assert rows["misread"]["direction"] == "shrinking"
+        assert rows["confused"]["direction"] == "growing"
+
+    def test_trend_ignores_undated_entries_and_ancient_ones(self):
+        entries = [m_entry("undated", ts=0.0),
+                   m_entry("ancient", ts=T5_NOW - 400 * DAY),
+                   m_entry("now", ts=T5_NOW - DAY)]
+        trend = coach.mistake_trend(entries, now=T5_NOW)
+        assert trend["n_dated"] == 1 and trend["judged"] is False
+        r = coach.build_mistake_report(entries)
+        assert any("no usable timestamp" in n for n in r["notes"])
+
+    def test_a_flat_cause_is_called_flat(self):
+        entries = [m_entry("a", ts=T5_NOW - DAY), m_entry("b", ts=T5_NOW - DAY),
+                   m_entry("c", ts=T5_NOW - 20 * DAY),
+                   m_entry("d", ts=T5_NOW - 20 * DAY)]
+        rows = coach.mistake_trend(entries, now=T5_NOW)["rows"]
+        assert rows[0]["direction"] == "flat" and rows[0]["delta"] == 0
+
+    def test_recurring_concepts_rank_repetition_not_recency(self):
+        entries = ([m_entry(f"a{i}", category="Algorithms") for i in range(4)]
+                   + [m_entry("m1", app="math-quiz",
+                              category="Linear Algebra", resolved=True),
+                      m_entry("m2", app="math-quiz",
+                              category="Linear Algebra")])
+        rows = coach.recurring_concepts(entries)
+        assert [(r["concept"], r["n"]) for r in rows] \
+            == [("Algorithms", 4), ("Linear Algebra", 2)]
+        assert rows[0]["n_items"] == 4 and rows[0]["top_cause"] == "misread"
+        assert rows[1]["unresolved"] == 1
+
+    def test_an_entry_without_a_category_still_gets_a_concept_row(self):
+        rows = coach.recurring_concepts([m_entry("lonely", category="")])
+        assert rows[0]["concept"] == "item lonely"
+
+    def test_unresolved_are_listed_oldest_first_and_capped(self, data_dir):
+        entries = [m_entry(f"q{i}", ts=T5_NOW - (40 - i) * DAY)
+                   for i in range(25)]
+        r = coach.build_mistake_report(entries)
+        assert len(r["unresolved"]) == 25
+        assert len(r["unresolved_shown"]) == coach.MISTAKE_LIST_CAP
+        assert r["unresolved_dropped"] == 25 - coach.MISTAKE_LIST_CAP
+        stamps = [e["timestamp"] for e in r["unresolved_shown"]]
+        assert stamps == sorted(stamps)
+
+    def test_re_answering_correctly_clears_an_item(self, data_dir):
+        entries = [m_entry("q1", ts=T5_NOW - 2 * DAY),
+                   m_entry("q1", ts=T5_NOW - DAY, resolved=True)]
+        r = coach.build_mistake_report(entries)
+        assert r["n"] == 2 and r["n_items"] == 1
+        assert r["unresolved"] == [] and r["panel"]["n_resolved"] == 1
+
+    @pytest.mark.parametrize("fixture", ["data_dir", "thin_signals",
+                                         "rich_signals"])
+    def test_renders_at_every_density_without_crashing(self, fixture, request,
+                                                       capsys):
+        request.getfixturevalue(fixture)
+        coach.render_mistake_report(coach.build_mistake_report())
+        out = capsys.readouterr().out
+        assert "Mistake Journal" in out
+
+    def test_rendered_report_carries_the_analysis(self, rich_signals, capsys):
+        coach.render_mistake_report(coach.build_mistake_report())
+        out = capsys.readouterr().out
+        for marker in ("BY CAUSE", "TOP RECURRING CONCEPTS", "TREND",
+                       "UNRESOLVED, OLDEST FIRST", "WHAT THIS MEANS",
+                       "misread the question", "shrinking"):
+            assert marker in out, marker
+        assert coach.CAUSE_ADVICE["misread"].split(".")[0] in out
+
+
+class TestConfidenceReport:
+    def test_empty_report_is_honest(self, data_dir):
+        c = coach.build_confidence_report()
+        assert c["n"] == 0 and c["confidently_wrong"] == []
+        assert c["enough"] is False and c["overconfidence"] is None
+        assert any("no confidence.json" in n for n in c["notes"])
+
+    def test_refuses_an_index_below_the_documented_floor(self, thin_signals):
+        c = coach.build_confidence_report()
+        assert c["n"] == 3 and c["enough"] is False
+        assert c["min_obs"] == 20 and "20 needed" in c["verdict"]
+        assert all(not row["judged"] for row in c["levels"])
+        # the confidently-wrong list is still reported: it is fact
+        assert c["n_confidently_wrong"] == 1
+        assert c["confidently_wrong"][0]["category"] == "Algorithms"
+
+    def test_rich_data_measures_accuracy_per_level(self, rich_signals):
+        c = coach.build_confidence_report()
+        assert c["n"] == 70 and c["enough"] is True
+        rows = {row["level"]: row for row in c["levels"]}
+        assert rows[4]["n"] == 40 and rows[4]["accuracy"] == approx(0.6)
+        assert rows[4]["judged"] and rows[4]["gap"] == approx(-0.35)
+        assert rows[3]["accuracy"] == approx(0.4)
+        assert rows[1]["accuracy"] == approx(0.2)
+        assert rows[2]["n"] == 0 and rows[2]["judged"] is False
+        assert c["verdict"] == "overconfident"
+        assert c["overconfidence"] > 20
+        assert 0.0 <= c["brier"] <= 1.0
+
+    def test_confidently_wrong_topics_are_the_headline(self, rich_signals):
+        c = coach.build_confidence_report()
+        top = c["confidently_wrong"][0]
+        assert top["category"] == "Estimator" and top["app"] == "exam-sim"
+        assert top["n"] == 16 and top["mean_confidence"] == approx(4.0)
+        assert c["n_confidently_wrong"] == 16 + 12
+        assert c["confident_error_rate"] == approx(28 / 60)
+        assert c["worst_items"][0]["max_confidence"] >= coach.CONFIDENT_LEVEL
+
+    def test_a_well_calibrated_learner_is_told_so(self, data_dir):
+        obs = ([c_entry(f"a{i}", 4, i < 19) for i in range(20)]
+               + [c_entry(f"b{i}", 2, i < 5) for i in range(10)])
+        c = coach.build_confidence_report(obs)
+        assert c["verdict"] == "well calibrated"
+        assert abs(c["overconfidence"]) < 10
+        # "well calibrated" is not "never wrong": the one confident miss is
+        # still named, because that is the list worth reading.
+        assert [(r["category"], r["n"]) for r in c["confidently_wrong"]] \
+            == [("Sampler", 1)]
+        assert c["confident_error_rate"] == approx(1 / 20)
+
+    def test_lists_are_capped_with_the_overflow_reported(self, data_dir):
+        obs = [c_entry(f"q{i}", 4, False, category=f"topic{i}")
+               for i in range(30)]
+        c = coach.build_confidence_report(obs)
+        assert len(c["confidently_wrong"]) == 30
+        assert len(c["confidently_wrong_shown"]) == coach.CONFIDENTLY_WRONG_CAP
+        assert c["confidently_wrong_dropped"] == 30 - coach.CONFIDENTLY_WRONG_CAP
+
+    @pytest.mark.parametrize("fixture", ["data_dir", "thin_signals",
+                                         "rich_signals"])
+    def test_renders_at_every_density_without_crashing(self, fixture, request,
+                                                       capsys):
+        request.getfixturevalue(fixture)
+        coach.render_confidence_report(coach.build_confidence_report())
+        assert "Confidence Calibration" in capsys.readouterr().out
+
+    def test_rendered_report_shows_the_table_and_the_money_list(
+            self, rich_signals, capsys):
+        coach.render_confidence_report(coach.build_confidence_report())
+        out = capsys.readouterr().out
+        assert "CONFIDENTLY WRONG" in out and "unknown unknowns" in out
+        assert "OVERconfident" in out          # judgement in text, not colour
+        assert "overconfidence index" in out
+        assert "25/50/75/95%" in out
+        assert "Estimator" in out
+
+    def test_a_thin_render_states_the_floor_rather_than_a_number(
+            self, thin_signals, capsys):
+        coach.render_confidence_report(coach.build_confidence_report())
+        out = capsys.readouterr().out
+        assert "20 needed" in out
+        assert "not judged" in out
+        assert "overconfidence index" not in out
+
+
+class TestExamBank:
+    def test_the_real_bank_parses_to_three_hundred_questions(self):
+        bank = coach.load_exam_bank()
+        assert len(bank) == 300
+        assert len({q["id"] for q in bank}) == 300
+        assert len({q["section"] for q in bank}) == 8
+        assert all(q["n_options"] == 4 for q in bank)
+        assert all(q["difficulty"] in ("easy", "medium", "hard") for q in bank)
+
+    def test_a_missing_bank_is_not_an_error(self, tmp_path):
+        assert coach.load_exam_bank(tmp_path / "nope") == []
+
+    def test_questions_are_parsed_not_imported(self, tmp_path):
+        section = tmp_path / "sec"
+        section.mkdir()
+        (section / "__init__.py").write_text("raise RuntimeError('never')")
+        (section / "q1.py").write_text(
+            "import does_not_exist\n"
+            "from core.models import Question\n"
+            "QUESTION = Question(id='q1', section='Sampler',\n"
+            "                    options=['a', 'b', 'c', 'd'],\n"
+            "                    correct_index=0, question='?',\n"
+            "                    explanation='', difficulty='hard')\n")
+        (section / "broken.py").write_text("def (((")
+        (section / "notaquestion.py").write_text("X = 1\n")
+        bank = coach.load_exam_bank(tmp_path)
+        assert bank == [{"id": "q1", "section": "Sampler",
+                         "difficulty": "hard", "n_options": 4}]
+
+    def test_a_question_built_from_non_literals_is_skipped(self, tmp_path):
+        section = tmp_path / "sec"
+        section.mkdir()
+        (section / "q.py").write_text(
+            "QUESTION = Question(id=SOME_CONSTANT, section='Sampler')\n")
+        assert coach.load_exam_bank(tmp_path) == []
+
+
+class TestItemAnalysis:
+    BANK = [{"id": "q_missed", "section": "Sampler", "difficulty": "hard",
+             "n_options": 4},
+            {"id": "q_easy", "section": "Sampler", "difficulty": "easy",
+             "n_options": 4},
+            {"id": "q_mixed", "section": "Estimator", "difficulty": "medium",
+             "n_options": 4},
+            {"id": "q_thin", "section": "OpenQASM", "difficulty": "easy",
+             "n_options": 4},
+            {"id": "q_unseen", "section": "OpenQASM", "difficulty": "easy",
+             "n_options": 4}]
+
+    def analysis(self, **kw):
+        kw.setdefault("bank", self.BANK)
+        kw.setdefault("confidence", [])
+        kw.setdefault("mistakes", [])
+        kw.setdefault("missed", [])
+        return coach.build_item_analysis(**kw)
+
+    def test_no_attempts_means_every_item_is_never_attempted(self):
+        a = self.analysis()
+        assert len(a["never_attempted"]) == 5 and a["n_observed"] == 0
+        assert a["always_missed"] == [] and a["always_correct"] == []
+        assert any("no per-question exam attempts" in n for n in a["notes"])
+
+    def test_the_four_states_are_separated(self):
+        obs = ([c_entry("q_missed", 3, False) for _ in range(4)]
+               + [c_entry("q_easy", 4, True) for _ in range(3)]
+               + [c_entry("q_mixed", 2, i % 2 == 0, category="Estimator")
+                  for i in range(4)]
+               + [c_entry("q_thin", 2, False, category="OpenQASM")])
+        a = self.analysis(confidence=obs)
+        assert [r["id"] for r in a["always_missed"]] == ["q_missed"]
+        assert [r["id"] for r in a["always_correct"]] == ["q_easy"]
+        assert [r["id"] for r in a["mixed"]] == ["q_mixed"]
+        assert [r["id"] for r in a["needs_more"]] == ["q_thin"]
+        assert [r["id"] for r in a["never_attempted"]] == ["q_unseen"]
+        assert a["min_attempts"] == 3
+        missed = a["always_missed"][0]
+        assert (missed["attempts"], missed["correct"]) == (4, 0)
+        assert missed["p_value"] == 0.0 and missed["difficulty"] == "hard"
+
+    def test_two_attempts_is_never_a_verdict(self):
+        a = self.analysis(confidence=[c_entry("q_missed", 3, False)
+                                      for _ in range(2)])
+        assert [r["id"] for r in a["needs_more"]] == ["q_missed"]
+        assert a["always_missed"] == []
+
+    def test_only_exam_sim_rows_count(self):
+        obs = [c_entry("q_missed", 3, False, app="quantum-quiz")
+               for _ in range(4)]
+        a = self.analysis(confidence=obs)
+        assert a["n_observed"] == 0
+
+    def test_the_journal_fills_in_for_ungraded_items(self):
+        mistakes = [m_entry("q_missed", app="exam-sim", category="Sampler",
+                            cause="didnt_know"),
+                    m_entry("q_easy", app="exam-sim", category="Sampler",
+                            resolved=True)]
+        a = self.analysis(mistakes=mistakes,
+                          missed=[{"question_id": "q_mixed",
+                                   "section": "Estimator",
+                                   "timestamp": T5_NOW}])
+        rows = {r["id"]: r for r in a["items"]}
+        assert (rows["q_missed"]["attempts"], rows["q_missed"]["correct"]) \
+            == (1, 0)
+        assert (rows["q_easy"]["attempts"], rows["q_easy"]["correct"]) == (2, 1)
+        assert rows["q_mixed"]["attempts"] == 1
+        assert rows["q_missed"]["sources"] == ["mistakes.json"]
+        assert rows["q_mixed"]["sources"] == ["exam_missed.json"]
+        assert a["n_graded"] == 0
+        assert any("journal evidence" in n for n in a["notes"])
+
+    def test_graded_attempts_win_over_journal_evidence(self):
+        obs = [c_entry("q_missed", 3, True) for _ in range(3)]
+        a = self.analysis(confidence=obs,
+                          mistakes=[m_entry("q_missed", app="exam-sim")],
+                          missed=[{"question_id": "q_missed",
+                                   "timestamp": T5_NOW}])
+        row = next(r for r in a["items"] if r["id"] == "q_missed")
+        assert (row["attempts"], row["correct"], row["graded"]) == (3, 3, 3)
+        assert row["sources"] == ["confidence.json"]
+
+    def test_an_id_that_left_the_bank_is_reported_not_hidden(self):
+        a = self.analysis(confidence=[c_entry("q_retired", 4, False)
+                                      for _ in range(3)])
+        assert a["unknown_ids"] == ["q_retired"]
+        row = next(r for r in a["items"] if r["id"] == "q_retired")
+        assert row["in_bank"] is False and row["section"] == "Sampler"
+        assert any("not in the bank" in n for n in a["notes"])
+
+    def test_section_rollup_counts_coverage_and_accuracy(self):
+        obs = ([c_entry("q_missed", 3, False) for _ in range(4)]
+               + [c_entry("q_easy", 4, True) for _ in range(4)])
+        a = self.analysis(confidence=obs)
+        sampler = next(s for s in a["sections"] if s["section"] == "Sampler")
+        assert (sampler["items"], sampler["attempted"]) == (2, 2)
+        assert (sampler["attempts"], sampler["correct"]) == (8, 4)
+        assert sampler["p_value"] == approx(0.5)
+
+    def test_an_absent_bank_still_analyses_what_was_answered(self):
+        a = self.analysis(bank=[],
+                          confidence=[c_entry("q_x", 3, False)
+                                      for _ in range(3)])
+        assert a["bank_present"] is False and a["bank_size"] == 0
+        assert [r["id"] for r in a["always_missed"]] == ["q_x"]
+        assert any("exam bank not found" in n for n in a["notes"])
+
+    def test_runs_against_the_real_bank_and_an_empty_dir(self, data_dir):
+        a = coach.build_item_analysis()
+        assert a["bank_size"] == 300 and a["bank_present"] is True
+        assert len(a["never_attempted"]) == 300
+
+    @pytest.mark.parametrize("fixture", ["data_dir", "thin_signals",
+                                         "rich_signals"])
+    def test_renders_at_every_density_without_crashing(self, fixture, request,
+                                                       capsys):
+        request.getfixturevalue(fixture)
+        coach.render_item_analysis(coach.build_item_analysis())
+        out = capsys.readouterr().out
+        assert "Item Analysis" in out
+        for marker in ("ALWAYS MISSED", "ALWAYS CORRECT", "MIXED",
+                       "NEEDS MORE ATTEMPTS", "NEVER ATTEMPTED"):
+            assert marker in out, marker
+
+
+class TestMistakesInTheReviewQueue:
+    def test_unresolved_mistakes_join_the_queue(self, data_dir):
+        write_json(data_dir, "mistakes.json",
+                   [m_entry("open_one", ts=T5_NOW - 5 * DAY),
+                    m_entry("closed_one", ts=T5_NOW - 4 * DAY, resolved=True)])
+        items = coach.collect_review_items(empty_histories())
+        assert [(i["app"], i["id"]) for i in items] \
+            == [("quantum-quiz", "open_one")]
+        assert items[0]["why"] == "mistake: misread the question"
+        assert items[0]["category"] == "Algorithms"
+
+    def test_an_uncategorised_mistake_still_reaches_the_queue(self, data_dir):
+        write_json(data_dir, "mistakes.json", [m_entry("q", cause=None)])
+        items = coach.collect_review_items(empty_histories())
+        assert items[0]["why"] == "mistake: cause not set"
+
+    def test_the_question_text_becomes_the_label(self, data_dir):
+        write_json(data_dir, "mistakes.json",
+                   [m_entry("id_only"),
+                    m_entry("with_q", question="Why is this wrong?")])
+        labels = {i["id"]: i["label"]
+                  for i in coach.collect_review_items(empty_histories())}
+        assert labels == {"id_only": "id_only",
+                          "with_q": "Why is this wrong?"}
+
+    def test_a_flagged_item_is_not_repeated_as_a_mistake(self, data_dir):
+        write_json(data_dir, "quiz_flagged.json",
+                   [{"id": "dup", "label": "Grover count",
+                     "category": "Algorithms", "app": "quantum-quiz",
+                     "timestamp": T5_NOW - 9 * DAY}])
+        write_json(data_dir, "mistakes.json",
+                   [m_entry("dup", ts=T5_NOW - DAY),
+                    m_entry("fresh", ts=T5_NOW - DAY)])
+        items = coach.collect_review_items(empty_histories())
+        assert [i["id"] for i in items] == ["dup", "fresh"]
+        assert items[0]["why"] == "flagged"        # the flag kept its row
+        assert items[1]["why"].startswith("mistake: ")
+
+    def test_an_exam_miss_is_not_repeated_as_a_mistake(self, data_dir):
+        write_json(data_dir, "exam_missed.json",
+                   [{"question_id": "ex_7", "section": "Sampler",
+                     "timestamp": T5_NOW - 3 * DAY}])
+        write_json(data_dir, "mistakes.json",
+                   [m_entry("ex_7", app="exam-sim", category="Sampler",
+                            ts=T5_NOW - DAY)])
+        items = coach.collect_review_items(empty_histories())
+        assert len(items) == 1 and items[0]["why"] == "missed exam question"
+
+    def test_the_plan_counts_and_advertises_the_journal(self, data_dir):
+        write_json(data_dir, "mistakes.json",
+                   [m_entry(f"q{i}", ts=T5_NOW - i * DAY) for i in range(3)])
+        plan = coach.build_plan(empty_histories(), coach.load_state())
+        assert plan["mistake_total"] == 3 and plan["mistake_unresolved"] == 3
+        assert "3 from the mistake journal" in plan["items"][0]
+
+    def test_the_synthetic_queue_is_unchanged_without_a_journal(
+            self, synthetic_dir):
+        plan = coach.build_plan(coach.load_histories(), coach.load_state())
+        assert plan["review_count"] == plan["review_total"] == 9
+        assert plan["mistake_total"] == 0 and plan["signals"] is None
+
+
+class TestSignalsTeaser:
+    def test_absent_without_data(self, data_dir):
+        assert coach.signals_teaser() is None
+        plan = coach.build_plan(empty_histories(), coach.load_state())
+        assert plan["signals"] is None
+        assert plan["confidently_wrong"] == 0
+
+    def test_leads_with_the_confidently_wrong_count(self, data_dir):
+        write_json(data_dir, "confidence.json",
+                   [c_entry("a", 4, False, category="Sampler"),
+                    c_entry("b", 4, False, category="Estimator"),
+                    c_entry("c", 3, False, category="OpenQASM"),
+                    c_entry("d", 4, True, category="OpenQASM")])
+        teaser = coach.signals_teaser()
+        assert "3 confidently-wrong topic(s)" in teaser
+        assert "`coach.py --calibration`" in teaser
+
+    def test_mentions_the_mistake_journal_and_its_top_cause(self, data_dir):
+        write_json(data_dir, "mistakes.json",
+                   [m_entry("a", cause="knew_but_slipped"),
+                    m_entry("b", cause="knew_but_slipped"),
+                    m_entry("c", cause="confused")])
+        teaser = coach.signals_teaser()
+        assert "3 unresolved mistake(s)" in teaser
+        assert "top cause: knew it but slipped (2)" in teaser
+        assert "`coach.py --mistakes`" in teaser
+
+    def test_clean_confidence_data_still_says_something(self, data_dir):
+        write_json(data_dir, "confidence.json",
+                   [c_entry(f"q{i}", 4, True) for i in range(3)])
+        assert "none confidently wrong" in coach.signals_teaser()
+
+    def test_the_rendered_plan_shows_the_line(self, rich_signals, capsys):
+        plan = coach.build_plan(empty_histories(), coach.load_state())
+        coach.render_plan(plan, coach.load_state())
+        out = capsys.readouterr().out
+        assert plan["signals"] in out
+        assert "Signals:" in out
+
+    def test_the_plan_stays_deterministic(self, rich_signals):
+        state = coach.load_state()
+        first = coach.build_plan(coach.load_histories(), state)
+        second = coach.build_plan(coach.load_histories(), state)
+        assert first == second
+
+
+class TestTier5CLI:
+    FLAGS = ("--mistakes", "--calibration", "--item-analysis")
+
+    @pytest.mark.parametrize("flag,marker", [
+        ("--mistakes", "Mistake Journal"),
+        ("--calibration", "Confidence Calibration"),
+        ("--confidence", "Confidence Calibration"),
+        ("--item-analysis", "Item Analysis"),
+    ])
+    def test_every_new_flag_runs_on_an_empty_dir(self, tmp_path, flag,
+                                                 marker):
+        r = run_coach(["coach.py", flag], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert marker in r.stdout
+        # read-only modes: not even coach_state.json is written
+        assert list(tmp_path.iterdir()) == []
+
+    def test_the_new_modes_are_mutually_exclusive_with_the_old(self,
+                                                               tmp_path):
+        r = run_coach(["coach.py", "--mistakes", "--readiness"], tmp_path)
+        assert r.returncode != 0 and "not allowed with" in r.stderr
+        r = run_coach(["coach.py", "--calibration", "--calibrate"], tmp_path)
+        assert r.returncode != 0 and "not allowed with" in r.stderr
+
+    def test_calibrate_and_calibration_stay_distinct(self, tmp_path):
+        sm2 = run_coach(["coach.py", "--calibrate"], tmp_path)
+        conf = run_coach(["coach.py", "--calibration"], tmp_path)
+        assert sm2.returncode == 0 and conf.returncode == 0
+        assert "SM-2 Calibration" in sm2.stdout
+        assert "SM-2 Calibration" not in conf.stdout
+        assert "did you know that you knew" in conf.stdout
+
+    def test_every_pre_existing_flag_still_works(self, tmp_path):
+        for flag in ("--review", "--readiness", "--calibrate", "--badges",
+                     "--diagnostic"):
+            r = run_coach(["coach.py", flag], tmp_path,
+                          stdin=subprocess.DEVNULL)
+            assert r.returncode == 0, (flag, r.stderr)
+
+    def test_end_to_end_on_a_populated_dir(self, tmp_path):
+        write_json(tmp_path, "mistakes.json",
+                   [m_entry(f"q{i}", cause="misread", ts=T5_NOW - i * DAY)
+                    for i in range(6)])
+        write_json(tmp_path, "confidence.json",
+                   [c_entry(f"e{i}", 4, i < 5, category="Estimator")
+                    for i in range(25)])
+        r = run_coach(["coach.py", "--mistakes"], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert "misread the question" in r.stdout
+        assert "Slow down and re-read" in r.stdout
+
+        r = run_coach(["coach.py", "--calibration"], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert "overconfident" in r.stdout
+        assert "Estimator" in r.stdout
+
+        r = run_coach(["coach.py", "--review"], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert "mistake: misread the question" in r.stdout
+
+        r = run_coach(["coach.py"], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert "Signals:" in r.stdout
+        # only the coach's own state file is ever written
+        assert sorted(p.name for p in tmp_path.iterdir()) == [
+            "coach_state.json", "confidence.json", "mistakes.json"]
+
+    def test_dashboard_renders_the_panels_end_to_end(self, tmp_path):
+        write_json(tmp_path, "mistakes.json", [m_entry("a", cause="confused")])
+        write_json(tmp_path, "confidence.json",
+                   [c_entry("q", 4, False, category="Sampler")])
+        r = run_coach(["dashboard.py", "--no-retention"], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert "MISTAKES BY CAUSE" in r.stdout
+        assert "CONFIDENCE CALIBRATION" in r.stdout
+        assert sorted(p.name for p in tmp_path.iterdir()) == [
+            "confidence.json", "mistakes.json"]

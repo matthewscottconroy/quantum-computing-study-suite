@@ -16,6 +16,18 @@ REPO_DOCS = APP_ROOT.parent / "docs"
 USER_ROLE = Qt.ItemDataRole.UserRole
 
 
+def _chapter_dirs_on_disk() -> list[str]:
+    """Top-level docs/ directories holding Markdown, as scan_docs groups them.
+
+    Derived rather than hard-coded: the shared corpus gains chapters over time
+    (a 9th rung would otherwise "break" a reader that is working perfectly).
+    What has to hold is that every chapter directory shows up exactly once.
+    """
+    return sorted({p.relative_to(REPO_DOCS).parts[0]
+                   for p in REPO_DOCS.rglob("*.md")
+                   if len(p.relative_to(REPO_DOCS).parts) > 1})
+
+
 def _data_rows(screen: ReferenceScreen) -> list[int]:
     """Entry indices currently listed (header rows carry no UserRole data)."""
     rows = []
@@ -49,7 +61,8 @@ def test_scan_docs_lists_every_chapter_file_in_ladder_order():
     assert "1. Mathematical Foundations" in chapters
     numbered = [c for c in chapters if c[0].isdigit()]
     assert numbered == sorted(numbered, key=lambda c: int(c.split(".")[0]))
-    assert len(numbered) == 8
+    numbered_dirs = [d for d in _chapter_dirs_on_disk() if d[:1].isdigit()]
+    assert len(numbered) == len(numbered_dirs) >= 8      # one entry per rung on disk
     # The math chapter's first file is the linear algebra primer.
     first_math = next(e for e in entries if e.path.parent.name == "01_mathematical_foundations")
     assert first_math.path.name.startswith("01_")
@@ -91,7 +104,8 @@ def test_load_all_opens_mathematical_foundations(screen):
     assert screen._open_btn.isEnabled()
     chapters = [screen._chapter_filter.itemText(i) for i in range(screen._chapter_filter.count())]
     assert chapters[0] == "All chapters" and "Overview" in chapters
-    assert len(chapters) == 1 + 1 + 8                            # all + overview + 8 rungs
+    # all + overview + one per chapter directory (the corpus grows; see helper)
+    assert len(chapters) == 1 + 1 + len(_chapter_dirs_on_disk())
     # Second load_all keeps the reader's place (no rescan).
     screen.select_entry(len(screen.entries) - 1)
     placed = screen.current_entry

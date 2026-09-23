@@ -10,6 +10,15 @@ DATA_DIR        = Path(os.environ.get("QUANTUM_STUDY_DATA_DIR")
                        or (Path.home() / ".local" / "share" / "quantum-study"))
 HISTORY_FILE    = DATA_DIR / "exam_history.json"
 MISSED_FILE     = DATA_DIR / "exam_missed.json"
+# Suite-wide study-analysis files (shared schema across the ten apps).
+MISTAKES_FILE   = DATA_DIR / "mistakes.json"
+CONFIDENCE_FILE = DATA_DIR / "confidence.json"
+# App-local preferences (this app only; nothing else reads it).
+SETTINGS_FILE   = DATA_DIR / "exam_settings.json"
+
+# Identifies this app inside the shared mistakes/confidence files: the app
+# directory name, exactly as the suite contract specifies.
+APP_ID          = "exam-sim"
 
 WINDOW_TITLE    = "Exam Sim — IBM C1000-179 Mock Exam"
 WINDOW_MIN_SIZE = (1040, 700)

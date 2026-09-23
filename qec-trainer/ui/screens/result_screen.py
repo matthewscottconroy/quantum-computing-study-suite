@@ -7,11 +7,21 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal
 from core.models import Attempt, Verdict
 from ui import theme
+from ui.widgets.mistake_row import MistakeRow
+
+
+_VERDICT_GLYPH = {
+    Verdict.CORRECT:   "\u2713",   # ✓  — paired with colour, never colour alone
+    Verdict.PARTIAL:   "\u25d0",   # ◐
+    Verdict.INCORRECT: "\u2717",   # ✗
+}
 
 
 class ResultScreen(QWidget):
-    next_requested = pyqtSignal()
-    flag_requested = pyqtSignal()
+    next_requested  = pyqtSignal()
+    flag_requested  = pyqtSignal()
+    cause_selected  = pyqtSignal(str)    # a persistence.MISTAKE_CAUSES value
+    note_edited     = pyqtSignal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -49,11 +59,25 @@ class ResultScreen(QWidget):
         fb_l.addWidget(self._explanation_browser)
         root.addWidget(fb_card)
 
+        # Mistake journal — only shown after a wrong answer. The mistake is
+        # already logged by then, so ignoring this row loses nothing.
+        self._mistake_card = QFrame(); self._mistake_card.setObjectName("card")
+        mk_l = QVBoxLayout(self._mistake_card)
+        mk_l.setContentsMargins(20, 12, 20, 12)
+        mk_l.setSpacing(6)
+        self._mistake_row = MistakeRow()
+        self._mistake_row.cause_chosen.connect(self.cause_selected)
+        self._mistake_row.note_edited.connect(self.note_edited)
+        mk_l.addWidget(self._mistake_row)
+        self._mistake_card.hide()
+        root.addWidget(self._mistake_card)
+
         root.addStretch()
 
         btn_row = QHBoxLayout()
         self._flag_btn = QPushButton("⚑ Flag for Review")
         self._flag_btn.setObjectName("flat")
+        self._flag_btn.setAccessibleName("Flag this problem for review")
         self._flag_btn.clicked.connect(self.flag_requested)
         btn_row.addWidget(self._flag_btn)
         btn_row.addStretch()
@@ -76,7 +100,10 @@ class ResultScreen(QWidget):
         )
         self._score_lbl.setText(f"{attempt.score}/10")
         self._score_lbl.setStyleSheet(f"font-size: 36px; font-weight: bold; color: {color};")
-        self._verdict_lbl.setText(attempt.verdict.value)
+        glyph = _VERDICT_GLYPH.get(attempt.verdict, "")
+        self._verdict_lbl.setText(f"{glyph} {attempt.verdict.value}".strip())
+        self._verdict_lbl.setAccessibleName(f"Verdict: {attempt.verdict.value}")
+        self._score_lbl.setAccessibleName(f"Score {attempt.score} out of 10")
         self._verdict_lbl.setStyleSheet(f"font-size: 15px; font-weight: bold; color: {color};")
         self._q_lbl.setText(attempt.problem.question)
 
@@ -85,6 +112,7 @@ class ResultScreen(QWidget):
             explanation += f"\n\nModel answer: {attempt.model_answer}"
         self._explanation_browser.setPlainText(explanation)
         self._next_btn.setText("View Summary" if is_last else "Next Problem")
+        self._next_btn.setAccessibleName(self._next_btn.text())
 
     def set_flagged(self, flagged: bool) -> None:
         """Update flag button to reflect flagged state. Button always enabled."""
@@ -92,4 +120,18 @@ class ResultScreen(QWidget):
             self._flag_btn.setText("⚑ Flagged — click to unflag")
         else:
             self._flag_btn.setText("⚑ Flag for Review")
+        self._flag_btn.setAccessibleName(self._flag_btn.text().lstrip("⚑ "))
         self._flag_btn.setEnabled(True)
+
+    def show_mistake_row(self, logged: bool = True) -> None:
+        """Reveal the "What went wrong?" row for a freshly logged mistake."""
+        self._mistake_row.reset(logged=logged)
+        self._mistake_card.show()
+
+    def hide_mistake_row(self) -> None:
+        self._mistake_card.hide()
+
+    @property
+    def mistake_row(self) -> MistakeRow:
+        """The cause/note row — exposed for headless drives and tests."""
+        return self._mistake_row

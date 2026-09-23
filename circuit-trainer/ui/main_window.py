@@ -14,7 +14,11 @@ from ui.screens.history_screen import HistoryScreen
 from ui.screens.sprint_screen import SprintScreen, SprintSummaryScreen
 from ui.screens.reference_screen import ReferenceScreen
 from ui.widgets.loading_overlay import LoadingOverlay
-from persistence import flag_id_for, is_flagged, toggle_flag
+from persistence import (
+    flag_id_for, is_flagged, toggle_flag,
+    log_mistake_for_attempt, update_mistake, resolve_mistake, log_confidence,
+    confidence_prompt_enabled, set_confidence_prompt_enabled,
+)
 from config import APP_NAME, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT, SPRINT_SECONDS
 
 PAGE_SETUP          = 0
@@ -39,6 +43,9 @@ class MainWindow(QMainWindow):
         self._eval_worker: EvaluationWorker | None = None
         self._pending_elapsed_secs: int = 0
         self._review_queue: list[Problem] = []
+        # Mistake journal: the flag id of the entry the "What went wrong?" row
+        # is currently editing (None when the last answer was not a mistake).
+        self._pending_mistake_id: str | None = None
 
         self._stack = QStackedWidget()
         self.setCentralWidget(self._stack)
@@ -77,6 +84,12 @@ class MainWindow(QMainWindow):
         self._sprint.timed_out.connect(self._on_sprint_timeout)
         self._sprint.advance_requested.connect(self._on_sprint_advance)
         self._sprint_summary.restart_requested.connect(self._on_restart)
+        self._problem.cause_chosen.connect(self._on_cause_chosen)
+        self._problem.note_committed.connect(self._on_note_committed)
+        self._problem.confidence_opt_out.connect(self._on_confidence_opt_out)
+        self._setup.confidence_pref_changed.connect(self._on_confidence_pref_changed)
+
+        self._sync_confidence_pref()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -151,6 +164,88 @@ class MainWindow(QMainWindow):
             flagged = False
         self._problem.set_flagged(flagged)
 
+        self._record_outcome(attempt, self._problem.selected_confidence())
+        if self._pending_mistake_id:
+            self._problem.show_mistake_prompt()
+        else:
+            self._problem.hide_mistake_prompt()
+
+    # ── Mistake journal / confidence calibration ──────────────────────────────
+
+    @staticmethod
+    def _is_mistake(attempt: Attempt) -> bool:
+        """Journal-worthy: any wrong auto-graded answer, or free-form below 4."""
+        if attempt.problem.answer_format == AnswerFormat.FREE_FORM:
+            return attempt.score < 4
+        return not attempt.is_correct
+
+    def _record_outcome(
+        self, attempt: Attempt, confidence: int | None, cause: str | None = None
+    ) -> None:
+        """Pair the confidence rating with the result and journal a mistake.
+
+        Never raises: a persistence problem must not interrupt the session.
+        """
+        self._pending_mistake_id = None
+        try:
+            item_id = flag_id_for(attempt.problem)
+        except Exception:
+            return
+        try:
+            log_confidence(
+                item_id, attempt.problem.category.value, confidence, attempt.is_correct
+            )
+        except Exception:
+            pass
+        try:
+            if self._is_mistake(attempt):
+                log_mistake_for_attempt(attempt, cause=cause)
+                self._pending_mistake_id = item_id
+            elif attempt.is_correct:
+                # Re-answering a journalled item correctly closes it out.
+                resolve_mistake(item_id)
+        except Exception:
+            self._pending_mistake_id = None
+
+    def _on_cause_chosen(self, cause: str, note: str) -> None:
+        if not self._pending_mistake_id:
+            return
+        try:
+            update_mistake(self._pending_mistake_id, cause=cause, note=note)
+        except Exception:
+            pass
+
+    def _on_note_committed(self, note: str) -> None:
+        if not self._pending_mistake_id:
+            return
+        try:
+            update_mistake(self._pending_mistake_id, note=note)
+        except Exception:
+            pass
+
+    def _on_confidence_opt_out(self) -> None:
+        try:
+            set_confidence_prompt_enabled(False)
+        except Exception:
+            pass
+        self._sync_confidence_pref()
+
+    def _on_confidence_pref_changed(self, enabled: bool) -> None:
+        try:
+            set_confidence_prompt_enabled(enabled)
+        except Exception:
+            pass
+        self._problem.set_confidence_enabled(bool(enabled))
+
+    def _sync_confidence_pref(self) -> None:
+        """Push the persisted opt-out into the setup checkbox and the strip."""
+        try:
+            enabled = confidence_prompt_enabled()
+        except Exception:
+            enabled = True
+        self._setup.set_confidence_pref(enabled)
+        self._problem.set_confidence_enabled(enabled)
+
     # ── Flag for review ───────────────────────────────────────────────────────
 
     def _on_flag(self) -> None:
@@ -182,6 +277,9 @@ class MainWindow(QMainWindow):
         attempt = grade(self._current_problem, str(choice_idx))
         attempt.elapsed_secs = elapsed_secs
         self._session.record(attempt)
+        # Sprint has no confidence strip (it would cost seconds off the 60s
+        # clock); mistakes are still journalled, uncategorised.
+        self._record_outcome(attempt, confidence=None)
         self._sprint.show_flash(attempt)
 
     def _on_sprint_timeout(self, elapsed_secs: int) -> None:
@@ -197,6 +295,8 @@ class MainWindow(QMainWindow):
             elapsed_secs=min(elapsed_secs, SPRINT_SECONDS),
         )
         self._session.record(attempt)
+        # A timeout is, by definition, out of time — journal it pre-categorised.
+        self._record_outcome(attempt, confidence=None, cause="out_of_time")
         self._sprint.show_flash(attempt, timed_out=True)
 
     def _on_sprint_advance(self) -> None:
@@ -215,6 +315,8 @@ class MainWindow(QMainWindow):
         self._advance()
 
     def _on_next(self) -> None:
+        # Save a note the user typed but never committed with Enter.
+        self._problem.commit_note()
         self._advance()
 
     def _advance(self) -> None:
@@ -265,7 +367,9 @@ class MainWindow(QMainWindow):
         self._session = None
         self._current_problem = None
         self._review_queue = []
+        self._pending_mistake_id = None
         self._sprint.stop_timers()
+        self._sync_confidence_pref()
         self._stack.setCurrentIndex(PAGE_SETUP)
 
     def _on_history(self) -> None:

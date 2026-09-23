@@ -14,6 +14,10 @@ SUCCESS    = "#3fb950"
 WARNING    = "#d29922"
 ERROR      = "#f85149"
 PARTIAL    = "#e3b341"
+# Keyboard-focus ring. FOCUS reads 14:1 on SURFACE2 and 17:1 on BG; on a
+# filled ACCENT chip the ring flips to FOCUS_ON_ACCENT (7.5:1 on ACCENT).
+FOCUS           = "#f0f6fc"
+FOCUS_ON_ACCENT = "#0d1117"
 
 CATEGORY_COLORS = {
     "VQE Fundamentals":  "#6e40c9",
@@ -85,6 +89,29 @@ QRadioButton::indicator {{
     border: 1px solid {BORDER}; border-radius: 8px; background: {SURFACE2};
 }}
 QRadioButton::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+
+/* Small toggle chips: confidence levels and mistake causes.
+   Every state is carried by text + shape as well as colour, and the keyboard
+   focus ring is drawn in a hue that clears 4.5:1 against both chip fills. */
+QPushButton#chip {{
+    background-color: {SURFACE2}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 12px;
+    padding: 4px 12px; font-size: 12px; text-align: center;
+}}
+QPushButton#chip:hover {{ background-color: {BORDER}; border-color: {ACCENT}; }}
+QPushButton#chip:checked {{
+    background-color: {ACCENT}; color: {FOCUS_ON_ACCENT};
+    border-color: {ACCENT}; font-weight: bold;
+}}
+QPushButton#chip:focus {{ border: 2px solid {FOCUS}; padding: 3px 11px; }}
+QPushButton#chip:checked:focus {{ border: 2px solid {FOCUS_ON_ACCENT}; padding: 3px 11px; }}
+QPushButton#linkbtn {{
+    background: transparent; border: 1px solid transparent;
+    color: {ACCENT}; padding: 4px 8px; font-size: 12px; border-radius: 6px;
+}}
+QPushButton#linkbtn:hover {{ color: {TEXT}; border-color: {BORDER}; }}
+QPushButton#linkbtn:focus {{ border: 2px solid {FOCUS}; padding: 3px 7px; }}
+QLineEdit#note:focus {{ border: 2px solid {FOCUS}; padding: 7px; }}
 """
 
 

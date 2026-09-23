@@ -26,6 +26,8 @@ class HistoryScreen(QWidget):
         # (flag id, row widget) for each listed flagged entry; filled by
         # _render_flagged(), initialised here so flagged_rows() is always safe.
         self._flag_rows: list[tuple[str, QWidget]] = []
+        # Text of the mistake-journal summary; filled by _render_journal().
+        self._journal_lines: list[str] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -109,6 +111,19 @@ class HistoryScreen(QWidget):
         self._flag_layout.setSpacing(6)
         root.addWidget(self._flag_frame)
 
+        # ── Mistake journal ───────────────────────────────────────────────────
+        journal_lbl = QLabel("Mistake journal — what went wrong, and how often")
+        journal_lbl.setStyleSheet(
+            f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};"
+        )
+        root.addWidget(journal_lbl)
+        self._journal_frame = QFrame()
+        self._journal_frame.setObjectName("card")
+        self._journal_layout = QVBoxLayout(self._journal_frame)
+        self._journal_layout.setContentsMargins(16, 12, 16, 12)
+        self._journal_layout.setSpacing(6)
+        root.addWidget(self._journal_frame)
+
         root.addStretch()
 
         # ── Bottom bar ────────────────────────────────────────────────────────
@@ -131,6 +146,91 @@ class HistoryScreen(QWidget):
             sessions = []
         self._render(sessions)
         self._render_flagged()
+        self._render_journal()
+
+    # ── Mistake journal & calibration ─────────────────────────────────────────
+
+    CAUSE_LABELS = {
+        "misread":          "Misread it",
+        "didnt_know":       "Didn\u2019t know",
+        "knew_but_slipped": "Knew but slipped",
+        "confused":         "Confused two things",
+        "out_of_time":      "Out of time",
+        "other":            "Other",
+        "":                 "Not yet categorised",
+    }
+    CONFIDENCE_LABELS = {
+        1: "1 Guessing", 2: "2 Unsure", 3: "3 Fairly sure", 4: "4 Certain",
+    }
+
+    def journal_lines(self) -> list[str]:
+        """The rendered journal text (for tests)."""
+        return list(self._journal_lines)
+
+    def _render_journal(self) -> None:
+        _clear_slot(self._journal_layout)
+        self._journal_lines = []
+        try:
+            from persistence import (
+                load_mistakes, mistake_cause_counts, calibration_by_level,
+            )
+            entries = load_mistakes()
+            open_counts = mistake_cause_counts(include_resolved=False)
+            all_counts = mistake_cause_counts()
+            calibration = calibration_by_level()
+        except Exception:
+            entries, open_counts, all_counts, calibration = [], {}, {}, {}
+
+        if not entries:
+            empty = QLabel(
+                "No mistakes logged yet. Miss a problem and the result view offers a "
+                "one-tap “What went wrong?” row — the causes add up here."
+            )
+            empty.setObjectName("muted")
+            empty.setWordWrap(True)
+            self._journal_layout.addWidget(empty)
+            return
+
+        resolved = sum(1 for e in entries if e.get("resolved"))
+        self._add_journal_line(
+            f"{len(entries)} logged · {len(entries) - resolved} still open · "
+            f"{resolved} answered correctly since",
+            bold=True,
+        )
+        for cause, _label in sorted(
+            all_counts.items(), key=lambda kv: (-kv[1], kv[0])
+        ):
+            label = self.CAUSE_LABELS.get(cause, cause or "Not yet categorised")
+            still_open = open_counts.get(cause, 0)
+            self._add_journal_line(
+                f"{label}: {all_counts[cause]} logged ({still_open} open)"
+            )
+
+        if calibration:
+            parts = [
+                f"{self.CONFIDENCE_LABELS[level]}: {ok}/{total} right"
+                for level, (ok, total) in sorted(calibration.items())
+            ]
+            self._add_journal_line("Confidence calibration — " + " · ".join(parts))
+            ok4, total4 = calibration.get(4, (0, 0))
+            if total4 and ok4 < total4:
+                self._add_journal_line(
+                    f"\u26a0 Confidently wrong: {total4 - ok4} of {total4} answers you "
+                    "rated “Certain” were wrong — start there.",
+                    warn=True,
+                )
+
+    def _add_journal_line(self, text: str, bold: bool = False, warn: bool = False) -> None:
+        lbl = QLabel(text)
+        lbl.setWordWrap(True)
+        if warn:
+            lbl.setStyleSheet(f"color: {theme.WARNING}; font-size: 13px; font-weight: bold;")
+        elif bold:
+            lbl.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px; font-weight: bold;")
+        else:
+            lbl.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px;")
+        self._journal_layout.addWidget(lbl)
+        self._journal_lines.append(text)
 
     # ── Flagged list ──────────────────────────────────────────────────────────
 

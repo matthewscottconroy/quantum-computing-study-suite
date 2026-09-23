@@ -714,3 +714,416 @@ def test_nan_and_infinity_in_json_never_reach_the_maths():
     report = dashboard.build_retention({"QEC Trainer": sessions,
                                         "Exam Simulator": exam})
     assert report.n_events == 1 and not report.curve.fitted
+
+
+# ---------------------------------------------------------------------------
+# Tier-5 signals: the mistake journal (mistakes.json) and confidence
+# calibration (confidence.json).
+#
+# dashboard.py owns the schema for both files -- the normalisers, the
+# tolerant loaders and the two compact panels -- so coach.py's --mistakes /
+# --calibration / --item-analysis reports and these panels can never drift
+# apart.  Everything below runs against a temporary data dir; the real
+# ~/.local/share/quantum-study/ is never read or written, and neither file is
+# ever written at all (both tools are read-only).
+# ---------------------------------------------------------------------------
+
+import time as _time
+
+NOW5 = 1_800_000_000.0        # fixed epoch so trend windows are deterministic
+
+
+def mistake(ident, app="quantum-quiz", cause="misread", ts=NOW5,
+            resolved=False, category="Algorithms", **kw):
+    return dashboard.make_mistake_entry(
+        id=ident, app=app, category=category, cause=cause, timestamp=ts,
+        resolved=resolved, **kw)
+
+
+def conf(ident, level, correct, app="exam-sim", category="Sampler",
+         ts=NOW5):
+    return dashboard.make_confidence_entry(
+        id=ident, app=app, category=category, confidence=level,
+        correct=correct, timestamp=ts)
+
+
+def write_journal(directory, name, payload):
+    (directory / name).write_text(json.dumps(payload), encoding="utf-8")
+
+
+class TestMistakeSchema:
+    def test_make_entry_round_trips_through_the_normaliser(self):
+        entry = dashboard.make_mistake_entry(
+            id="q1", app="exam-sim", category="Sampler",
+            question="What does this print?", your_answer="b",
+            correct_answer="a", cause="misread", note="little-endian again",
+            timestamp=123.0, resolved=False)
+        assert set(entry) == {"id", "app", "category", "question",
+                              "your_answer", "correct_answer", "cause",
+                              "note", "timestamp", "resolved"}
+        assert dashboard.normalise_mistake(entry) == entry
+        assert dashboard.normalise_mistake(json.loads(json.dumps(entry))) \
+            == entry
+
+    def test_long_text_is_capped_at_the_contract_limit(self):
+        entry = dashboard.make_mistake_entry(id="q", app="a",
+                                             question="x" * 500,
+                                             your_answer="y" * 500)
+        assert len(entry["question"]) == dashboard.JOURNAL_TEXT_MAX
+        assert entry["question"].endswith("…")
+        assert len(entry["your_answer"]) == dashboard.JOURNAL_TEXT_MAX
+
+    def test_timestamp_defaults_to_now_and_whitespace_collapses(self):
+        entry = dashboard.make_mistake_entry(id=" q1 ", app="exam-sim",
+                                             question="a\n b\tc")
+        assert entry["id"] == "q1" and entry["question"] == "a b c"
+        assert entry["timestamp"] == approx(_time.time(), abs=120)
+
+    @pytest.mark.parametrize("cause", ["space-aliens", "", None, 7, True])
+    def test_an_unknown_cause_becomes_null_not_a_guess(self, cause):
+        entry = dashboard.make_mistake_entry(id="q", app="a", cause=cause)
+        assert entry["cause"] is None
+        assert dashboard.cause_of(entry) == dashboard.UNCATEGORISED
+
+    @pytest.mark.parametrize("cause", list(dashboard.MISTAKE_CAUSES))
+    def test_every_contract_cause_survives_and_has_advice(self, cause):
+        entry = dashboard.make_mistake_entry(id="q", app="a", cause=cause)
+        assert entry["cause"] == cause
+        assert dashboard.cause_of(entry) == cause
+        assert dashboard.CAUSE_LABELS[cause]
+        assert dashboard.CAUSE_ADVICE[cause]
+
+    def test_the_cause_vocabulary_is_exactly_the_shared_contract(self):
+        assert dashboard.MISTAKE_CAUSES == (
+            "misread", "didnt_know", "knew_but_slipped", "confused",
+            "out_of_time", "other")
+        assert dashboard.UNCATEGORISED not in dashboard.MISTAKE_CAUSES
+
+    @pytest.mark.parametrize("raw", [
+        None, 42, "string", [], {}, {"app": "x"}, {"id": ""},
+        {"id": "   ", "app": "x"}, {"id": None},
+    ])
+    def test_unusable_rows_are_dropped_not_fatal(self, raw):
+        assert dashboard.normalise_mistake(raw) is None
+
+    def test_a_missing_app_still_counts_as_unknown(self):
+        entry = dashboard.normalise_mistake({"id": "q1"})
+        assert entry["app"] == "unknown" and entry["resolved"] is False
+        assert entry["timestamp"] == 0.0 and entry["cause"] is None
+
+    @pytest.mark.parametrize("value,expected", [
+        (1700000000, 1700000000.0),
+        ("1700000000", 1700000000.0),
+        (1700000000000, 1700000000.0),            # millisecond epoch
+        ("2023-11-14T22:13:20+00:00", 1700000000.0),
+        (None, 0.0), ("nonsense", 0.0), (float("nan"), 0.0), (-5, 0.0),
+    ])
+    def test_timestamps_of_every_shape_are_coerced(self, value, expected):
+        entry = dashboard.normalise_mistake({"id": "q", "timestamp": value})
+        assert entry["timestamp"] == approx(expected)
+
+
+class TestConfidenceSchema:
+    def test_make_entry_round_trips(self):
+        obs = dashboard.make_confidence_entry(id="q1", app="exam-sim",
+                                              category="Sampler",
+                                              confidence=3, correct=True,
+                                              timestamp=5.0)
+        assert obs == {"id": "q1", "app": "exam-sim", "category": "Sampler",
+                       "confidence": 3, "correct": True, "timestamp": 5.0}
+        assert dashboard.normalise_confidence(obs) == obs
+
+    @pytest.mark.parametrize("level", [0, 5, -1, 100])
+    def test_an_out_of_range_confidence_is_a_caller_bug(self, level):
+        with pytest.raises(ValueError):
+            dashboard.make_confidence_entry(id="q", app="a",
+                                            confidence=level, correct=True)
+
+    @pytest.mark.parametrize("raw", [
+        None, 42, [], {}, {"id": "q"},                      # no confidence
+        {"id": "q", "confidence": 0, "correct": True},
+        {"id": "q", "confidence": 5, "correct": True},
+        {"id": "q", "confidence": "high", "correct": True},
+        {"id": "q", "confidence": True, "correct": True},   # bool is not 1
+        {"id": "q", "confidence": 3},                       # no verdict
+        {"id": "", "confidence": 3, "correct": True},
+    ])
+    def test_unusable_observations_are_dropped(self, raw):
+        assert dashboard.normalise_confidence(raw) is None
+
+    def test_numeric_and_string_verdicts_are_read_as_booleans(self):
+        assert dashboard.normalise_confidence(
+            {"id": "q", "confidence": "3", "correct": 1})["correct"] is True
+        assert dashboard.normalise_confidence(
+            {"id": "q", "confidence": 3, "correct": 0})["correct"] is False
+
+    def test_the_calibration_targets_are_the_documented_ones(self):
+        assert dashboard.CONFIDENCE_TARGET == {1: 0.25, 2: 0.50, 3: 0.75,
+                                               4: 0.95}
+        assert dashboard.CONFIDENT_LEVEL == 3
+        assert dashboard.CONFIDENCE_MIN_OBS == 20
+        assert dashboard.CONFIDENCE_MIN_LEVEL_OBS == 5
+
+
+class TestJournalLoading:
+    def test_absent_files_load_as_empty(self, data_dir):
+        assert dashboard.load_mistakes() == []
+        assert dashboard.load_confidence() == []
+        assert dashboard.mistakes_panel()["n"] == 0
+        assert dashboard.calibration_panel()["n"] == 0
+
+    @pytest.mark.parametrize("content",
+                             ["", "{oops", "{}", "null", "42", '"str"',
+                              "[1, 2, 3]", '[{"no": "id"}]'])
+    def test_corrupt_or_wrong_shape_files_load_as_empty(self, data_dir,
+                                                        content):
+        (data_dir / "mistakes.json").write_text(content)
+        (data_dir / "confidence.json").write_text(content)
+        assert dashboard.load_mistakes() == []
+        assert dashboard.load_confidence() == []
+
+    def test_junk_rows_are_skipped_and_good_ones_survive(self, data_dir):
+        write_journal(data_dir, "mistakes.json",
+                      [mistake("a"), "junk", 7, None, {"no": "id"},
+                       mistake("b", cause="didnt_know")])
+        entries = dashboard.load_mistakes()
+        assert [e["id"] for e in entries] == ["a", "b"]
+
+    def test_entries_come_back_oldest_first(self, data_dir):
+        write_journal(data_dir, "mistakes.json",
+                      [mistake("late", ts=NOW5), mistake("early", ts=NOW5 - 99)])
+        assert [e["id"] for e in dashboard.load_mistakes()] \
+            == ["early", "late"]
+
+    def test_duplicate_writes_collapse_but_real_repeats_do_not(self, data_dir):
+        first = mistake("a", ts=NOW5)
+        write_journal(data_dir, "mistakes.json",
+                      [first, dict(first), mistake("a", ts=NOW5 + 86400)])
+        entries = dashboard.load_mistakes()
+        assert len(entries) == 2                  # the byte-identical one went
+        assert [e["timestamp"] for e in entries] == [NOW5, NOW5 + 86400]
+
+    def test_an_explicit_path_overrides_the_data_dir(self, data_dir,
+                                                     tmp_path_factory):
+        other = tmp_path_factory.mktemp("elsewhere")
+        write_journal(other, "mistakes.json", [mistake("elsewhere")])
+        write_journal(data_dir, "mistakes.json", [mistake("here")])
+        assert [e["id"] for e in dashboard.load_mistakes()] == ["here"]
+        assert [e["id"] for e in
+                dashboard.load_mistakes(other / "mistakes.json")] \
+            == ["elsewhere"]
+
+    def test_the_growth_cap_keeps_the_newest_entries(self):
+        many = [dashboard.make_mistake_entry(id=f"q{i}", app="a",
+                                             timestamp=float(i))
+                for i in range(50)]
+        capped = dashboard._cap_newest(many, cap=10)
+        assert len(capped) == 10
+        assert [e["id"] for e in capped] == [f"q{i}" for i in range(40, 50)]
+        assert dashboard._cap_newest(many, cap=500) is many
+
+    def test_neither_tool_ever_writes_the_journals(self, data_dir):
+        dashboard.load_mistakes()
+        dashboard.load_confidence()
+        dashboard.build_report()
+        assert list(data_dir.iterdir()) == []
+
+
+class TestMistakePanel:
+    def test_resolution_is_matched_by_app_plus_id(self):
+        entries = [mistake("a", ts=1.0), mistake("a", ts=2.0, resolved=True),
+                   mistake("a", app="math-quiz", ts=3.0)]
+        assert [e["id"] for e in dashboard.latest_mistakes(entries)] \
+            == ["a", "a"]
+        unresolved = dashboard.unresolved_mistakes(entries)
+        assert [(e["app"], e["id"]) for e in unresolved] \
+            == [("math-quiz", "a")]
+
+    def test_causes_are_counted_and_ranked(self):
+        entries = ([mistake(f"m{i}", cause="misread") for i in range(3)]
+                   + [mistake("d1", cause="didnt_know"),
+                      mistake("u1", cause=None)])
+        counts = dashboard.mistake_cause_counts(entries)
+        assert list(counts) == ["misread", "didnt_know",
+                                dashboard.UNCATEGORISED]
+        assert counts == {"misread": 3, "didnt_know": 1,
+                          dashboard.UNCATEGORISED: 1}
+
+    def test_panel_summarises_counts_causes_and_advice(self):
+        entries = ([mistake(f"m{i}", cause="misread") for i in range(4)]
+                   + [mistake("s1", cause="knew_but_slipped", resolved=True),
+                      mistake("u1", cause=None)])
+        panel = dashboard.mistakes_panel(entries)
+        assert (panel["n"], panel["n_items"]) == (6, 6)
+        assert (panel["n_unresolved"], panel["n_resolved"]) == (5, 1)
+        assert panel["dominant"] == "misread"
+        assert panel["advice"] == dashboard.CAUSE_ADVICE["misread"]
+        assert panel["uncategorised"] == 1
+        assert panel["rows"][0] == {"cause": "misread",
+                                    "label": dashboard.CAUSE_LABELS["misread"],
+                                    "n": 4, "pct": approx(400 / 6)}
+
+    def test_an_all_uncategorised_journal_has_no_dominant_cause(self):
+        panel = dashboard.mistakes_panel([mistake("a", cause=None),
+                                          mistake("b", cause=None)])
+        assert panel["dominant"] is None and panel["advice"] is None
+        assert panel["uncategorised"] == 2
+
+    def test_empty_panel_is_all_zeroes_not_a_crash(self):
+        panel = dashboard.mistakes_panel([])
+        assert panel["n"] == 0 and panel["rows"] == []
+        assert panel["first_ts"] is None and panel["last_ts"] is None
+
+
+class TestCalibrationPanel:
+    def test_per_level_accuracy_against_the_calibrated_target(self):
+        obs = ([conf(f"a{i}", 4, i < 8) for i in range(10)]     # 80% at 95%
+               + [conf(f"b{i}", 1, i < 5) for i in range(10)])  # 50% at 25%
+        rows = {r["level"]: r for r in dashboard.confidence_levels(obs)}
+        assert rows[4]["n"] == 10 and rows[4]["accuracy"] == approx(0.8)
+        assert rows[4]["gap"] == approx(-0.15) and rows[4]["judged"]
+        assert rows[1]["gap"] == approx(0.25)
+        assert rows[2]["n"] == 0 and rows[2]["accuracy"] is None
+        assert rows[2]["judged"] is False
+
+    def test_a_level_below_the_floor_is_not_judged(self):
+        obs = [conf(f"a{i}", 3, True) for i in range(4)]
+        rows = {r["level"]: r for r in dashboard.confidence_levels(obs)}
+        assert rows[3]["n"] == 4 and rows[3]["judged"] is False
+
+    def test_overconfidence_index_is_claimed_minus_measured(self):
+        # four "certain" answers, half wrong: claimed 95%, measured 50%
+        obs = [conf(f"a{i}", 4, i < 2) for i in range(4)]
+        assert dashboard.overconfidence_index(obs) == approx(45.0)
+        # and a perfectly calibrated set sits near zero
+        calibrated = ([conf(f"c{i}", 2, i < 5) for i in range(10)]
+                      + [conf(f"d{i}", 4, i < 19) for i in range(20)])
+        assert dashboard.overconfidence_index(calibrated) == approx(0.0,
+                                                                    abs=1.0)
+        assert dashboard.overconfidence_index([]) is None
+
+    def test_underconfidence_shows_up_as_a_negative_index(self):
+        obs = [conf(f"a{i}", 1, True) for i in range(8)]
+        assert dashboard.overconfidence_index(obs) == approx(-75.0)
+        assert dashboard.calibration_panel(obs)["verdict"] \
+            == "not enough graded confidence ratings yet — 20 needed, 8 on file"
+
+    def test_confidently_wrong_groups_and_ranks_topics(self):
+        obs = ([conf(f"s{i}", 3, False, category="Sampler") for i in range(3)]
+               + [conf("e1", 4, False, category="Estimator"),
+                  conf("e1", 4, True, category="Estimator"),
+                  conf("g1", 2, False, category="Guessy"),     # not confident
+                  conf("v1", 4, True, category="Visualization")])
+        rows = dashboard.confidently_wrong(obs)
+        assert [(r["category"], r["n"]) for r in rows] \
+            == [("Sampler", 3), ("Estimator", 1)]
+        assert rows[0]["ids"] == ["s0", "s1", "s2"]
+        assert rows[1]["mean_confidence"] == approx(4.0)
+
+    def test_a_missing_category_still_gets_a_row(self):
+        rows = dashboard.confidently_wrong([conf("x", 4, False, category="")])
+        assert rows[0]["category"] == "(no category)"
+
+    def test_panel_refuses_a_verdict_below_the_observation_floor(self):
+        obs = [conf(f"a{i}", 4, False) for i in range(5)]
+        panel = dashboard.calibration_panel(obs)
+        assert panel["enough"] is False
+        assert "20 needed" in panel["verdict"]
+        # ... but the confidently-wrong list is fact, not estimate
+        assert panel["n_confidently_wrong"] == 5
+        assert panel["confidently_wrong"][0]["n"] == 5
+
+    def test_panel_calls_a_verdict_once_the_floor_is_cleared(self):
+        over = [conf(f"a{i}", 4, i < 5) for i in range(25)]     # 20% at 95%
+        panel = dashboard.calibration_panel(over)
+        assert panel["enough"] is True and panel["verdict"] == "overconfident"
+        assert panel["overconfidence"] == approx(75.0)
+        assert panel["confident_error_rate"] == approx(0.8)
+        good = ([conf(f"b{i}", 4, i < 19) for i in range(20)]
+                + [conf(f"c{i}", 2, i < 5) for i in range(10)])
+        assert dashboard.calibration_panel(good)["verdict"] \
+            == "well calibrated"
+
+    def test_empty_panel_is_honest_about_having_nothing(self):
+        panel = dashboard.calibration_panel([])
+        assert panel["n"] == 0 and panel["accuracy"] is None
+        assert panel["overconfidence"] is None
+        assert panel["confidently_wrong"] == []
+        assert panel["enough"] is False
+
+
+class TestSignalPanels:
+    def test_signal_bar_clamps_and_fills(self):
+        assert dashboard.signal_bar(0.0, 4) == "░" * 4
+        assert dashboard.signal_bar(1.0, 4) == "█" * 4
+        assert dashboard.signal_bar(0.5, 4) == "██░░"
+        assert dashboard.signal_bar(-3.0, 4) == "░" * 4
+        assert dashboard.signal_bar(9.0, 4) == "█" * 4
+
+    def test_no_data_says_so_in_one_line(self):
+        lines = dashboard.signal_panel_lines(dashboard.mistakes_panel([]),
+                                             dashboard.calibration_panel([]))
+        assert len(lines) == 1
+        assert "No mistake-journal or confidence data yet" in lines[0][0]
+
+    def test_panels_never_encode_a_judgement_in_colour_alone(self):
+        obs = [conf(f"a{i}", 4, i < 5) for i in range(25)]
+        lines = dashboard.signal_panel_lines(
+            dashboard.mistakes_panel([mistake("a", cause="misread")]),
+            dashboard.calibration_panel(obs))
+        text = "\n".join(t for t, _s in lines)
+        # every coloured judgement is also spelled out in words
+        assert "dominant cause: misread the question" in text
+        assert "overconfident" in text and "confidently WRONG" in text
+        for t, style in lines:
+            if style in ("red", "yellow", "green"):
+                assert t.strip(), "a styled line must carry text of its own"
+
+    def test_build_report_fills_both_panels_from_the_data_dir(self, data_dir):
+        write_journal(data_dir, "mistakes.json",
+                      [mistake("a", cause="misread"),
+                       mistake("b", cause="misread"),
+                       mistake("c", cause="didnt_know", resolved=True)])
+        write_journal(data_dir, "confidence.json",
+                      [conf(f"q{i}", 4, i < 2) for i in range(6)])
+        report = build_report()
+        assert report.mistakes["n"] == 3
+        assert report.mistakes["dominant"] == "misread"
+        assert report.mistakes["n_unresolved"] == 2
+        assert report.calibration["n"] == 6
+        assert report.calibration["n_confidently_wrong"] == 4
+        assert report.calibration["enough"] is False
+
+    def test_a_hand_built_report_without_panels_still_renders(self, capsys):
+        dashboard._render_plain(DashboardReport(apps=[], weakest_topics=[],
+                                                recent_apps={}, streak_days=0))
+        assert "QUANTUM STUDY DASHBOARD" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("renderer", ["_render_plain", "_render_rich"])
+    def test_both_renderers_show_the_panels(self, data_dir, capsys, renderer):
+        write_journal(data_dir, "mistakes.json",
+                      [mistake("a", cause="knew_but_slipped")])
+        write_journal(data_dir, "confidence.json",
+                      [conf("q", 4, False, category="Sampler")])
+        getattr(dashboard, renderer)(build_report())
+        out = capsys.readouterr().out
+        assert "MISTAKES BY CAUSE" in out
+        assert "CONFIDENCE CALIBRATION" in out
+        assert "knew it but slipped" in out
+        assert "Sampler" in out
+
+    def test_the_panels_live_in_the_mastery_view_not_the_retention_one(
+            self, data_dir, capsys):
+        write_journal(data_dir, "mistakes.json", [mistake("a")])
+        dashboard.main(["--retention"])
+        assert "MISTAKES BY CAUSE" not in capsys.readouterr().out
+        dashboard.main(["--no-retention"])
+        assert "MISTAKES BY CAUSE" in capsys.readouterr().out
+
+    def test_a_category_holding_rich_markup_prints_literally(self, data_dir,
+                                                             capsys):
+        write_journal(data_dir, "confidence.json",
+                      [conf("q", 4, False, category="[bold]not markup[/b]")])
+        dashboard._render_rich(build_report())
+        out = capsys.readouterr().out
+        assert "[bold]not markup[/b]" in out

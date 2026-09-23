@@ -29,6 +29,9 @@ _PERSISTENCE_PATHS = {
     "DATA_DIR": "",
     "HISTORY_FILE": "problems_history.json",
     "FLAGGED_FILE": "problems_flagged.json",   # suite flagging contract: <prefix>_flagged.json
+    "MISTAKES_FILE": "mistakes.json",          # suite-wide mistake journal
+    "CONFIDENCE_FILE": "confidence.json",      # suite-wide confidence calibration
+    "SETTINGS_FILE": "problems_settings.json", # this app's own UI preferences
 }
 
 

@@ -28,6 +28,13 @@ by Claude with per-point feedback and a model answer.
   and per-subject averages
 - **Flag for review** — one-click toggle on the feedback screen saves a question to
   `quiz_flagged.json` (shared with `coach.py`); the History screen lists and unflags them
+- **Mistake journal** — a wrong answer (score < 4) is written to `mistakes.json` straight
+  away, and a one-click **What went wrong?** row turns it into analysis: *misread*,
+  *didn't know*, *knew but slipped*, *confused*, *out of time*, *other*, plus an optional
+  one-line note. Answering the same item well later marks the entry **resolved**
+- **Confidence calibration** — an optional 1–4 confidence strip *before* you submit, paired
+  with the grade in `confidence.json`; the History screen turns it into "certain and wrong"
+  counts per subject — the unknown unknowns that sink exam scores
 - **Reference browser** — the whole `docs/**/*.md` corpus rendered inside the app, grouped by
   chapter, with search, chapter filter, and clickable cross-references between chapters
 - **Collapsible model answer** — hidden by default and animated open on click
@@ -99,6 +106,10 @@ bottom-left of the setup screen also has **View History** and **Reference** butt
   statevector may appear alongside the question text.
 - Type your answer in the free-text box.
 - Click **Hint (3 remaining)** (up to 3 times) to reveal progressive hints.
+- **How sure are you?** — an optional 1–4 confidence strip under the answer box
+  (1 Guessing / 2 Unsure / 3 Fairly sure / 4 Certain). Rate before you submit so the
+  rating can never be hindsight; click the same chip again to clear it, or
+  **Don't ask again** to hide the strip for good (remembered in `quiz_settings.json`).
 - Click **Skip →** to advance without answering (does not count toward score).
 - Click **Submit Answer** to send to Claude for grading.
 
@@ -118,6 +129,12 @@ continue (**Yes** / **No** keeps the question so you can resubmit).
   unflag). The button reflects the persisted state: it shows **⚑ Flagged — click to
   unflag** when the question is already in the list. If the flag file cannot be written a
   warning dialog says why.
+- **What went wrong?** — shown only for an *Incorrect* answer (score < 4). The mistake is
+  already in `mistakes.json` by the time the row appears (`cause: null`), so skipping it
+  loses nothing; one click on **Misread / Didn't know / Knew but slipped / Confused /
+  Out of time / Other** categorises it, and the note field (Enter to save) adds one line of
+  context. Clicking the chosen cause again clears it. Nothing here blocks **Next
+  Question**, and a failed write is reported inline in the row, never as a dialog.
 - Click **Next Question →** (in Viva mode this may first show a follow-up probe)
 
 ### Summary Screen
@@ -136,6 +153,10 @@ continue (**Yes** / **No** keeps the question so you can resubmit).
 - **Score trend (last 30 sessions)** line chart and **Average score by subject** bar chart
 - **Flagged for review** — every question you flagged, newest first, with subject and date;
   each row has an **Unflag** button
+- **Mistake causes & confidence calibration** — the payoff of the two journals: how many
+  *open* (unresolved) mistakes fall under each cause, how often each confidence level turned
+  out correct, and a **⚠ Confidently wrong** line naming the subjects where you were sure
+  and wrong
 - **← Back to Setup**
 
 ### Reference Screen
@@ -213,6 +234,21 @@ With Viva mode off, the app behaves exactly as before.
 
 ---
 
+## Accessibility
+
+- Every control the quiz adds is reachable with **Tab** and shows a **visible focus ring**
+  in the dark palette; the answer box uses `tabChangesFocus`, so Tab now moves out of it to
+  the confidence strip and the buttons below instead of inserting a tab character
+- Every new control has an **accessible name** (screen readers announce e.g. "Confidence 3
+  of 4: fairly sure", "Cause of mistake: knew but slipped")
+- **No meaning is carried by colour alone**: a selected chip gains a ✓ glyph as well as the
+  accent fill, journal status lines start with ✓ or ✗ and say what happened in words, and
+  the "confidently wrong" line is labelled as well as coloured
+- All new text meets **WCAG AA** (≥ 4.5:1) against the surfaces it sits on — asserted in
+  `tests/test_journal_ui.py`
+
+---
+
 ## Architecture
 
 ```
@@ -250,7 +286,8 @@ quantum-quiz/
 │       ├── loading_overlay.py   Full-screen translucent spinner
 │       ├── pill_badge.py        Coloured rounded-rect label
 │       └── score_bar.py         Animated progress bar (SCORE_BAR_ANIMATION_MS)
-└── persistence.py               JSON session history, draft, and flagged-list read/write
+└── persistence.py               JSON session history, draft, flagged list, mistake
+                                 journal, confidence log, and app settings
 ```
 
 ### Threading note (Qiskit on the main thread)
@@ -299,8 +336,12 @@ Claude is prompted to return a JSON object with `score`, `feedback`, `model_answ
 ## Data Persistence
 
 All files live in `~/.local/share/quantum-study/` (the shared suite location read by
-`dashboard.py` and `coach.py`). Set `QUANTUM_STUDY_DATA_DIR` to redirect all three of them
-(history, draft, flagged) to another directory — useful for tests.
+`dashboard.py` and `coach.py`). Set `QUANTUM_STUDY_DATA_DIR` to redirect all six of them
+(history, draft, flagged, mistakes, confidence, settings) to another directory — useful for
+tests. Every file tolerates being missing or corrupt: the app starts fresh rather than
+crashing. The three newer files (`mistakes.json`, `confidence.json`, `quiz_settings.json`)
+are written **atomically** — a temp file in the same directory followed by `os.replace` —
+so an interrupted write cannot truncate months of journal.
 
 ### Session history — `quiz_history.json`
 
@@ -348,3 +389,61 @@ so two different questions on the same topic keep separate flags; `label` is the
 text truncated to 100 characters; `category` is the subject. Flagging is a toggle: flagging
 an already-flagged `id` removes it. Entries the app does not recognise are preserved when
 the file is rewritten. `coach.py --review` merges this file into its review queue.
+
+### Mistake journal — `mistakes.json`
+
+Suite-wide contract; a wrong answer becomes *analysis*, not just another bookmark:
+
+```json
+{
+  "id": "856754730871b9bc",
+  "app": "quantum-quiz",
+  "category": "Qiskit",
+  "question": "Which qubit is the most significant bit in Qiskit's ordering?",
+  "your_answer": "qubit 0 is the leftmost bit",
+  "correct_answer": "Qiskit is little-endian: qubit 0 is the rightmost bit.",
+  "cause": "knew_but_slipped",
+  "note": "read the register right-to-left again",
+  "timestamp": 1790169575.876,
+  "resolved": false
+}
+```
+
+- `id` — 16 hex digits of `sha1(subject + whitespace-normalised question text)`, so the same
+  question generated again in a later session maps to the same entry
+- `category` — the subject; `question` / `your_answer` / `correct_answer` are whitespace-
+  collapsed and truncated to 200 characters (the note to 280)
+- `cause` — `misread` | `didnt_know` | `knew_but_slipped` | `confused` | `out_of_time` |
+  `other`, or `null` for "logged but not categorised yet". The counts per cause are the
+  point of the file: *nine little-endian slips this month* is the signal, not nine bookmarks
+- `resolved` — set to `true` when the same `app` + `id` is next answered at score ≥ 4. The
+  cause and note are kept, so the history of *why* survives the fix
+- Entries written by other apps (and fields this app does not know) are preserved verbatim
+  whenever the file is rewritten; only rows matching `app: "quantum-quiz"` plus the `id` are
+  touched. Past **2000** entries the oldest are dropped
+
+### Confidence calibration — `confidence.json`
+
+```json
+{
+  "id": "856754730871b9bc",
+  "app": "quantum-quiz",
+  "category": "Qiskit",
+  "confidence": 4,
+  "correct": false,
+  "timestamp": 1790169575.875
+}
+```
+
+`confidence` is the 1–4 rating given **before** submitting (1 = guessing, 4 = certain), and
+`correct` is whether the grade reached the *Correct* verdict (score ≥
+`SCORE_CORRECT_THRESHOLD`, i.e. 7) — note the mistake journal uses the *Incorrect* boundary
+(< 4) instead, matching the verdict badge in each case. A row is appended only when a rating
+was actually given; past **5000** rows the oldest are dropped. Rating 3–4 paired with
+`correct: false` is what the History screen reports as **confidently wrong**.
+
+### App settings — `quiz_settings.json`
+
+This app's own (not suite-wide) preferences. Currently one key:
+`{"confidence_prompt_enabled": false}` records **Don't ask again** on the confidence strip.
+Delete the key (or the file) to be asked again.

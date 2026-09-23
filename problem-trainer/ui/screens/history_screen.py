@@ -1,5 +1,7 @@
-"""History screen — past sessions from problems_history.json, plus the list of
-items flagged for review (problems_flagged.json) with unflag controls."""
+"""History screen — past sessions from problems_history.json, the list of items
+flagged for review (problems_flagged.json) with unflag controls, and the study
+journal: open mistakes from mistakes.json with their causes, and the confidence
+calibration table from confidence.json."""
 from __future__ import annotations
 import time
 from PyQt6.QtWidgets import (
@@ -7,7 +9,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from ui import theme
+from ui.widgets.study_journal import MISTAKE_CAUSE_LABELS, CONFIDENCE_GLYPH, MISTAKE_GLYPH
 import persistence
+
+CAUSE_TEXT = dict(MISTAKE_CAUSE_LABELS)
 
 
 class _StatCard(QFrame):
@@ -35,6 +40,20 @@ def _clear_layout(layout) -> None:
         item = layout.takeAt(0)
         if item.widget():
             item.widget().deleteLater()
+
+
+def _calibration_text(calibration: dict[int, tuple[int, int]]) -> str:
+    """One line pairing each confidence level with how often it was right."""
+    if not calibration:
+        return (f"{CONFIDENCE_GLYPH} No confidence ratings yet — rate how sure you "
+                "are before submitting and this line shows where you are "
+                "confidently wrong.")
+    parts = []
+    for level in sorted(calibration, reverse=True):
+        hit, total = calibration[level]
+        label = persistence.CONFIDENCE_LABELS.get(level, str(level))
+        parts.append(f"{level} {label}: {hit}/{total} right ({100 * hit // total}%)")
+    return f"{CONFIDENCE_GLYPH} Calibration — " + " · ".join(parts)
 
 
 class HistoryScreen(QWidget):
@@ -72,8 +91,9 @@ class HistoryScreen(QWidget):
         self._items_card    = _StatCard("Problems + Derivations", "0")
         self._avg_card      = _StatCard("Lifetime Avg Score", "—")
         self._flagged_card  = _StatCard("Flagged for Review", "0")
+        self._mistakes_card = _StatCard("Open Mistakes", "0")
         for c in (self._sessions_card, self._items_card, self._avg_card,
-                  self._flagged_card):
+                  self._flagged_card, self._mistakes_card):
             cards.addWidget(c)
         root.addLayout(cards)
 
@@ -93,6 +113,29 @@ class HistoryScreen(QWidget):
         self._flagged_empty_lbl.setWordWrap(True)
         self._flagged_empty_lbl.setStyleSheet(f"font-size: 12px; color: {theme.TEXT_MUTED};")
         root.addWidget(self._flagged_empty_lbl)
+
+        # ── Study journal: mistakes + confidence calibration ──────────
+        self._journal_lbl = QLabel("Mistake journal & confidence calibration")
+        self._journal_lbl.setStyleSheet(
+            f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
+        root.addWidget(self._journal_lbl)
+
+        self._calibration_lbl = QLabel("")
+        self._calibration_lbl.setWordWrap(True)
+        self._calibration_lbl.setStyleSheet(f"font-size: 12px; color: {theme.TEXT};")
+        root.addWidget(self._calibration_lbl)
+
+        self._journal_box = QVBoxLayout()
+        self._journal_box.setSpacing(8)
+        root.addLayout(self._journal_box)
+
+        self._journal_empty_lbl = QLabel(
+            "No open mistakes. When a part scores under half its points, or a "
+            "derivation step needs the model step, it lands here with the cause "
+            "you picked — answer it correctly again and it clears itself.")
+        self._journal_empty_lbl.setWordWrap(True)
+        self._journal_empty_lbl.setStyleSheet(f"font-size: 12px; color: {theme.TEXT_MUTED};")
+        root.addWidget(self._journal_empty_lbl)
 
         # ── Recent sessions ───────────────────────────────────────────
         list_lbl = QLabel("Recent sessions")
@@ -126,6 +169,7 @@ class HistoryScreen(QWidget):
     def refresh(self) -> None:
         self._render(persistence.load_history())
         self.refresh_flagged()
+        self.refresh_journal()
 
     def refresh_flagged(self) -> None:
         try:
@@ -180,6 +224,73 @@ class HistoryScreen(QWidget):
         except Exception:
             pass
         self.refresh_flagged()
+
+    # -- study journal ---------------------------------------------------
+
+    def refresh_journal(self) -> None:
+        try:
+            mistakes = persistence.app_mistakes()
+        except Exception:
+            mistakes = []
+        try:
+            calibration = persistence.confidence_summary()
+        except Exception:
+            calibration = {}
+        self._render_journal(mistakes, calibration)
+
+    def open_mistake_count(self) -> int:
+        return self._journal_box.count()
+
+    def _render_journal(self, mistakes: list[dict],
+                        calibration: dict[int, tuple[int, int]]) -> None:
+        _clear_layout(self._journal_box)
+        open_ones = [m for m in mistakes if not m.get("resolved")]
+        self._mistakes_card.set_value(str(len(open_ones)))
+        self._journal_empty_lbl.setVisible(not open_ones)
+        self._calibration_lbl.setText(_calibration_text(calibration))
+
+        for m in reversed(open_ones):        # newest first
+            row = QFrame(); row.setObjectName("card")
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(16, 8, 16, 8)
+
+            category = m.get("category") or ""
+            badge_key = "Derivation" if category == "derivation" else category
+            color = theme.TOPIC_COLORS.get(badge_key, theme.PARTIAL)
+            badge = QLabel((category or "item").upper())
+            badge.setStyleSheet(
+                f"font-size: 10px; font-weight: bold; color: {color}; min-width: 76px;")
+            rl.addWidget(badge)
+
+            name = QLabel(m.get("question") or m.get("id", "?"))
+            name.setStyleSheet(f"font-size: 13px; color: {theme.TEXT};")
+            name.setToolTip(str(m.get("id", "")))
+            rl.addWidget(name, 1)
+
+            cause = m.get("cause")
+            cause_lbl = QLabel(f"{MISTAKE_GLYPH} " + (CAUSE_TEXT.get(cause)
+                                                      or "uncategorised"))
+            cause_lbl.setStyleSheet(
+                f"font-size: 12px; color: "
+                f"{theme.PARTIAL if cause else theme.TEXT_MUTED};")
+            cause_lbl.setToolTip(m.get("note") or "No note")
+            rl.addWidget(cause_lbl)
+
+            done_btn = QPushButton("Mark resolved")
+            done_btn.setObjectName("flat")
+            done_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            done_btn.setAccessibleName(f"Mark mistake resolved: {m.get('id', '')}")
+            done_btn.clicked.connect(
+                lambda _c, iid=m.get("id", ""): self._on_resolve(iid))
+            rl.addWidget(done_btn)
+            self._journal_box.addWidget(row)
+
+    def _on_resolve(self, item_id: str) -> None:
+        try:
+            persistence.resolve_mistake(item_id)
+        except Exception:
+            pass
+        self.refresh_journal()
 
     def _render(self, sessions: list[dict]) -> None:
         _clear_layout(self._sessions_box)

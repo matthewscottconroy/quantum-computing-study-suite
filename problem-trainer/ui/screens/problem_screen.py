@@ -10,6 +10,17 @@ from ui import theme
 from ui.theme import FLAG_ON_TEXT, FLAG_OFF_TEXT
 from ui.widgets.loading_overlay import LoadingOverlay
 from ui.widgets.collapsible import CollapsibleSection
+from ui.widgets.study_journal import ConfidenceStrip, MistakeRow, safe
+import persistence
+
+# A part counts as a mistake when it earns less than half its points; part
+# scores are on a 0-10 scale, so half credit is 5.
+MISTAKE_SCORE_THRESHOLD = 5
+
+
+def part_item_id(problem, part) -> str:
+    """Stable mistake-journal id for one part of one problem."""
+    return f"{problem.id}:{part.part_id}" if problem is not None else str(part.part_id)
 
 
 class _PartWidget(QFrame):
@@ -17,11 +28,16 @@ class _PartWidget(QFrame):
 
     submit_requested = pyqtSignal(object)     # PartState
 
-    def __init__(self, state: PartState, parent=None) -> None:
+    def __init__(self, state: PartState, problem: Problem | None = None,
+                 ask_confidence: bool = True, parent=None) -> None:
         super().__init__(parent)
         self.state = state
+        self.problem = problem
         self.setObjectName("card")
         part = state.part
+        self.item_id = part_item_id(problem, part)
+        self.category = problem.topic if problem is not None else ""
+        self._pending_confidence: int | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 14, 18, 14)
@@ -55,6 +71,11 @@ class _PartWidget(QFrame):
         self._answer_edit.textChanged.connect(self._validate)
         root.addWidget(self._answer_edit)
 
+        # Confidence strip — asked BEFORE grading so it can never be hindsight.
+        self._conf_strip = ConfidenceStrip()
+        self._conf_strip.setVisible(ask_confidence)
+        root.addWidget(self._conf_strip)
+
         btn_row = QHBoxLayout()
         self._submit_btn = QPushButton("Submit for grading")
         self._submit_btn.setEnabled(False)
@@ -76,6 +97,13 @@ class _PartWidget(QFrame):
             "Feedback", self._feedback_body, expanded=True)
         self._feedback_section.hide()
         root.addWidget(self._feedback_section)
+
+        # Mistake journal — compact, skippable, part of the feedback view.
+        self._mistake_row = MistakeRow()
+        self._mistake_row.hide()
+        self._mistake_row.cause_chosen.connect(self._on_cause_chosen)
+        self._mistake_row.note_changed.connect(self._on_note_changed)
+        root.addWidget(self._mistake_row)
 
         # Model solution section (offline fallback — always available)
         sol_lbl = QLabel(part.model_solution)
@@ -101,6 +129,8 @@ class _PartWidget(QFrame):
         if not self.state.answer:
             return
         self.state.tries += 1
+        # Snapshot the rating now: the result is not visible yet.
+        self._pending_confidence = self._conf_strip.value()
         self.submit_requested.emit(self.state)
 
     def _on_reveal(self) -> None:
@@ -140,9 +170,51 @@ class _PartWidget(QFrame):
         self._feedback_section.set_title(f"Feedback — {score}/10")
         self._feedback_section.show()
         self._feedback_section.set_expanded(True)
+        self._record_outcome(score)
+
+    # -- study journal ---------------------------------------------------
+
+    def _record_outcome(self, score: int) -> None:
+        """Pair the pre-answer confidence with the grade; log/resolve a mistake."""
+        correct = score >= MISTAKE_SCORE_THRESHOLD
+
+        level, self._pending_confidence = self._pending_confidence, None
+        if level:
+            safe(persistence.log_confidence, self.item_id, self.category,
+                 level, correct)
+            self._conf_strip.clear()      # a resubmission needs a fresh rating
+
+        if correct:
+            safe(persistence.resolve_mistake, self.item_id)
+            self._mistake_row.hide()
+            return
+
+        safe(persistence.log_mistake,
+             self.item_id, self.category, self.state.part.prompt,
+             self.state.answer, self.state.part.model_solution)
+        stored = safe(persistence.find_mistake, self.item_id) or {}
+        self._mistake_row.set_context(
+            f"Scored {score}/10 — what went wrong?")
+        self._mistake_row.reset(stored.get("cause"), stored.get("note", ""))
+        self._mistake_row.show()
+
+    def _on_cause_chosen(self, cause: str) -> None:
+        safe(persistence.set_mistake_cause, self.item_id, cause,
+             self._mistake_row.note())
+
+    def _on_note_changed(self, note: str) -> None:
+        safe(persistence.set_mistake_cause, self.item_id,
+             self._mistake_row.value(), note)
+
+    def set_confidence_enabled(self, enabled: bool) -> None:
+        self._conf_strip.setVisible(enabled)
+        if not enabled:
+            self._conf_strip.clear()
+            self._pending_confidence = None
 
     def show_error(self, err: str) -> None:
         self.state.tries = max(0, self.state.tries - 1)   # failed try doesn't count
+        self._pending_confidence = None                   # nothing graded: log nothing
         self.set_grading(False)
         self._feedback_body.setText(
             f"Grading failed: {err}\n\n"
@@ -265,12 +337,21 @@ class ProblemScreen(QWidget):
                 item.widget().deleteLater()
         self._part_widgets.clear()
 
+        ask = safe(persistence.confidence_prompt_enabled)
+        ask = True if ask is None else bool(ask)
         for st in self._states:
-            w = _PartWidget(st)
+            w = _PartWidget(st, problem, ask_confidence=ask)
             w.submit_requested.connect(self._on_part_submit)
+            w._conf_strip.opt_out_requested.connect(self._on_confidence_opt_out)
             self._part_widgets[st.part.part_id] = w
             self._parts_container.addWidget(w)
         self._update_score_label()
+
+    def _on_confidence_opt_out(self) -> None:
+        """“Don't ask” — persist the opt-out and hide every strip on screen."""
+        safe(persistence.set_confidence_prompt_enabled, False)
+        for w in self._part_widgets.values():
+            w.set_confidence_enabled(False)
 
     def _on_part_submit(self, state: PartState) -> None:
         w = self._part_widgets.get(state.part.part_id)

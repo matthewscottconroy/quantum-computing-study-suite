@@ -7,7 +7,7 @@ from core.models import (
 )
 from ui.screens.setup_screen import SetupScreen, MODE_PROBLEMS
 from ui.screens.problem_screen import ProblemScreen
-from ui.screens.derivation_screen import DerivationScreen
+from ui.screens.derivation_screen import DerivationScreen, DERIVATION_CATEGORY
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
 from ui.screens.reference_screen import ReferenceScreen
@@ -23,7 +23,8 @@ PAGE_SUMMARY    = 3
 PAGE_HISTORY    = 4
 PAGE_REFERENCE  = 5
 
-DERIVATION_CATEGORY = "derivation"      # flag-entry category for guided derivations
+# DERIVATION_CATEGORY (flag/journal category for guided derivations) is defined
+# by the derivation screen and re-exported here for the flagging call below.
 
 
 class MainWindow(QMainWindow):
@@ -222,4 +223,5 @@ class MainWindow(QMainWindow):
 
     def _go_setup(self) -> None:
         self._setup.refresh_flag_filter()
+        self._setup.refresh_settings()   # the "Don't ask" button may have fired
         self._stack.setCurrentIndex(PAGE_SETUP)

@@ -113,6 +113,26 @@ class HistoryScreen(QWidget):
         self._flag_slot.setSpacing(6)
         root.addWidget(self._flag_frame)
 
+        # ── Mistake causes & confidence calibration ───────────────────────────
+        insight_hdr = QHBoxLayout()
+        insight_lbl = QLabel("Mistake causes & confidence calibration")
+        insight_lbl.setStyleSheet(
+            f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};"
+        )
+        insight_hdr.addWidget(insight_lbl)
+        insight_hdr.addStretch()
+        self._insight_count_lbl = QLabel("")
+        self._insight_count_lbl.setObjectName("muted")
+        insight_hdr.addWidget(self._insight_count_lbl)
+        root.addLayout(insight_hdr)
+
+        self._insight_frame = QFrame()
+        self._insight_frame.setObjectName("card")
+        self._insight_slot = QVBoxLayout(self._insight_frame)
+        self._insight_slot.setContentsMargins(16, 12, 16, 12)
+        self._insight_slot.setSpacing(4)
+        root.addWidget(self._insight_frame)
+
         root.addStretch()
 
         # ── Bottom bar ────────────────────────────────────────────────────────
@@ -136,6 +156,7 @@ class HistoryScreen(QWidget):
 
         self._render(sessions)
         self._render_flagged()
+        self._render_insights()
 
     # ── Flagged list ──────────────────────────────────────────────────────────
 
@@ -177,6 +198,86 @@ class HistoryScreen(QWidget):
     def flagged_labels(self) -> list[str]:
         """Labels currently shown in the flagged list (newest first)."""
         return [r.label for r in getattr(self, "_flagged_rows", [])]
+
+    # ── Mistake causes & confidence calibration ───────────────────────────────
+
+    def _render_insights(self) -> None:
+        """Turn the raw journals into the two numbers that actually teach you
+        something: which *kind* of mistake you keep making, and how often being
+        sure means being right."""
+        _clear_slot(self._insight_slot)
+        self._insight_lines: list[str] = []
+        try:
+            from persistence import (
+                CAUSE_LABELS, CONFIDENCE_LABELS, confidence_calibration,
+                confidently_wrong, load_mistakes, mistake_cause_counts,
+            )
+            mistakes = load_mistakes()
+            counts = mistake_cause_counts()
+            calibration = confidence_calibration()
+            sure_but_wrong = confidently_wrong()
+        except Exception:
+            mistakes, counts, calibration, sure_but_wrong = [], {}, {}, {}
+            CAUSE_LABELS, CONFIDENCE_LABELS = {}, {}
+
+        open_count = sum(counts.values())
+        rated = sum(b["n"] for b in calibration.values())
+        if not mistakes and not rated:
+            self._insight_count_lbl.setText("")
+            self._add_insight_line(
+                "No mistakes logged yet. When an answer scores below 4 the feedback "
+                "screen asks what went wrong, and rating your confidence before you "
+                "submit shows up here as calibration.",
+                muted=True,
+            )
+            return
+
+        bits = []
+        if mistakes:
+            bits.append(f"{open_count} open / {len(mistakes)} logged")
+        if rated:
+            bits.append(f"{rated} rated")
+        self._insight_count_lbl.setText("  ·  ".join(bits))
+
+        if counts:
+            ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            for key, n in ordered:
+                label = CAUSE_LABELS.get(key, "Not categorised yet")
+                self._add_insight_line(f"{label} — {n}")
+        elif mistakes:
+            self._add_insight_line("Every logged mistake is resolved.", muted=True)
+
+        if rated:
+            for level in sorted(calibration, reverse=True):
+                bucket = calibration[level]
+                label = CONFIDENCE_LABELS.get(level, str(level))
+                pct = round(100 * bucket["accuracy"])
+                self._add_insight_line(
+                    f"{label} ({level}/4) — {bucket['correct']} of {bucket['n']} correct ({pct}%)"
+                )
+        if sure_but_wrong:
+            worst = sorted(sure_but_wrong.items(), key=lambda kv: (-kv[1], kv[0]))
+            detail = ", ".join(f"{cat} ×{n}" for cat, n in worst[:4])
+            self._add_insight_line(
+                f"⚠ Confidently wrong — {detail}", warn=True
+            )
+
+    def _add_insight_line(self, text: str, muted: bool = False, warn: bool = False) -> None:
+        lbl = QLabel(text)
+        lbl.setWordWrap(True)
+        if muted:
+            lbl.setObjectName("muted")
+        elif warn:
+            # Colour is a reinforcement only: the line already says "wrong".
+            lbl.setStyleSheet(f"color: {theme.WARNING}; font-size: 13px;")
+        else:
+            lbl.setStyleSheet("font-size: 13px;")
+        self._insight_slot.addWidget(lbl)
+        self._insight_lines.append(text)
+
+    def insight_lines(self) -> list[str]:
+        """Text currently shown in the mistake/confidence card (for tests)."""
+        return list(getattr(self, "_insight_lines", []))
 
     def _render(self, sessions: list[dict]) -> None:
         if not sessions:

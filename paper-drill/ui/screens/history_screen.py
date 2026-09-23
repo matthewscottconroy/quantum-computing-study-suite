@@ -1,5 +1,5 @@
-"""History screen for paper-drill — session stats, score trend, and the
-flagged-for-review list (with unflag)."""
+"""History screen for paper-drill — session stats, score trend, the
+flagged-for-review list (with unflag), and the mistake-pattern tally."""
 from __future__ import annotations
 from datetime import datetime
 import matplotlib
@@ -83,6 +83,22 @@ class HistoryScreen(QWidget):
         root.addWidget(self._flag_section)
         self._flag_section.hide()
 
+        # Mistake patterns — the payoff of the journal: what *kind* of mistake
+        # keeps happening, plus how often a confident answer turned out wrong.
+        # Populated by refresh(); hidden until there is something to say.
+        self._insight_section = QWidget()
+        ins_layout = QVBoxLayout(self._insight_section)
+        ins_layout.setContentsMargins(0, 0, 0, 0)
+        ins_layout.setSpacing(10)
+        ins_hdr = QLabel("Mistake patterns")
+        ins_hdr.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
+        ins_layout.addWidget(ins_hdr)
+        self._insight_list = QVBoxLayout()
+        self._insight_list.setSpacing(8)
+        ins_layout.addLayout(self._insight_list)
+        root.addWidget(self._insight_section)
+        self._insight_section.hide()
+
         root.addStretch()
 
         bar = QWidget()
@@ -100,6 +116,7 @@ class HistoryScreen(QWidget):
         from persistence import _load_raw, load_flagged
         self._render(_load_raw())
         self._render_flagged(load_flagged())
+        self._render_insights()
 
     # ------------------------------------------------------------------
     # Flagged-for-review list
@@ -120,6 +137,49 @@ class HistoryScreen(QWidget):
             row = _FlaggedRow(entry)
             row.unflag_requested.connect(self._on_unflag)
             self._flag_list.addWidget(row)
+
+    # ------------------------------------------------------------------
+    # Mistake patterns (read-only tally of mistakes.json / confidence.json)
+    # ------------------------------------------------------------------
+
+    def insight_count(self) -> int:
+        """Number of pattern rows currently shown."""
+        return self._insight_list.count()
+
+    def _render_insights(self) -> None:
+        from persistence import (
+            MISTAKE_CAUSE_LABELS, cause_counts, confidently_wrong,
+            load_confidence, load_mistakes,
+        )
+        from config import APP_ID
+
+        _clear_slot(self._insight_list)
+        mistakes = load_mistakes()
+        rated = [r for r in load_confidence() if r.get("app") == APP_ID]
+        totals = cause_counts(mistakes)
+        open_counts = cause_counts(mistakes, include_resolved=False)
+
+        rows: list[tuple[str, str, str]] = []
+        for key, count in sorted(totals.items(), key=lambda kv: (-kv[1], kv[0])):
+            label = MISTAKE_CAUSE_LABELS.get(key, "Not categorised yet")
+            still_open = open_counts.get(key, 0)
+            detail = (f"{still_open} still open" if still_open
+                      else "all resolved")
+            rows.append((label, str(count), detail))
+        if rated:
+            wrong = len(confidently_wrong(rated))
+            rows.append((
+                "Confidently wrong",
+                f"{wrong} of {len(rated)}",
+                "answers you rated ‘fairly sure’ or ‘certain’ and still got wrong",
+            ))
+
+        if not rows:
+            self._insight_section.hide()
+            return
+        self._insight_section.show()
+        for label, value, detail in rows:
+            self._insight_list.addWidget(_InsightRow(label, value, detail))
 
     def _on_unflag(self, flag_id: str) -> None:
         from persistence import unflag, load_flagged
@@ -222,6 +282,38 @@ class _FlaggedRow(QFrame):
     @property
     def flag_id(self) -> str:
         return self._id
+
+
+class _InsightRow(QFrame):
+    """One mistake-pattern tally: cause, count, and a plain-words detail.
+
+    Everything is spelled out in text — no colour-coded badges — so the row
+    reads the same to a screen reader and in a colour-blind palette.
+    """
+
+    def __init__(self, label: str, value: str, detail: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("card")
+        self.label, self.value, self.detail = label, value, detail
+        row = QHBoxLayout(self)
+        row.setContentsMargins(18, 12, 18, 12)
+        row.setSpacing(16)
+
+        info = QVBoxLayout()
+        info.setSpacing(3)
+        name = QLabel(label)
+        name.setStyleSheet("font-size: 13px; font-weight: bold;")
+        info.addWidget(name)
+        sub = QLabel(detail)
+        sub.setWordWrap(True)
+        sub.setStyleSheet(f"font-size: 12px; color: {theme.TEXT_MUTED};")
+        info.addWidget(sub)
+        row.addLayout(info, 1)
+
+        count = QLabel(value)
+        count.setStyleSheet("font-size: 18px; font-weight: bold;")
+        count.setAccessibleName(f"{label}: {value}")
+        row.addWidget(count)
 
 
 def _flag_timestamp(entry: dict) -> float:

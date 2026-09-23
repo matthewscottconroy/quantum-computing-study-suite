@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QElapsedTimer
 from core.models import Problem, GradeMode
 from ui import theme
 from ui.widgets.loading_overlay import LoadingOverlay
+from ui.widgets.confidence_strip import ConfidenceStrip
 
 
 class ProblemScreen(QWidget):
@@ -45,6 +46,7 @@ class ProblemScreen(QWidget):
         top_row.addWidget(self._elapsed_lbl)
         self._hint_btn = QPushButton("Hint")
         self._hint_btn.setObjectName("flat")
+        self._hint_btn.setAccessibleName("Reveal the next hint")
         self._hint_btn.clicked.connect(self._on_hint)
         top_row.addWidget(self._hint_btn)
         root.addLayout(top_row)
@@ -86,6 +88,7 @@ class ProblemScreen(QWidget):
         for i, letter in enumerate("ABCD"):
             rb = QRadioButton("")
             rb.setStyleSheet(f"font-size: 14px; color: {theme.TEXT};")
+            rb.setAccessibleName(f"Answer choice {letter}")
             self._btn_group.addButton(rb, i)
             self._radio_btns.append(rb)
             mc_layout.addWidget(rb)
@@ -100,12 +103,18 @@ class ProblemScreen(QWidget):
         ff_layout.addWidget(ff_lbl)
         self._text_edit = QPlainTextEdit()
         self._text_edit.setPlaceholderText("Write your explanation here…")
+        self._text_edit.setAccessibleName("Your answer")
         self._text_edit.textChanged.connect(self._validate_ff)
         ff_layout.addWidget(self._text_edit)
         self._freeform_widget.hide()
         root.addWidget(self._freeform_widget, 1)
 
         root.addStretch()
+
+        # Confidence calibration — asked before the answer is submitted so it
+        # can never be hindsight. Optional; hidden entirely once opted out.
+        self._confidence = ConfidenceStrip()
+        root.addWidget(self._confidence)
 
         btn_row = QHBoxLayout()
         self._quit_btn = QPushButton("End Session")
@@ -140,6 +149,7 @@ class ProblemScreen(QWidget):
         self._diff_lbl.setText(problem.difficulty.capitalize())
 
         self._question_lbl.setText(problem.question)
+        self._confidence.reset()
         self._hint_lbl.hide()
         self._hint_btn.setVisible(bool(problem.hints))
         if problem.hints:
@@ -179,10 +189,15 @@ class ProblemScreen(QWidget):
     def _validate_ff(self) -> None:
         self._submit_btn.setEnabled(bool(self._text_edit.toPlainText().strip()))
 
+    def confidence(self) -> int | None:
+        """The 1-4 rating picked for the current problem, or None if skipped."""
+        return self._confidence.rating()
+
     def _on_submit(self) -> None:
         if not self._problem:
             return
         self._tick_timer.stop()
+        self._confidence.lock()
         elapsed = int(self._elapsed_timer.elapsed() // 1000)
         if self._problem.grade_mode == GradeMode.AUTO and self._problem.choices:
             answer = chr(65 + self._btn_group.checkedId())

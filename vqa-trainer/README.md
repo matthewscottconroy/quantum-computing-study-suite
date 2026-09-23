@@ -19,6 +19,18 @@ exact numeric (for parameter shift calculations), and open-ended free-form.
   points scaled by proximity; only exact answers (within tolerance) get 10
 - **Hint system** — 1–2 hints per problem
 - **Grading failure recovery** — skip dialog on Claude API errors
+- **Mistake journal** — a wrong answer becomes *analysis*, not a bookmark: an inline,
+  skippable "What went wrong?" row asks *why* you missed it (misread / didn't know /
+  knew but slipped / confused / out of time / other) plus an optional one-line note.
+  Nine "knew but slipped" rows in a month is a signal; nine flagged items is not.
+  Answering the same item correctly later marks its entries resolved
+- **Confidence calibration** — a 1–4 confidence strip shown *before* you submit, so the
+  rating can never be hindsight. Pairing it with the grade surfaces the
+  **confidently wrong** topics — the unknown unknowns that sink exam scores. Optional,
+  skippable, and "Don't ask again" turns it off for good
+- **Accessible controls** — every chip and field is keyboard reachable with a visible
+  focus ring and an accessible name, and no result is carried by colour alone
+  (verdicts pair their colour with ✓ / ◐ / ✗ and the spelled-out word)
 - **Session history** — per-category score tracking
 - **Reference browser** — the suite's shared `docs/**/*.md` corpus rendered inside
   the app: chapter filter, full-text search, jump-to-topic for every VQA category,
@@ -75,11 +87,28 @@ Depending on grade mode:
 
 Hint button shows remaining hint count. Submit enables on valid input.
 
+**Confidence strip** — above the Submit button, *before* the answer is graded:
+
+| Button | Meaning |
+|---|---|
+| `1 · Guessing` | pure guess |
+| `2 · Unsure` | leaning one way, far from sure |
+| `3 · Fairly sure` | fairly sure this is right |
+| `4 · Certain` | certain this is right |
+
+Skipping it costs nothing — the problem grades exactly the same and no row is written.
+**Don't ask again** hides the strip permanently (stored in `vqa_settings.json`; delete
+the `confidence_prompt` key, or the file, to get it back).
+
 ### Result Screen
 
-- Verdict badge and score (0–10)
+- Verdict badge and score (0–10), glyphed (`✓` / `◐` / `✗`) as well as coloured
 - Feedback with explanation
 - Model answer (for numeric and free-form)
+- **Mistake journal** — shown only when the answer scored below 7/10. The mistake is
+  already recorded by the time the row appears, so pressing **Next Problem** loses
+  nothing; clicking a cause chip categorises it, and the note field takes one line of
+  "what to remember next time" (flushed automatically when you move on)
 - **Next Problem** or **Finish**
 
 ### Reference Screen
@@ -262,8 +291,11 @@ vqa-trainer/
 │   │   ├── history_screen.py    Past sessions table
 │   │   └── reference_screen.py  In-app docs browser (../docs/**/*.md, jump to topic)
 │   └── widgets/
-│       └── loading_overlay.py
-└── persistence.py
+│       ├── loading_overlay.py
+│       ├── confidence_strip.py  1–4 rating strip, shown before submitting
+│       └── mistake_row.py       "What went wrong?" cause chips + note field
+└── persistence.py               history, flags, mistake journal, calibration,
+                                 settings — all path constants monkeypatchable
 ```
 
 ---
@@ -287,13 +319,95 @@ vqa-trainer/
 | `MODEL` | `claude-sonnet-4-6` | Claude model for free-form grading |
 | `DEFAULT_PROBLEM_COUNT` | 8 | Pre-filled problem count |
 | `DATA_DIR` | `~/.local/share/quantum-study` | Session history directory |
+| `APP_DIR_NAME` | `vqa-trainer` | The `app` field written into the shared journals |
+
+`DATA_DIR` — and therefore every file below it — is overridden by the
+**`QUANTUM_STUDY_DATA_DIR`** environment variable, the same override `coach.py`,
+`launch.py` and the rest of the suite honour. It is read once at import time, a blank
+value is ignored, and `~` is expanded:
+
+```bash
+QUANTUM_STUDY_DATA_DIR=/tmp/scratch-study python main.py   # touches nothing real
+```
 
 ---
 
 ## Data Persistence
 
-Sessions appended to `~/.local/share/quantum-study/vqa_history.json`. Each entry
-records: problem count, correct count, accuracy, and per-attempt detail.
+All files live under `DATA_DIR` (`~/.local/share/quantum-study` by default; see
+`QUANTUM_STUDY_DATA_DIR` above). Every write goes through a temp file in the same
+directory followed by `os.replace`, so an interrupted write can never truncate a file,
+and every read tolerates a missing or corrupt file by starting fresh instead of
+crashing.
+
+| File | Scope | Contents |
+|---|---|---|
+| `vqa_history.json` | this app | Sessions: problem count, correct count, accuracy, per-attempt detail *(schema unchanged)* |
+| `vqa_flagged.json` | this app | Flagged problem ids *(schema unchanged)* |
+| `mistakes.json` | **whole suite** | Mistake journal — one row per wrong answer |
+| `confidence.json` | **whole suite** | Confidence calibration — one row per rated answer |
+| `vqa_settings.json` | this app | UI preferences (currently `confidence_prompt`) |
+
+### `mistakes.json`
+
+A JSON list; every row carries an `app` field, so the ten apps share one journal.
+
+```json
+{
+  "id": "qaoa_mixer_role",
+  "app": "vqa-trainer",
+  "category": "QAOA",
+  "question": "Which operator does QAOA apply first in each layer?",
+  "your_answer": "B. The mixer U_B",
+  "correct_answer": "A. The cost operator U_C",
+  "cause": "knew_but_slipped",
+  "note": "U_C is the cost layer, U_B mixes",
+  "timestamp": 1790169448.34,
+  "resolved": false
+}
+```
+
+`cause` is one of `misread`, `didnt_know`, `knew_but_slipped`, `confused`,
+`out_of_time`, `other` — or `null`, meaning *logged but not yet categorised* (you
+skipped the row). The four text fields are clipped to 200 characters. Repeated misses
+of the same item are kept as separate rows: the repeat count *is* the signal.
+`resolved` flips to `true` on every row for that item once you answer it correctly.
+
+### `confidence.json`
+
+```json
+{
+  "id": "qaoa_mixer_role",
+  "app": "vqa-trainer",
+  "category": "QAOA",
+  "confidence": 4,
+  "correct": false,
+  "timestamp": 1790169448.34
+}
+```
+
+`confidence` is `1` guessing / `2` unsure / `3` fairly sure / `4` certain, recorded
+before submitting and paired with the grade afterwards. A low correct-rate at level 4
+is the confidently-wrong signal.
+
+**Growth caps.** The journal keeps the newest `MAX_MISTAKES = 2000` rows and the
+calibration log the newest `MAX_CONFIDENCE = 5000`; older rows are dropped on write, so
+neither shared file can grow without bound.
+
+### Pure helpers (`persistence.py`)
+
+Unit-testable without Qt, and every path is a module-level constant tests can
+monkeypatch:
+
+```python
+make_mistake_entry(...) -> dict      load_mistakes() -> list[dict]
+log_mistake(...) -> dict             set_mistake_cause(id, cause, note) -> dict | None
+resolve_mistakes(id) -> int          mistake_cause_counts(app=None) -> dict[str, int]
+make_confidence_entry(...) -> dict   load_confidence() -> list[dict]
+log_confidence(...) -> dict          confidence_breakdown() -> dict[int, tuple[int, int]]
+load_settings() / save_settings()    confidence_prompt_enabled() / set_confidence_prompt_enabled()
+normalise_cause(cause) -> str | None
+```
 
 ---
 
@@ -342,3 +456,26 @@ Problem(
 Save each problem as its own file inside the appropriate `problems/<category>/`
 directory, assigned to a module-level `PROBLEM`. `problems/__init__.py` auto-discovers
 every problem file, so no registration step is needed.
+
+---
+
+## Tests
+
+```bash
+cd vqa-trainer && python -m pytest
+```
+
+`tests/conftest.py` redirects every path constant in `config.py` and `persistence.py`
+into a `tmp_path` directory (and sets `QUANTUM_STUDY_DATA_DIR` to match), so the suite
+can never touch the real `~/.local/share/quantum-study`.
+
+| File | Covers |
+|---|---|
+| `test_bank.py` | Problem bank: counts, ids, categories, well-formed entries |
+| `test_grading.py` | MC/numeric auto-graders, problem-set builder, Claude prompt (no API) |
+| `test_persistence.py` | History and flag round-trips, decay weighting, corrupt files |
+| `test_config_env.py` | `QUANTUM_STUDY_DATA_DIR` relocates every path (fresh interpreter) |
+| `test_journal.py` | Mistake journal / calibration / settings helpers — pure, no Qt |
+| `test_journal_ui.py` | Headless drive: rate → answer wrongly → journal a cause → re-answer correctly → resolved |
+| `test_app_launch.py` | `MainWindow` constructs offscreen with no API key |
+| `test_reference.py` | In-app docs browser |

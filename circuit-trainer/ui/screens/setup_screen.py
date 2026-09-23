@@ -41,9 +41,10 @@ CATEGORY_DESCRIPTIONS = {
 
 
 class SetupScreen(QWidget):
-    session_started     = pyqtSignal(object)   # TrainerConfig
-    history_requested   = pyqtSignal()
-    reference_requested = pyqtSignal()         # open the in-app docs browser
+    session_started         = pyqtSignal(object)   # TrainerConfig
+    history_requested       = pyqtSignal()
+    reference_requested     = pyqtSignal()         # open the in-app docs browser
+    confidence_pref_changed = pyqtSignal(bool)     # confidence strip on/off
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -163,6 +164,28 @@ class SetupScreen(QWidget):
         sprint_btn.clicked.connect(self._on_sprint)
         sprint_card.layout().addWidget(sprint_btn)
         right.addWidget(sprint_card)
+
+        conf_card = self._card("Self-rating")
+        self._conf_cb = QCheckBox("Ask how sure I am before each answer")
+        self._conf_cb.setChecked(True)
+        self._conf_cb.setAccessibleName("Ask how sure I am before each answer")
+        self._conf_cb.setAccessibleDescription(
+            "Shows an optional 1–4 confidence strip before you submit, so the app "
+            "can find topics you get wrong while feeling certain."
+        )
+        self._conf_cb.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._conf_cb.toggled.connect(self.confidence_pref_changed)
+        conf_card.layout().addWidget(self._conf_cb)
+        conf_tip = QLabel(
+            "Optional and skippable. Ratings are paired with the result in "
+            "confidence.json to surface \"confidently wrong\" topics. "
+            "Not shown in Sprint mode."
+        )
+        conf_tip.setWordWrap(True)
+        conf_tip.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 12px;")
+        conf_card.layout().addWidget(conf_tip)
+        right.addWidget(conf_card)
+
         right.addStretch()
         content.addLayout(right, 2)
 
@@ -185,6 +208,15 @@ class SetupScreen(QWidget):
         self._start_btn.clicked.connect(self._on_start)
         btn_row.addWidget(self._start_btn)
         root.addLayout(btn_row)
+
+    def set_confidence_pref(self, enabled: bool) -> None:
+        """Reflect the persisted opt-out without re-emitting the signal."""
+        self._conf_cb.blockSignals(True)
+        self._conf_cb.setChecked(bool(enabled))
+        self._conf_cb.blockSignals(False)
+
+    def confidence_pref(self) -> bool:
+        return self._conf_cb.isChecked()
 
     def _card(self, title: str) -> QFrame:
         card = QFrame(); card.setObjectName("card")

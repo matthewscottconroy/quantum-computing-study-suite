@@ -28,7 +28,11 @@ cd qiskit-dojo && ../.venv/bin/python -m pytest          # fast suite, a few sec
 
 The fast suite checks the bank structurally (`tests/test_katas.py`: at least
 72 katas, per-section floors matching the exam blueprint, unique ids and
-titles, 2-3 hints, code compiles, files live in their section directory).
+titles, 2-3 hints, code compiles, files live in their section directory),
+the persistence contracts (`tests/test_persistence.py`,
+`tests/test_flagging.py`, `tests/test_mistake_journal.py`) and the screens
+offscreen (`tests/test_screens.py`, `tests/test_feedback_ui.py` — the
+fail → reveal → categorise → pass loop end to end).
 The slow sweep runs every kata twice through `core/runner.py` - the
 reference solution must pass and the starter must not - so it is one
 parametrised case per kata (144+ cases, ~1-1.5 s each on an idle machine;
@@ -62,8 +66,18 @@ locates automatically (current venv → `../.venv/bin/python` → fallback to
      list (`dojo_flagged.json`, see Persistence). Click again to unflag.
      The button shows the saved state whenever a kata opens, so a kata
      flagged in an earlier session lights up immediately.
+   - **Confidence strip** — *"How sure are you this passes?"*, four
+     buttons (1 Guessing … 4 Certain) above the output pane, asked
+     **before** your first Run so the rating can never be hindsight. It
+     is optional; **Don't ask again** turns it off for good. See
+     *Confidence calibration* below.
+   - **✎ What went wrong?** — appears under the output pane when you
+     reveal the solution on a kata you could not pass. See *Mistake
+     journal* below.
 3. **Summary** — pass rate and per-section breakdown.
-4. **History** — lifetime stats, per-section pass-rate charts, and the
+4. **History** — lifetime stats, per-section pass-rate charts, the
+   **Mistake journal** card (open mistakes by cause, plus your confidence
+   calibration and how often you were confidently wrong), and the
    **Flagged for review** list (section badge, title, date flagged) with a
    per-row **Unflag** button.
 5. **Reference** — the **Browse Reference** button on the setup screen opens
@@ -230,3 +244,123 @@ toggle — flagging an already-flagged kata removes its entry:
 `id` is the kata id, `label` its title, `category` its section. Helpers in
 `persistence.py`: `load_flagged()`, `flagged_ids()`, `is_flagged(id)`,
 `toggle_flag(kata) -> bool` (new state), `unflag(id)`.
+
+### Mistake journal
+
+A wrong answer should become *analysis*, not just a bookmark. Failing a
+kata appends a row to the suite-wide `mistakes.json` — immediately, with
+`cause: null`, so nothing is ever lost — and revealing the solution on a
+kata you could not pass shows a compact **✎ What went wrong?** row under
+the output: one button per cause plus an optional one-line note. It is
+skippable, never modal, and never blocks the run loop. Passing the kata
+later (this session or a future one) sets `resolved: true`, matched on
+`app` + `id`.
+
+```json
+[
+  {
+    "id": "ra_little_endian",
+    "app": "qiskit-dojo",
+    "category": "Results analysis",
+    "question": "Per-qubit probabilities from counts",
+    "your_answer": "FAILED: qubit 0 probability was 0.0, expected 0.5",
+    "correct_answer": "probs = [...] | assert ...",
+    "cause": "knew_but_slipped",
+    "note": "little-endian again",
+    "timestamp": 1724800000.0,
+    "resolved": false
+  }
+]
+```
+
+`cause` is one of `misread`, `didnt_know`, `knew_but_slipped`, `confused`,
+`out_of_time`, `other`, or `null` (logged, not yet categorised). `id` is
+the kata id and `category` its section. The payload is the *pattern*:
+"nine little-endian slips this month" is the signal, which the History
+screen surfaces as a per-cause tally of your open mistakes.
+
+Repeated failures on one kata fold into a single open row (the newest
+failure headline wins; a cause and note you already chose are kept), so
+iterating on a hard kata does not spam the journal.
+
+Helpers in `persistence.py`: `make_mistake_entry(...)` (pure),
+`load_mistakes()` / `mistakes_for_app(app)`, `log_mistake(entry)`,
+`set_mistake_cause(id, cause, note=None)`, `resolve_mistakes(id)`,
+`mistake_cause_counts()`.
+
+### Confidence calibration
+
+Nothing else in the suite distinguishes *right* from *right and knew it*.
+The confidence strip pairs the rating you gave before your first Run with
+what actually happened, in the suite-wide `confidence.json`:
+
+```json
+[
+  {
+    "id": "ra_little_endian",
+    "app": "qiskit-dojo",
+    "category": "Results analysis",
+    "confidence": 4,
+    "correct": false,
+    "timestamp": 1724800000.0
+  }
+]
+```
+
+`confidence` is `1` guessing, `2` unsure, `3` fairly sure, `4` certain.
+Rated-4-and-wrong rows are the unknown unknowns that sink exam scores;
+History shows the per-level tally and the confidently-wrong count.
+Only the **first** run of a kata is paired, and a kata you never rated
+records nothing.
+
+Helpers: `make_confidence_entry(...)` (pure), `load_confidence()` /
+`confidence_for_app(app)`, `log_confidence(id, category, level, correct)`,
+`calibration_summary()`, `confidently_wrong(threshold=3)`.
+
+### Analytics file handling
+
+- Both files are **suite-wide**: every app appends to the same
+  `mistakes.json` / `confidence.json`, and every mutator here rewrites only
+  the rows whose `app` is `qiskit-dojo`, passing foreign rows through
+  untouched.
+- Both honour `QUANTUM_STUDY_DATA_DIR` like every other data file.
+- A missing or corrupt file reads as empty and is recreated on the next
+  write — a bad file never crashes the app, and readers never create one.
+- Writes are **atomic**: a temp file in the same directory, `fsync`, then
+  `os.replace`, so a crash mid-write leaves the previous file intact.
+- Growth is **capped**: `MAX_MISTAKES = 2000` and `MAX_CONFIDENCE = 5000`
+  rows, oldest dropped first. The text fields are clipped to 200
+  characters on a single line.
+
+### App settings
+
+`dojo_settings.json` (app-local, new file — no existing schema changed)
+holds UI preferences. Today it has one key, written when you press
+**Don't ask again** on the confidence strip:
+
+```json
+{"confidence_prompt": false}
+```
+
+Delete the key (or set it to `true`) to get the strip back. Unknown keys
+are preserved on write.
+
+## Accessibility
+
+The kata screen's new controls follow the suite accessibility rules:
+
+- every button and the note field is a real focusable widget
+  (`StrongFocus`) with an accessible name and description, so the whole
+  row is reachable and announceable from the keyboard alone;
+- the focus ring is an explicit accent border painted over a border the
+  resting state already reserves, so focus is visible and the button never
+  shifts by a pixel — `ui/theme.py` now defines `:focus` rules for the
+  default, `#accent` and `#flat` button variants too;
+- selection is never colour alone: the confidence buttons carry `○`/`●`
+  and the cause buttons a `✓` tick, alongside the existing `✓ PASSED` /
+  `✗ FAILED` glyphs on the status line;
+- all new text is `TEXT`, `TEXT_MUTED`, `ACCENT` or `WARNING` on `SURFACE`
+  / `SURFACE2`, measured at **4.95:1 or better** against the dark palette
+  (the weakest pairing is the note field's placeholder, whose colour is
+  set explicitly because Qt's default — the text colour at 50% alpha —
+  is only 4.36:1).

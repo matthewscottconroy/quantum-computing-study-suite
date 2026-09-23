@@ -121,6 +121,60 @@ QPushButton#flat:hover {{
     color: {TEXT};
 }}
 
+/* ── Chip buttons (confidence strip, mistake-cause row) ── */
+QPushButton#chip {{
+    background-color: {SURFACE2};
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    border-radius: 12px;
+    padding: 4px 14px;
+    font-size: 12px;
+}}
+QPushButton#chip:hover {{
+    border-color: {ACCENT};
+}}
+/* Selected chips also gain a ✓ in their label — never colour alone.  The font
+   weight is deliberately unchanged: a bolder label would outgrow the width the
+   layout measured for the unselected state and clip. */
+QPushButton#chip:checked {{
+    background-color: {ACCENT};
+    color: {BG};
+    border-color: {ACCENT};
+}}
+
+/* ── Keyboard focus rings ──
+   Every focusable control gets a visible ring.  Widths match the unfocused
+   border so focusing never shifts the layout (#accent has no border, so its
+   padding is reduced by the 2px the ring adds). */
+QPushButton:focus {{
+    border: 1px solid {ACCENT};
+}}
+QPushButton#chip:focus, QPushButton#chip:checked:focus {{
+    border: 1px solid {TEXT};
+}}
+QPushButton#flat:focus {{
+    border: 1px solid {ACCENT};
+    border-radius: 4px;
+}}
+QPushButton#accent:focus {{
+    border: 2px solid {TEXT};
+    padding: 8px 26px;
+}}
+
+/* ── Single-line text inputs ── */
+QLineEdit {{
+    background-color: {SURFACE};
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 13px;
+    selection-background-color: {ACCENT2};
+}}
+QLineEdit:focus {{
+    border-color: {ACCENT};
+}}
+
 /* ── Text inputs ── */
 QPlainTextEdit, QTextEdit {{
     background-color: {SURFACE};

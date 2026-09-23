@@ -82,6 +82,30 @@ class HistoryScreen(QWidget):
         self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._empty_lbl)
 
+        self._journal_lbl = QLabel("Mistake journal")
+        self._journal_lbl.setStyleSheet(
+            f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
+        root.addWidget(self._journal_lbl)
+
+        self._journal_frame = QFrame()
+        self._journal_frame.setObjectName("card")
+        jl = QVBoxLayout(self._journal_frame)
+        jl.setContentsMargins(16, 12, 16, 12)
+        jl.setSpacing(6)
+        self._cause_lbl = QLabel("")
+        self._cause_lbl.setWordWrap(True)
+        self._cause_lbl.setStyleSheet(f"font-size: 13px; color: {theme.TEXT};")
+        self._cause_lbl.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        jl.addWidget(self._cause_lbl)
+        self._calib_lbl = QLabel("")
+        self._calib_lbl.setWordWrap(True)
+        self._calib_lbl.setStyleSheet(f"font-size: 13px; color: {theme.TEXT};")
+        self._calib_lbl.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        jl.addWidget(self._calib_lbl)
+        root.addWidget(self._journal_frame)
+
         self._flag_lbl = QLabel("Flagged for review")
         self._flag_lbl.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
         root.addWidget(self._flag_lbl)
@@ -122,6 +146,55 @@ class HistoryScreen(QWidget):
         except Exception:
             flagged = []
         self._render_flagged(flagged)
+        self._render_journal()
+
+    def journal_text(self) -> tuple[str, str]:
+        """The mistake-cause and calibration lines currently shown (UI state)."""
+        return self._cause_lbl.text(), self._calib_lbl.text()
+
+    def _render_journal(self) -> None:
+        """Turn the journal into the two lines that actually teach something:
+        which causes keep recurring, and where confidence outruns accuracy."""
+        from persistence import (
+            CAUSE_LABELS, CONFIDENCE_LABELS, calibration_summary,
+            confidently_wrong, mistake_cause_counts,
+        )
+        try:
+            counts = mistake_cause_counts()
+        except Exception:
+            counts = {}
+        open_total = sum(counts.values())
+        self._journal_lbl.setText(f"Mistake journal ({open_total} open)")
+        if not counts:
+            self._cause_lbl.setText(
+                "No open mistakes. Reveal a solution on a kata you could not "
+                "pass to record what went wrong."
+            )
+        else:
+            parts = [
+                f"{CAUSE_LABELS.get(cause, 'Not categorised')} {n}"
+                for cause, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            ]
+            self._cause_lbl.setText("  ·  ".join(parts))
+
+        try:
+            summary = calibration_summary()
+            wrong = len(confidently_wrong())
+        except Exception:
+            summary, wrong = {}, 0
+        if not summary:
+            self._calib_lbl.setText(
+                "No confidence ratings yet. Rate a kata before your first Run "
+                "to start calibrating."
+            )
+            return
+        buckets = "  ·  ".join(
+            f"{CONFIDENCE_LABELS[lv]} {summary[lv]['correct']}/{summary[lv]['total']}"
+            for lv in sorted(summary)
+        )
+        self._calib_lbl.setText(
+            f"Calibration — {buckets}   |   ✗ confidently wrong: {wrong}"
+        )
 
     def flagged_rows(self) -> list[str]:
         """Kata ids currently listed in the flagged card (UI state)."""

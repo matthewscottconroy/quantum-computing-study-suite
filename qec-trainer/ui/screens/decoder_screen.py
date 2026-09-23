@@ -20,6 +20,8 @@ from core.decoder_game import (
 )
 from core.models import Problem, Attempt, Verdict, GradeMode, SessionStats
 from ui import theme
+from ui.widgets.confidence_strip import ConfidenceStrip
+from ui.widgets.mistake_row import MistakeRow
 
 ROUNDS_PER_LEVEL = 3
 DECODER_CATEGORY = "Decoder Game"
@@ -110,6 +112,7 @@ class DecoderScreen(QWidget):
         for i in range(4):
             rb = QRadioButton("")
             rb.setStyleSheet(f"font-size: 14px; color: {theme.TEXT};")
+            rb.setAccessibleName(f"Correction choice {chr(65 + i)}")
             self._btn_group.addButton(rb, i)
             self._radio_btns.append(rb)
             mc_layout.addWidget(rb)
@@ -128,9 +131,10 @@ class DecoderScreen(QWidget):
         grid_help = QLabel(
             "Click a data qubit to cycle its correction:\n"
             "·  →  X  →  Z  →  Y  →  ·\n\n"
-            "Squares are stabilizer checks — lit red means the check fired "
-            "(measured −1). Place a correction that returns the state to the "
-            "codespace without applying a logical operator.")
+            "Squares are stabilizer checks. One that fired reads X− or Z− "
+            "(measured −1) and is filled red; a quiet one reads X+ or Z+. "
+            "Place a correction that returns the state to the codespace "
+            "without applying a logical operator.")
         grid_help.setWordWrap(True)
         grid_help.setStyleSheet(f"font-size: 12px; color: {theme.TEXT_MUTED};")
         side.addWidget(grid_help)
@@ -141,6 +145,7 @@ class DecoderScreen(QWidget):
         side.addWidget(self._proposed_lbl)
         clear_btn = QPushButton("Clear")
         clear_btn.setObjectName("flat")
+        clear_btn.setAccessibleName("Clear the proposed correction")
         clear_btn.clicked.connect(self._on_grid_clear)
         side.addWidget(clear_btn, 0, Qt.AlignmentFlag.AlignLeft)
         side.addStretch()
@@ -158,19 +163,32 @@ class DecoderScreen(QWidget):
         self._explain_lbl.setWordWrap(True)
         self._explain_lbl.setStyleSheet(f"font-size: 13px; color: {theme.TEXT_MUTED};")
         fb_layout.addWidget(self._explain_lbl)
+        # Mistake journal — shown only when the round failed. The mistake is
+        # already logged by then, so ignoring the row loses nothing.
+        self._mistake_row = MistakeRow()
+        self._mistake_row.cause_chosen.connect(self._on_mistake_cause)
+        self._mistake_row.note_edited.connect(self._on_mistake_note)
+        self._mistake_row.hide()
+        fb_layout.addWidget(self._mistake_row)
         self._feedback_frame.hide()
         root.addWidget(self._feedback_frame)
 
         root.addStretch()
 
+        # Confidence calibration, asked before the correction is submitted.
+        self._confidence = ConfidenceStrip()
+        root.addWidget(self._confidence)
+
         btn_row = QHBoxLayout()
         quit_btn = QPushButton("End Game")
         quit_btn.setObjectName("flat")
+        quit_btn.setAccessibleName("End the decoder game and see results")
         quit_btn.clicked.connect(self._finish)
         btn_row.addWidget(quit_btn)
         btn_row.addStretch()
         self._submit_btn = QPushButton("Submit Correction")
         self._submit_btn.setObjectName("accent")
+        self._submit_btn.setAccessibleName("Submit correction")
         self._submit_btn.clicked.connect(self._on_submit)
         btn_row.addWidget(self._submit_btn)
         self._next_btn = QPushButton("Next Round")
@@ -248,8 +266,10 @@ class DecoderScreen(QWidget):
         self._level_lbl.setText(LEVEL_TITLES[level].upper())
 
         self._feedback_frame.hide()
+        self._mistake_row.hide()
         self._next_btn.hide()
         self._submit_btn.show()
+        self._confidence.reset()
 
         if r.is_grid_round:
             self._question_lbl.setText(
@@ -275,6 +295,8 @@ class DecoderScreen(QWidget):
                 rb.setChecked(False)
                 if i < len(r.choices):
                     rb.setText(f"{chr(65 + i)}.  Apply {r.choices[i][0]}")
+                    rb.setAccessibleName(
+                        f"Correction choice {chr(65 + i)}: apply {r.choices[i][0]}")
                     rb.setEnabled(True)
                     rb.show()
                 else:
@@ -320,6 +342,7 @@ class DecoderScreen(QWidget):
 
         elapsed = max(0, int(self._timer.elapsed() // 1000))
         success = r.code.is_success(r.error, correction)
+        self._confidence.lock()
 
         if success:
             self._score += 1
@@ -348,6 +371,7 @@ class DecoderScreen(QWidget):
                        "(fires a check or implements a logical operator).")
         self._explain_lbl.setText(detail)
         self._feedback_frame.show()
+        self._record_analytics(r, correction, success)
 
         self._submit_btn.hide()
         self._next_btn.setText(
@@ -355,6 +379,68 @@ class DecoderScreen(QWidget):
             else "Next Round")
         self._next_btn.show()
         self._next_btn.setFocus()
+
+    # ── Mistake journal / confidence calibration ─────────────────────────────
+
+    @staticmethod
+    def _round_item_id(level: str) -> str:
+        """Stable journal id for a decoder round: code + round type."""
+        return f"decoder_{level}"
+
+    def _record_analytics(self, r: Round, correction, success: bool) -> None:
+        item_id = self._round_item_id(r.level)
+        rating = self._confidence.rating()
+        if rating is not None:
+            try:
+                from persistence import log_confidence
+                log_confidence(item_id, DECODER_CATEGORY, rating, success)
+            except Exception:
+                pass
+
+        if success:
+            self._mistake_row.hide()
+            try:
+                from persistence import resolve_mistake
+                resolve_mistake(item_id)
+            except Exception:
+                pass
+            return
+
+        logged = True
+        try:
+            from persistence import log_mistake, make_mistake_entry
+            log_mistake(make_mistake_entry(
+                item_id=item_id,
+                category=DECODER_CATEGORY,
+                question=(f"{LEVEL_TITLES[r.level]} — syndrome "
+                          f"{''.join(str(b) for b in r.syndrome)}"),
+                your_answer=pauli_label(correction, r.code.n),
+                correct_answer=pauli_label(r.error, r.code.n),
+            ))
+        except Exception:
+            logged = False
+        self._mistake_row.reset(logged=logged)
+        self._mistake_row.show()
+
+    def _on_mistake_cause(self, cause: str) -> None:
+        if self._round is None:
+            return
+        try:
+            from persistence import set_mistake_cause
+            set_mistake_cause(self._round_item_id(self._round.level), cause,
+                              self._mistake_row.note())
+        except Exception:
+            pass
+
+    def _on_mistake_note(self, note: str) -> None:
+        if self._round is None:
+            return
+        try:
+            from persistence import set_mistake_cause
+            set_mistake_cause(self._round_item_id(self._round.level),
+                              self._mistake_row.cause(), note)
+        except Exception:
+            pass
 
     def _advance(self) -> None:
         self._round_idx += 1
@@ -453,7 +539,8 @@ class _SurfaceGrid(QWidget):
         for q in range(9):
             btn = QPushButton("·")
             btn.setFixedSize(48, 48)
-            btn.setToolTip(f"Data qubit {q + 1}")
+            btn.setToolTip(f"Data qubit {q + 1} — click to cycle · X Z Y")
+            btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             btn.clicked.connect(lambda _=None, i=q: self._on_qubit_clicked(i))
             self._style_qubit(btn, 0)
             grid.addWidget(btn, 1 + 2 * (q // 3), 1 + 2 * (q % 3))
@@ -478,9 +565,20 @@ class _SurfaceGrid(QWidget):
         self._style_check(lbl, kind, fired=False)
         return lbl
 
+    @staticmethod
+    def _check_text(kind: str, fired: bool) -> str:
+        """Fired checks read "X−" (measured −1), quiet ones "X+": the red fill
+        is never the only signal."""
+        return f"{kind}\u2212" if fired else f"{kind}+"
+
+    _STATE_NAMES = {0: "no correction", 1: "X correction",
+                    2: "Z correction", 3: "Y correction"}
+
     def _style_qubit(self, btn: QPushButton, state: int) -> None:
         colors = {0: theme.TEXT_MUTED, 1: X_COLOR, 2: Z_COLOR, 3: theme.WARNING}
         c = colors[state]
+        base_name = btn.toolTip().split(" — ")[0] or "Data qubit"
+        btn.setAccessibleName(f"{base_name} — {self._STATE_NAMES[state]}")
         btn.setStyleSheet(
             f"QPushButton {{ background: {theme.SURFACE2}; color: {c};"
             f" border: 2px solid {c if state else theme.BORDER};"
@@ -491,15 +589,21 @@ class _SurfaceGrid(QWidget):
 
     def _style_check(self, lbl: QLabel, kind: str, fired: bool) -> None:
         base = X_COLOR if kind == "X" else Z_COLOR
+        lbl.setText(self._check_text(kind, fired))
+        lbl.setAccessibleName(
+            f"{kind}-type stabilizer check, "
+            + ("fired, measured minus one" if fired else "quiet, measured plus one"))
+        lbl.setToolTip(lbl.accessibleName())
         if fired:
+            # theme.BG on ERROR is 5.7:1; white on ERROR was only 3.4:1.
             lbl.setStyleSheet(
-                f"background: {theme.ERROR}; color: white; border-radius: 4px;"
+                f"background: {theme.ERROR}; color: {theme.BG}; border-radius: 4px;"
                 f" border: 2px solid {theme.ERROR};"
                 " font-size: 13px; font-weight: bold;")
         else:
             lbl.setStyleSheet(
-                f"background: {base}33; color: {base}; border-radius: 4px;"
-                f" border: 1px solid {base}66;"
+                f"background: {base}33; color: {theme.TEXT}; border-radius: 4px;"
+                f" border: 1px solid {base};"
                 " font-size: 13px; font-weight: bold;")
 
     def _on_qubit_clicked(self, q: int) -> None:

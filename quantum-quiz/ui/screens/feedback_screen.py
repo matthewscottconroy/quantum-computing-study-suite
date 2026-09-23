@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextBrowser,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextBrowser,
     QPushButton, QListWidget, QListWidgetItem, QFrame, QScrollArea,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -18,9 +18,13 @@ from config import SCORE_CORRECT_THRESHOLD, SCORE_PARTIAL_THRESHOLD
 class FeedbackScreen(QWidget):
     next_question_requested = pyqtSignal()
     flag_requested = pyqtSignal()          # toggle "flag for review" on this question
+    mistake_cause_selected = pyqtSignal(str)   # cause id from MISTAKE_CAUSES
+    mistake_note_saved = pyqtSignal(str)       # one-line note for the journal entry
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._selected_cause: str | None = None
+        self._committed_note: str = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -121,6 +125,9 @@ class FeedbackScreen(QWidget):
         fu_layout.addWidget(self._followup_label)
         root.addWidget(self._followup_container)
 
+        # ── Mistake journal ("what went wrong?") ──────────────────────────────
+        root.addWidget(self._build_mistake_journal())
+
         root.addStretch()
 
         # ── Bottom bar ────────────────────────────────────────────────────────
@@ -142,6 +149,129 @@ class FeedbackScreen(QWidget):
         next_btn.clicked.connect(self.next_question_requested)
         bar_layout.addWidget(next_btn)
         outer.addWidget(bar)
+
+    # ── Mistake journal ───────────────────────────────────────────────────────
+
+    def _build_mistake_journal(self) -> QWidget:
+        """Compact, skippable "What went wrong?" row shown for a wrong answer.
+
+        The mistake itself is already saved (with ``cause=null``) by the time
+        this appears — clicking a cause only *categorises* it, and ignoring the
+        row loses nothing.  No modal, nothing blocks Next Question.
+        """
+        from persistence import CAUSE_LABELS, MISTAKE_CAUSES
+
+        card = QFrame()
+        card.setObjectName("card")
+        card.setAccessibleName("Mistake journal")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(8)
+
+        header = QHBoxLayout()
+        title = QLabel("What went wrong?")
+        title.setStyleSheet(
+            f"font-size: 11px; font-weight: bold; color: {theme.TEXT_MUTED};"
+        )
+        header.addWidget(title)
+        hint = QLabel("optional — the mistake is already saved either way")
+        hint.setObjectName("muted")
+        header.addWidget(hint)
+        header.addStretch()
+        self._mistake_status = QLabel("")
+        self._mistake_status.setObjectName("muted")
+        self._mistake_status.setAccessibleName("Mistake journal status")
+        header.addWidget(self._mistake_status)
+        layout.addLayout(header)
+
+        chips = QHBoxLayout()
+        chips.setSpacing(6)
+        self._cause_btns: dict[str, QPushButton] = {}
+        for cause in MISTAKE_CAUSES:
+            label = CAUSE_LABELS[cause]
+            btn = QPushButton(label)
+            btn.setObjectName("chip")
+            btn.setCheckable(True)
+            btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            btn.setAccessibleName(f"Cause of mistake: {label.lower()}")
+            btn.setAccessibleDescription(
+                "Categorise this mistake. Select again to clear the category."
+            )
+            btn.setToolTip(f"{label} — click again to clear")
+            btn.clicked.connect(lambda _checked=False, c=cause: self._on_cause_clicked(c))
+            chips.addWidget(btn)
+            self._cause_btns[cause] = btn
+        chips.addStretch()
+        layout.addLayout(chips)
+
+        self._mistake_note = QLineEdit()
+        self._mistake_note.setPlaceholderText(
+            "Optional one-line note — press Enter to save"
+        )
+        self._mistake_note.setAccessibleName("Mistake note")
+        self._mistake_note.setMaxLength(280)
+        self._mistake_note.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._mistake_note.returnPressed.connect(self._on_note_committed)
+        self._mistake_note.editingFinished.connect(self._on_note_committed)
+        layout.addWidget(self._mistake_note)
+
+        self._mistake_card = card
+        card.hide()
+        return card
+
+    def _on_cause_clicked(self, cause: str) -> None:
+        self._selected_cause = None if self._selected_cause == cause else cause
+        self._sync_cause_buttons()
+        self.mistake_cause_selected.emit(self._selected_cause or "")
+
+    def _sync_cause_buttons(self) -> None:
+        from persistence import CAUSE_LABELS
+        for cause, btn in self._cause_btns.items():
+            selected = cause == self._selected_cause
+            btn.setChecked(selected)
+            # Never colour alone: the chosen cause also carries a check glyph.
+            btn.setText(f"✓ {CAUSE_LABELS[cause]}" if selected else CAUSE_LABELS[cause])
+
+    def _on_note_committed(self) -> None:
+        if self._mistake_card.isHidden():
+            return
+        text = self._mistake_note.text().strip()
+        if text == self._committed_note:
+            return
+        self._committed_note = text
+        self.mistake_note_saved.emit(text)
+
+    def show_mistake_journal(self, cause: str | None = None, note: str = "") -> None:
+        """Reveal the row for a wrong answer, pre-filled from the stored entry."""
+        self._selected_cause = cause or None
+        self._sync_cause_buttons()
+        self._committed_note = (note or "").strip()
+        self._mistake_note.setText(note or "")
+        self._mistake_status.setText("✓ Logged to your mistake journal")
+        self._mistake_card.show()
+
+    def hide_mistake_journal(self) -> None:
+        self._selected_cause = None
+        self._committed_note = ""
+        self._sync_cause_buttons()
+        self._mistake_note.clear()
+        self._mistake_status.setText("")
+        self._mistake_card.hide()
+
+    def mistake_journal_visible(self) -> bool:
+        # isHidden(), not isVisible(): this screen is hidden while another page
+        # of the stack is showing, which says nothing about this card.
+        return not self._mistake_card.isHidden()
+
+    def selected_cause(self) -> str | None:
+        return self._selected_cause
+
+    def mistake_note(self) -> str:
+        return self._mistake_note.text().strip()
+
+    def set_mistake_status(self, text: str) -> None:
+        """Inline, non-blocking status for the journal row (never a dialog)."""
+        self._mistake_status.setText(text)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -174,9 +304,10 @@ class FeedbackScreen(QWidget):
         else:
             self._followup_container.hide()
 
-        # Flag state is set separately by the controller (set_flagged) once it
-        # has looked the question up in persistence.
+        # Flag state and the mistake journal are set separately by the
+        # controller once it has looked this question up in persistence.
         self.set_flagged(False)
+        self.hide_mistake_journal()
 
     def set_flagged(self, flagged: bool) -> None:
         """Reflect the persisted flag state on the toggle button."""

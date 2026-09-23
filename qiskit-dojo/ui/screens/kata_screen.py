@@ -9,12 +9,42 @@ from PyQt6.QtGui import QFont, QFontMetricsF
 from core.models import Kata, KataAttempt, RunResult
 from ui import theme
 from ui.widgets.code_editor import CodeEditor
+from ui.widgets.feedback_row import ConfidenceStrip, MistakeRow
 from workers.run_worker import RunWorker
 from workers.review_worker import ReviewWorker
-from persistence import is_flagged, toggle_flag
+from persistence import (
+    clip, confidence_prompt_enabled, is_flagged, log_confidence, log_mistake,
+    make_mistake_entry, resolve_mistakes, set_confidence_prompt_enabled,
+    set_mistake_cause, toggle_flag,
+)
 
 _FLAG_OFF_TEXT = "⚑ Flag for review"
 _FLAG_ON_TEXT  = "⚑ Flagged for review"
+
+_NO_RUN_ANSWER = "(gave up without a passing run)"
+
+
+def _failure_headline(output: str) -> str:
+    """The one line that says what went wrong, for the journal's your_answer.
+
+    The harness puts ``FAILED: …`` / ``ERROR: …`` first; fall back to the
+    first non-empty line so a timeout or a bare traceback still says something.
+    """
+    lines = [ln.strip() for ln in (output or "").splitlines() if ln.strip()]
+    for line in lines:
+        if line.startswith(("FAILED:", "ERROR:")):
+            return line
+    for line in lines:
+        if not line.startswith("==="):
+            return line
+    return lines[0] if lines else _NO_RUN_ANSWER
+
+
+def _solution_gist(code: str) -> str:
+    """The reference solution minus comments/blank lines, as one line."""
+    body = [ln.strip() for ln in (code or "").splitlines()
+            if ln.strip() and not ln.strip().startswith("#")]
+    return clip(" | ".join(body)) or "(see Reveal Solution)"
 
 
 def _repolish(widget) -> None:
@@ -36,6 +66,10 @@ class KataScreen(QWidget):
         self._run_worker: RunWorker | None = None
         self._review_worker: ReviewWorker | None = None
         self._flagged: bool = False
+        self._confidence: int | None = None
+        self._confidence_logged: bool = False
+        self._mistake_logged: bool = False
+        self._last_failure: str = ""
         self._build_ui()
 
     # ------------------------------------------------------------------ UI
@@ -146,6 +180,20 @@ class KataScreen(QWidget):
         splitter.addWidget(right_split)
         splitter.setSizes([380, 640])
 
+        # ---- feedback rows (above the buttons, full width) ---------------
+        # Asked BEFORE the first Run, so the rating can never be hindsight.
+        self._conf_strip = ConfidenceStrip()
+        self._conf_strip.rated.connect(self._on_confidence_rated)
+        self._conf_strip.opted_out.connect(self._on_confidence_opt_out)
+        root.addWidget(self._conf_strip)
+
+        # Shown once a kata is given up on; the mistake itself is already
+        # journalled by then, so this row is pure diagnosis and skippable.
+        self._mistake_row = MistakeRow()
+        self._mistake_row.logged.connect(self._on_mistake_logged)
+        self._mistake_row.hide()
+        root.addWidget(self._mistake_row)
+
         # ---- bottom buttons --------------------------------------------
         btn_row = QHBoxLayout()
         self._hint_btn = QPushButton("Hint")
@@ -205,6 +253,15 @@ class KataScreen(QWidget):
         self._hint_lbl.setText("")
         self._review_view.hide()
         self._review_view.clear()
+        self._confidence = None
+        self._confidence_logged = False
+        self._last_failure = ""
+        self._mistake_logged = False        # set first: hiding the note field
+                                            # re-emits, and the guard reads it
+        self._conf_strip.reset()
+        self._conf_strip.setVisible(self._confidence_prompt_on())
+        self._mistake_row.reset()
+        self._mistake_row.hide()
         self._hint_btn.setEnabled(bool(kata.hints))
         self._hint_btn.setText(f"Hint (0/{len(kata.hints)})" if kata.hints else "Hint")
         self._reveal_btn.setEnabled(True)
@@ -249,6 +306,7 @@ class KataScreen(QWidget):
             return
         attempt = self._attempt
         attempt.tries += 1
+        self._conf_strip.freeze()       # rating is locked once you have run
         self._set_run_in_flight(True)
         self._status_lbl.setText("Running…")
         self._status_lbl.setStyleSheet(
@@ -274,6 +332,7 @@ class KataScreen(QWidget):
         if attempt is not self._attempt:
             return                          # result for a kata we already left
         self._output_view.setPlainText(result.output)
+        self._log_calibration(result.passed)
         if result.passed:
             self._attempt.passed = True
             self._status_lbl.setText(f"✓ PASSED  ({result.duration_secs:.1f}s)")
@@ -283,6 +342,8 @@ class KataScreen(QWidget):
             self._next_btn.setText("Next →")
             self._next_btn.setObjectName("accent")
             _repolish(self._next_btn)
+            self._mistake_row.hide()
+            self._resolve_mistake()
         else:
             label = {
                 "user_error":  "✗ ERROR IN YOUR CODE",
@@ -293,6 +354,11 @@ class KataScreen(QWidget):
             self._status_lbl.setStyleSheet(
                 f"font-weight: bold; font-size: 13px; color: {theme.ERROR};"
             )
+            # Journal it straight away with no cause: iterating on a kata is
+            # normal, so the "what went wrong?" row waits for Reveal Solution,
+            # but the failure itself is never lost.
+            self._last_failure = _failure_headline(result.output)
+            self._journal_mistake(self._last_failure)
 
     def _on_run_failed(self, attempt: KataAttempt, err: str) -> None:
         if attempt is not self._attempt:
@@ -347,6 +413,13 @@ class KataScreen(QWidget):
         self._status_lbl.setStyleSheet(
             f"font-weight: bold; font-size: 13px; color: {theme.WARNING};"
         )
+        if not self._attempt.passed:
+            # Giving up is the honest "wrong answer" moment in a dojo, so this
+            # is where the cause chips appear.  The output pane now holds the
+            # solution, hence the headline comes from the last failed run
+            # rather than from what is on screen.
+            self._journal_mistake(self._last_failure or _NO_RUN_ANSWER)
+            self._mistake_row.show()
 
     def _on_review(self) -> None:
         if self._kata is None or self._review_worker is not None:
@@ -370,6 +443,76 @@ class KataScreen(QWidget):
     def _on_review_failed(self, err: str) -> None:
         self._review_view.hide()
         QMessageBox.warning(self, "Claude Review Unavailable", err)
+
+    # ------------------------------------------- calibration + mistake journal
+
+    def _confidence_prompt_on(self) -> bool:
+        try:
+            return confidence_prompt_enabled()
+        except Exception:
+            return True
+
+    def confidence_value(self) -> int | None:
+        """The rating chosen for the current kata, if any (UI state)."""
+        return self._confidence
+
+    def _on_confidence_rated(self, level: int) -> None:
+        self._confidence = int(level)
+
+    def _on_confidence_opt_out(self) -> None:
+        self._confidence = None
+        self._conf_strip.hide()
+        try:
+            set_confidence_prompt_enabled(False)
+        except Exception:
+            pass
+
+    def _log_calibration(self, correct: bool) -> None:
+        """Pair the pre-run rating with the first graded outcome, once."""
+        if self._kata is None or self._confidence is None or self._confidence_logged:
+            return
+        self._confidence_logged = True
+        try:
+            log_confidence(self._kata.id, self._kata.section,
+                           self._confidence, correct)
+        except Exception:
+            pass
+
+    def _journal_mistake(self, your_answer: str) -> None:
+        """Record (or refresh) this kata's open mistake, cause not yet known."""
+        if self._kata is None:
+            return
+        entry = make_mistake_entry(
+            kata_id=self._kata.id,
+            category=self._kata.section,
+            question=self._kata.title,
+            your_answer=your_answer,
+            correct_answer=_solution_gist(self._kata.solution_code),
+        )
+        try:
+            log_mistake(entry)
+        except Exception:
+            return
+        self._mistake_logged = True
+
+    def _on_mistake_logged(self, cause, note: str) -> None:
+        if not self._mistake_logged or self._kata is None:
+            return
+        try:
+            set_mistake_cause(self._kata.id, cause, note)
+        except Exception:
+            pass
+
+    def _resolve_mistake(self) -> None:
+        """Passing closes every open journal row for this kata — including one
+        opened in an earlier session, which is the whole point of `resolved`."""
+        if self._kata is None:
+            return
+        try:
+            resolve_mistakes(self._kata.id)
+        except Exception:
+            return
+        self._mistake_logged = False
 
     def _on_next(self) -> None:
         if self._attempt is None:

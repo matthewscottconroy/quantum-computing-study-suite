@@ -2,7 +2,7 @@
 from __future__ import annotations
 from PyQt6.QtWidgets import QMainWindow, QStackedWidget, QMessageBox
 from config import WINDOW_TITLE, WINDOW_MIN_SIZE
-from core.models import GradeMode, SessionStats
+from core.models import GradeMode, SessionStats, answer_texts
 from problems import build_problem_set
 from ui.screens.setup_screen import SetupScreen
 from ui.screens.problem_screen import ProblemScreen
@@ -10,7 +10,10 @@ from ui.screens.result_screen import ResultScreen
 from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
 from ui.screens.reference_screen import ReferenceScreen
-from persistence import save_session, toggle_flag, load_flagged
+from persistence import (
+    save_session, toggle_flag, load_flagged,
+    log_mistake, set_mistake_cause, resolve_mistakes, log_confidence,
+)
 from workers.grading_worker import GradingWorker
 from grading.auto_grader import grade_mc, grade_numeric
 
@@ -20,6 +23,8 @@ PAGE_RESULT     = 2
 PAGE_SUMMARY    = 3
 PAGE_HISTORY    = 4
 PAGE_REFERENCE  = 5
+
+CORRECT_SCORE = 7          # the app-wide "got it" bar (0-10 scores)
 
 
 class MainWindow(QMainWindow):
@@ -50,6 +55,8 @@ class MainWindow(QMainWindow):
         self._problem.session_ended.connect(self._finish_session)
         self._result.next_requested.connect(self._advance)
         self._result.flag_requested.connect(self._on_flag)
+        self._result.mistake_cause_selected.connect(self._on_mistake_cause)
+        self._result.mistake_note_committed.connect(self._on_mistake_note)
         self._summary.session_again.connect(self._go_setup)
         self._summary.back_requested.connect(self._go_setup)
         self._summary.review_mistakes.connect(self._on_review_mistakes)
@@ -60,6 +67,8 @@ class MainWindow(QMainWindow):
         self._idx: int = 0
         self._stats = SessionStats()
         self._streak: int = 0
+        self._pending_confidence: int | None = None   # rated before submitting
+        self._journal_id: str | None = None           # item the journal row is for
 
     def _on_session_started(self, config) -> None:
         self._problems = build_problem_set(config)
@@ -80,6 +89,11 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(PAGE_PROBLEM)
 
     def _on_answer_submitted(self, problem, answer: str, hints_used: int, elapsed_secs: int) -> None:
+        # Read the strip now: after grading the rating would be hindsight.
+        try:
+            self._pending_confidence = self._problem.confidence()
+        except Exception:
+            self._pending_confidence = None
         if problem.grade_mode == GradeMode.MC:
             attempt = grade_mc(problem, answer)
             attempt.hints_used = hints_used
@@ -120,7 +134,7 @@ class MainWindow(QMainWindow):
 
     def _record(self, attempt) -> None:
         self._stats.total += 1
-        if attempt.score >= 7:
+        if attempt.score >= CORRECT_SCORE:
             self._stats.correct += 1
             self._streak += 1
         else:
@@ -128,6 +142,7 @@ class MainWindow(QMainWindow):
         self._stats.attempts.append(attempt)
         is_last = self._idx + 1 >= len(self._problems)
         self._result.show_attempt(attempt, is_last)
+        self._log_study_analytics(attempt)
 
         # Update flag button state
         try:
@@ -137,6 +152,50 @@ class MainWindow(QMainWindow):
         self._result.set_flagged(flagged)
 
         self._stack.setCurrentIndex(PAGE_RESULT)
+
+    def _log_study_analytics(self, attempt) -> None:
+        """Mistake journal + confidence calibration. Never blocks the flow:
+        any persistence failure is swallowed so a session cannot be lost."""
+        problem = attempt.problem
+        correct = attempt.score >= CORRECT_SCORE
+        confidence, self._pending_confidence = self._pending_confidence, None
+
+        if confidence is not None:
+            try:
+                log_confidence(problem.id, problem.category, confidence, correct)
+            except Exception:
+                pass
+
+        self._journal_id = None
+        if correct:
+            try:
+                resolve_mistakes(problem.id)
+            except Exception:
+                pass
+            return
+
+        given, expected = answer_texts(attempt)
+        try:
+            log_mistake(problem.id, problem.category, problem.question, given, expected)
+            self._journal_id = problem.id
+        except Exception:
+            self._journal_id = None
+
+    def _on_mistake_cause(self, cause: str) -> None:
+        if not self._journal_id:
+            return
+        try:
+            set_mistake_cause(self._journal_id, cause, self._result.mistake_note())
+        except Exception:
+            pass
+
+    def _on_mistake_note(self, note: str) -> None:
+        if not self._journal_id:
+            return
+        try:
+            set_mistake_cause(self._journal_id, self._result.mistake_cause(), note)
+        except Exception:
+            pass
 
     def _on_flag(self) -> None:
         if not self._problems or self._idx >= len(self._problems):
@@ -170,7 +229,7 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(PAGE_REFERENCE)
 
     def _on_review_mistakes(self) -> None:
-        mistakes = [a.problem for a in self._stats.attempts if a.score < 7]
+        mistakes = [a.problem for a in self._stats.attempts if a.score < CORRECT_SCORE]
         if not mistakes:
             return
         self._problems = mistakes

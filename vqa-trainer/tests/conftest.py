@@ -17,14 +17,23 @@ import pytest  # noqa: E402
 @pytest.fixture(autouse=True)
 def isolated_data_dir(tmp_path, monkeypatch):
     """Redirect every persistence path constant into a throwaway directory."""
+    import config
     import persistence
 
     data_dir = tmp_path / "quantum-study"
     monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", str(data_dir))
-    monkeypatch.setattr(persistence, "DATA_DIR", data_dir)
-    monkeypatch.setattr(persistence, "HISTORY_FILE", data_dir / "vqa_history.json")
-    if hasattr(persistence, "_FLAGGED_FILE"):
-        monkeypatch.setattr(persistence, "_FLAGGED_FILE", data_dir / "vqa_flagged.json")
+    for mod, names in (
+        (config, ("DATA_DIR", "HISTORY_FILE", "FLAGGED_FILE", "MISTAKES_FILE",
+                  "CONFIDENCE_FILE", "SETTINGS_FILE")),
+        (persistence, ("DATA_DIR", "HISTORY_FILE", "_FLAGGED_FILE", "MISTAKES_FILE",
+                       "CONFIDENCE_FILE", "SETTINGS_FILE")),
+    ):
+        for name in names:
+            current = getattr(mod, name, None)
+            if current is None:
+                continue
+            target = data_dir if name == "DATA_DIR" else data_dir / current.name
+            monkeypatch.setattr(mod, name, target)
     return data_dir
 
 

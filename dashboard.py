@@ -10,6 +10,16 @@ Import as a module:
 
 Data dir defaults to ~/.local/share/quantum-study/ and is overridden by the
 QUANTUM_STUDY_DATA_DIR environment variable (read once, at import time).
+
+Besides the ten history files this module also reads two cross-app signal
+files written by the apps -- mistakes.json (the mistake journal, with a
+"why did I get this wrong?" cause per entry) and confidence.json (a 1-4
+confidence rating captured BEFORE each answer is revealed).  Their schema
+helpers live here (make_mistake_entry / normalise_mistake / load_mistakes /
+mistakes_panel, normalise_confidence / load_confidence / calibration_panel)
+so that coach.py's --mistakes, --calibration and --item-analysis reports and
+this dashboard's panels all read the files the same way.  Nothing here ever
+writes: the dashboard is read-only.
 """
 
 from __future__ import annotations
@@ -406,6 +416,10 @@ class DashboardReport:
     weakest_topics: list[tuple[str, float]]    # (label, avg_score) sorted asc, top 5
     recent_apps: dict[str, int]                # app_name -> problems in last 7 days
     streak_days: int
+    # Tier-5 signals (see mistakes_panel() / calibration_panel()).  Defaulted
+    # so that older callers constructing a report by hand keep working.
+    mistakes: dict = field(default_factory=dict)
+    calibration: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -550,6 +564,8 @@ def build_report() -> DashboardReport:
         weakest_topics=weakest_topics,
         recent_apps=recent_apps,
         streak_days=streak_days,
+        mistakes=mistakes_panel(),
+        calibration=calibration_panel(),
     )
 
 
@@ -1231,6 +1247,539 @@ def _render_retention_rich(report: RetentionReport) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Mistake journal & confidence calibration  (Tier-5 signals)
+#
+# Two files the apps write as you answer (this module only ever reads them):
+#
+#   mistakes.json    [ {"id", "app", "category", "question", "your_answer",
+#                       "correct_answer", "cause", "note", "timestamp",
+#                       "resolved"} ]
+#     cause is one of MISTAKE_CAUSES or null -- null means "logged, but the
+#     learner has not said WHY yet".  A wrong answer that only becomes a
+#     bookmark teaches nothing; the cause is the payload.
+#
+#   confidence.json  [ {"id", "app", "category", "confidence": 1-4,
+#                       "correct": bool, "timestamp"} ]
+#     1 = guessing, 2 = unsure, 3 = fairly sure, 4 = certain.  The confidence
+#     is recorded BEFORE the answer is revealed, so "confident and wrong" --
+#     the unknown unknowns -- becomes measurable.
+#
+# Both are read defensively: absent, empty, truncated, corrupt, wrong-typed
+# and hand-edited files all degrade to "no data" instead of raising.  The
+# schema helpers live here, in one place, because coach.py builds its
+# --mistakes / --calibration / --item-analysis reports on exactly these
+# normalisers.
+# ---------------------------------------------------------------------------
+
+MISTAKES_FILE = "mistakes.json"
+CONFIDENCE_FILE = "confidence.json"
+
+# Cause vocabulary, in the order the apps show the buttons.
+MISTAKE_CAUSES = ("misread", "didnt_know", "knew_but_slipped", "confused",
+                  "out_of_time", "other")
+UNCATEGORISED = "uncategorised"        # synthetic bucket for cause = null
+
+CAUSE_LABELS = {
+    "misread":          "misread the question",
+    "didnt_know":       "didn't know it",
+    "knew_but_slipped": "knew it but slipped",
+    "confused":         "confused two ideas",
+    "out_of_time":      "ran out of time",
+    "other":            "other",
+    UNCATEGORISED:      "not categorised yet",
+}
+
+# The whole point of the cause vocabulary: each one implies a DIFFERENT fix.
+CAUSE_ADVICE = {
+    "misread": "Slow down and re-read. Cover the options, restate the "
+               "question in your own words, then look.",
+    "didnt_know": "This is missing knowledge, not a slip — go back to the "
+                  "chapter and re-read before drilling.",
+    "knew_but_slipped": "You need drilling, not reading — short, frequent "
+                        "reps until the recall is automatic.",
+    "confused": "Two ideas are colliding. Write the pair out side by side "
+                "and name the one difference that tells them apart.",
+    "out_of_time": "Practise under the clock: budget per question, answer "
+                   "the cheap ones first, and flag rather than stall.",
+    "other": "Re-read these notes — if a pattern shows up, give it its own "
+             "cause next time.",
+    UNCATEGORISED: "Categorise them. Until a mistake has a cause it is a "
+                   "bookmark, not analysis — the cause row takes one click.",
+}
+
+CONFIDENCE_LEVELS = (1, 2, 3, 4)
+CONFIDENCE_LABELS = {1: "guessing", 2: "unsure", 3: "fairly sure",
+                     4: "certain"}
+# What a perfectly calibrated learner scores at each level.
+CONFIDENCE_TARGET = {1: 0.25, 2: 0.50, 3: 0.75, 4: 0.95}
+CONFIDENT_LEVEL = 3            # >= this counts as "said they were confident"
+
+CONFIDENCE_MIN_OBS = 20        # N: no calibration verdict below this
+CONFIDENCE_MIN_LEVEL_OBS = 5   # per-level floor before a level is judged
+
+JOURNAL_TEXT_MAX = 200         # contract cap on question / answer strings
+JOURNAL_READ_CAP = 20000       # newest-N entries kept when a file grows huge
+
+
+def _journal_text(value, limit: int = JOURNAL_TEXT_MAX) -> str:
+    """One-line, whitespace-collapsed, length-capped text (never None)."""
+    if value is None or isinstance(value, bool):
+        return ""
+    text = " ".join(str(value).split())
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def _journal_epoch(value) -> float:
+    """Contract timestamp as epoch seconds; 0.0 when missing or unusable."""
+    ts = _parse_epoch(value)
+    if ts is None or ts <= 0:
+        return 0.0
+    if ts > 1e11:              # millisecond epoch -- normalise to seconds
+        ts /= 1000.0
+    return ts
+
+
+def make_mistake_entry(id: str, app: str, category: str = "",
+                       question: str = "", your_answer: str = "",
+                       correct_answer: str = "", cause: Optional[str] = None,
+                       note: str = "", timestamp: Optional[float] = None,
+                       resolved: bool = False) -> dict:
+    """A schema-valid mistakes.json entry.
+
+    The canonical constructor for the journal: the apps call it when an
+    answer is graded wrong, and the tests round-trip it through
+    ``normalise_mistake``.  An unknown *cause* is stored as None rather than
+    invented, which is the same thing as "logged but not yet categorised".
+    """
+    return {
+        "id": _journal_text(id, 200),
+        "app": _journal_text(app, 64),
+        "category": _journal_text(category, 120),
+        "question": _journal_text(question),
+        "your_answer": _journal_text(your_answer),
+        "correct_answer": _journal_text(correct_answer),
+        "cause": cause if cause in MISTAKE_CAUSES else None,
+        "note": _journal_text(note),
+        "timestamp": _journal_epoch(
+            timestamp if timestamp is not None else time.time()),
+        "resolved": bool(resolved),
+    }
+
+
+def normalise_mistake(raw) -> Optional[dict]:
+    """A mistakes.json entry coerced to the schema, or None if unusable.
+
+    Only ``id`` is truly required; a missing app becomes "unknown" so the
+    entry still counts instead of being silently dropped.
+    """
+    if not isinstance(raw, dict):
+        return None
+    ident = _journal_text(raw.get("id"), 200)
+    if not ident:
+        return None
+    cause = raw.get("cause")
+    entry = make_mistake_entry(
+        id=ident,
+        app=_journal_text(raw.get("app"), 64) or "unknown",
+        category=raw.get("category") or "",
+        question=raw.get("question") or "",
+        your_answer=raw.get("your_answer") or "",
+        correct_answer=raw.get("correct_answer") or "",
+        cause=cause if isinstance(cause, str) else None,
+        note=raw.get("note") or "",
+        timestamp=_journal_epoch(raw.get("timestamp")),
+        resolved=bool(raw.get("resolved")),
+    )
+    return entry
+
+
+def make_confidence_entry(id: str, app: str, confidence: int,
+                          correct: bool, category: str = "",
+                          timestamp: Optional[float] = None) -> dict:
+    """A schema-valid confidence.json observation (pure; writes nothing).
+
+    The apps call this when an answer is graded, pairing the rating the
+    learner gave BEFORE the reveal with the verdict.  An out-of-range
+    confidence raises rather than being silently clamped -- a 5 or a 0 means
+    the caller's UI and this schema disagree.
+    """
+    level = int(confidence)
+    if level not in CONFIDENCE_TARGET:
+        raise ValueError(f"confidence must be 1-4, got {confidence!r}")
+    return {
+        "id": _journal_text(id, 200),
+        "app": _journal_text(app, 64),
+        "category": _journal_text(category, 120),
+        "confidence": level,
+        "correct": bool(correct),
+        "timestamp": _journal_epoch(
+            timestamp if timestamp is not None else time.time()),
+    }
+
+
+def normalise_confidence(raw) -> Optional[dict]:
+    """A confidence.json observation coerced to the schema, or None.
+
+    Requires an id and a confidence inside 1..4; ``correct`` is read as a
+    plain truthy flag so a 0/1 int from a hand-edited file still works.
+    """
+    if not isinstance(raw, dict):
+        return None
+    ident = _journal_text(raw.get("id"), 200)
+    if not ident:
+        return None
+    raw_level = raw.get("confidence")
+    # A bool is an int in Python; True is not a confidence of 1.
+    if isinstance(raw_level, bool) or not isinstance(raw_level,
+                                                     (int, float, str)):
+        return None
+    try:
+        level = int(raw_level)          # int(NaN) / int("high") raise here
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if level not in CONFIDENCE_TARGET:
+        return None
+    correct = raw.get("correct")
+    if correct is None:
+        return None
+    return {
+        "id": ident,
+        "app": _journal_text(raw.get("app"), 64) or "unknown",
+        "category": _journal_text(raw.get("category"), 120),
+        "confidence": level,
+        "correct": bool(correct),
+        "timestamp": _journal_epoch(raw.get("timestamp")),
+    }
+
+
+def _read_journal(name: str, path: Optional[Path] = None) -> list:
+    """Raw JSON list from *path* (default <DATA_DIR>/<name>).
+
+    Returns [] for absent, empty, corrupt or wrong-shaped files.  DATA_DIR is
+    read at call time so tests can monkeypatch it; coach.py passes its own
+    (separately overridable) path instead.
+    """
+    target = Path(path) if path is not None else DATA_DIR / name
+    try:
+        data = json.loads(target.read_text())
+    except (OSError, ValueError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _cap_newest(entries: list[dict], cap: int = JOURNAL_READ_CAP
+                ) -> list[dict]:
+    """The newest *cap* entries (by timestamp) when a journal grows huge.
+
+    Neither file is ever rewritten here — this only bounds what one report
+    holds in memory.  Reports say so when the cap bites.
+    """
+    if len(entries) <= cap:
+        return entries
+    return sorted(entries, key=lambda e: e["timestamp"])[-cap:]
+
+
+def load_mistakes(path: Optional[Path] = None) -> list[dict]:
+    """Every readable mistakes.json entry, oldest first.
+
+    Byte-identical duplicate writes of the same (app, id, timestamp) are
+    collapsed; a genuine second miss of the same item keeps its own entry,
+    because repetition is exactly the signal the report is looking for.
+    """
+    out: list[dict] = []
+    seen: set[tuple[str, str, float]] = set()
+    for raw in _read_journal(MISTAKES_FILE, path):
+        entry = normalise_mistake(raw)
+        if entry is None:
+            continue
+        key = (entry["app"], entry["id"], round(entry["timestamp"], 3))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(entry)
+    out = _cap_newest(out)
+    out.sort(key=lambda e: (e["timestamp"], e["app"], e["id"]))
+    return out
+
+
+def load_confidence(path: Optional[Path] = None) -> list[dict]:
+    """Every readable confidence.json observation, oldest first."""
+    out = [c for c in (normalise_confidence(raw)
+                       for raw in _read_journal(CONFIDENCE_FILE, path))
+           if c is not None]
+    out = _cap_newest(out)
+    out.sort(key=lambda c: (c["timestamp"], c["app"], c["id"]))
+    return out
+
+
+def latest_mistakes(entries: list[dict]) -> list[dict]:
+    """The newest entry per (app, id) — the current state of each item."""
+    newest: dict[tuple[str, str], dict] = {}
+    for entry in entries:
+        key = (entry["app"], entry["id"])
+        current = newest.get(key)
+        if current is None or entry["timestamp"] >= current["timestamp"]:
+            newest[key] = entry
+    return sorted(newest.values(),
+                  key=lambda e: (e["timestamp"], e["app"], e["id"]))
+
+
+def unresolved_mistakes(entries: list[dict]) -> list[dict]:
+    """Still-unresolved items, oldest first (one row per app+id)."""
+    return [e for e in latest_mistakes(entries) if not e["resolved"]]
+
+
+def cause_of(entry: dict) -> str:
+    """The entry's cause, with null mapped to the UNCATEGORISED bucket."""
+    cause = entry.get("cause")
+    return cause if cause in MISTAKE_CAUSES else UNCATEGORISED
+
+
+def mistake_cause_counts(entries: list[dict]) -> dict[str, int]:
+    """{cause: count} over *entries*, ranked most frequent first."""
+    counts: dict[str, int] = {}
+    for entry in entries:
+        key = cause_of(entry)
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
+def mistakes_panel(entries: Optional[list[dict]] = None) -> dict:
+    """Compact mistakes-by-cause summary (the dashboard panel + coach header)."""
+    if entries is None:
+        entries = load_mistakes()
+    total = len(entries)
+    counts = mistake_cause_counts(entries)
+    rows = [{"cause": cause,
+             "label": CAUSE_LABELS.get(cause, cause),
+             "n": n,
+             "pct": (n / total * 100.0) if total else 0.0}
+            for cause, n in counts.items()]
+    categorised = [r for r in rows if r["cause"] != UNCATEGORISED]
+    dominant: Optional[str] = (str(categorised[0]["cause"]) if categorised
+                               else None)
+    latest = latest_mistakes(entries)
+    unresolved = [e for e in latest if not e["resolved"]]
+    apps: dict[str, int] = {}
+    for entry in entries:
+        apps[entry["app"]] = apps.get(entry["app"], 0) + 1
+    stamps = [e["timestamp"] for e in entries if e["timestamp"] > 0]
+    return {
+        "n": total,
+        "n_items": len(latest),
+        "n_unresolved": len(unresolved),
+        "n_resolved": len(latest) - len(unresolved),
+        "rows": rows,
+        "counts": counts,
+        "dominant": dominant,
+        "advice": CAUSE_ADVICE.get(dominant) if dominant else None,
+        "uncategorised": counts.get(UNCATEGORISED, 0),
+        "apps": dict(sorted(apps.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "first_ts": min(stamps) if stamps else None,
+        "last_ts": max(stamps) if stamps else None,
+    }
+
+
+def confidence_levels(obs: list[dict]) -> list[dict]:
+    """Per-confidence-level accuracy against the calibrated target."""
+    rows = []
+    for level in CONFIDENCE_LEVELS:
+        at = [o for o in obs if o["confidence"] == level]
+        n = len(at)
+        correct = sum(1 for o in at if o["correct"])
+        accuracy = (correct / n) if n else None
+        target = CONFIDENCE_TARGET[level]
+        rows.append({
+            "level": level,
+            "label": CONFIDENCE_LABELS[level],
+            "n": n,
+            "correct": correct,
+            "accuracy": accuracy,
+            "target": target,
+            "gap": (accuracy - target) if accuracy is not None else None,
+            "judged": n >= CONFIDENCE_MIN_LEVEL_OBS,
+        })
+    return rows
+
+
+def overconfidence_index(obs: list[dict]) -> Optional[float]:
+    """Mean(claimed accuracy) - mean(actual), in percentage points.
+
+    Positive = overconfident (you believe yourself more than the marking
+    agrees), negative = underconfident.  None with no observations.
+    """
+    if not obs:
+        return None
+    claimed = sum(CONFIDENCE_TARGET[o["confidence"]] for o in obs) / len(obs)
+    actual = sum(1 for o in obs if o["correct"]) / len(obs)
+    return (claimed - actual) * 100.0
+
+
+def confidently_wrong(obs: list[dict]) -> list[dict]:
+    """Topics answered wrong while claiming confidence >= CONFIDENT_LEVEL.
+
+    Grouped by (app, category) and ranked worst first: most confidently-wrong
+    answers, then highest average claimed confidence, then most recent.
+    These are the unknown unknowns — the ones that sink an exam score,
+    because nothing in the study loop flags them as shaky.
+    """
+    groups: dict[tuple[str, str], dict] = {}
+    for o in obs:
+        if o["confidence"] < CONFIDENT_LEVEL or o["correct"]:
+            continue
+        key = (o["app"], o["category"] or "(no category)")
+        row = groups.setdefault(key, {"app": key[0], "category": key[1],
+                                      "n": 0, "ids": [], "conf_sum": 0,
+                                      "last_ts": 0.0})
+        row["n"] += 1
+        row["conf_sum"] += o["confidence"]
+        row["last_ts"] = max(row["last_ts"], o["timestamp"])
+        if o["id"] not in row["ids"]:
+            row["ids"].append(o["id"])
+    rows = list(groups.values())
+    for row in rows:
+        row["mean_confidence"] = row["conf_sum"] / row["n"]
+        del row["conf_sum"]
+    rows.sort(key=lambda r: (-r["n"], -r["mean_confidence"], -r["last_ts"],
+                             r["app"], r["category"]))
+    return rows
+
+
+def calibration_panel(obs: Optional[list[dict]] = None) -> dict:
+    """Confidence-vs-accuracy summary (the dashboard panel + coach report)."""
+    if obs is None:
+        obs = load_confidence()
+    n = len(obs)
+    n_correct = sum(1 for o in obs if o["correct"])
+    confident = [o for o in obs if o["confidence"] >= CONFIDENT_LEVEL]
+    conf_wrong = [o for o in confident if not o["correct"]]
+    index = overconfidence_index(obs)
+    enough = n >= CONFIDENCE_MIN_OBS
+    if not enough:
+        verdict = (f"not enough graded confidence ratings yet — "
+                   f"{CONFIDENCE_MIN_OBS} needed, {n} on file")
+    elif index is None:
+        verdict = "no verdict"
+    elif index > 10.0:
+        verdict = "overconfident"
+    elif index < -10.0:
+        verdict = "underconfident"
+    else:
+        verdict = "well calibrated"
+    apps: dict[str, int] = {}
+    for o in obs:
+        apps[o["app"]] = apps.get(o["app"], 0) + 1
+    return {
+        "n": n,
+        "n_correct": n_correct,
+        "accuracy": (n_correct / n) if n else None,
+        "levels": confidence_levels(obs),
+        "overconfidence": index,
+        "n_confident": len(confident),
+        "n_confidently_wrong": len(conf_wrong),
+        "confident_error_rate": (len(conf_wrong) / len(confident)
+                                 if confident else None),
+        "confidently_wrong": confidently_wrong(obs),
+        "enough": enough,
+        "min_obs": CONFIDENCE_MIN_OBS,
+        "min_level_obs": CONFIDENCE_MIN_LEVEL_OBS,
+        "verdict": verdict,
+        "apps": dict(sorted(apps.items(), key=lambda kv: (-kv[1], kv[0]))),
+    }
+
+
+# -- panel rendering (shared by the rich and plain-text mastery reports) -----
+
+SIGNAL_BAR_WIDTH = 16
+
+
+def signal_bar(fraction: float, width: int = SIGNAL_BAR_WIDTH) -> str:
+    filled = max(0, min(width, int(round(fraction * width))))
+    return "█" * filled + "░" * (width - filled)
+
+
+def signal_panel_lines(mistakes: Optional[dict] = None,
+                       calibration: Optional[dict] = None) -> list[tuple[str, str]]:
+    """(text, style) lines for the two Tier-5 panels.
+
+    Style names double as plain-text semantics: nothing here depends on
+    colour, every judgement is also spelled out in words, so the panels read
+    the same on a monochrome terminal or through a screen reader.
+    """
+    # A falsy argument means "nothing supplied": a DashboardReport built by
+    # hand carries {} for both panels, and must still render.
+    m = mistakes if mistakes else mistakes_panel([] if mistakes == {} else None)
+    c = (calibration if calibration
+         else calibration_panel([] if calibration == {} else None))
+    lines: list[tuple[str, str]] = []
+
+    if not m["n"] and not c["n"]:
+        lines.append(("No mistake-journal or confidence data yet — the apps "
+                      "write mistakes.json / confidence.json as you answer.",
+                      "dim"))
+        return lines
+
+    lines.append(("MISTAKES BY CAUSE", "bold"))
+    if not m["n"]:
+        lines.append(("  no mistakes logged yet", "dim"))
+    else:
+        lines.append((f"  {m['n']} logged over {m['n_items']} item(s) — "
+                      f"{m['n_unresolved']} unresolved, "
+                      f"{m['n_resolved']} cleared", ""))
+        for row in m["rows"]:
+            lines.append((f"  {row['label']:<22} {row['n']:>4}  "
+                          f"{signal_bar(row['n'] / m['n'])} "
+                          f"{row['pct']:>3.0f}%", ""))
+        if m["dominant"]:
+            lines.append((f"  dominant cause: {CAUSE_LABELS[m['dominant']]} "
+                          f"-> {CAUSE_ADVICE[m['dominant']]}", "yellow"))
+        if m["uncategorised"]:
+            lines.append((f"  {m['uncategorised']} mistake(s) have no cause "
+                          f"yet — categorise them in the app to make this "
+                          f"panel mean something", "dim"))
+        lines.append(("  full breakdown: python coach.py --mistakes", "dim"))
+    lines.append(("", ""))
+
+    lines.append(("CONFIDENCE CALIBRATION", "bold"))
+    if not c["n"]:
+        lines.append(("  no confidence ratings yet", "dim"))
+        return lines
+    lines.append((f"  {c['n']} rated answer(s), "
+                  f"{c['accuracy'] * 100:.0f}% correct overall", ""))
+    for row in c["levels"]:
+        if not row["n"]:
+            continue
+        if row["judged"]:
+            gap = row["gap"] * 100.0
+            mark = "over" if gap < -5 else ("under" if gap > 5 else "ok")
+            acc = f"{row['accuracy'] * 100:>3.0f}%"
+        else:
+            mark = f"n<{c['min_level_obs']}"
+            acc = f"{row['accuracy'] * 100:>3.0f}%"
+        lines.append((f"  {row['level']} {row['label']:<12} n={row['n']:<4} "
+                      f"{acc} vs {row['target'] * 100:.0f}% target  [{mark}]",
+                      ""))
+    if c["enough"] and c["overconfidence"] is not None:
+        lines.append((f"  overconfidence index "
+                      f"{c['overconfidence']:+.0f} pts — {c['verdict']}",
+                      "yellow"))
+    else:
+        # Below the floor no index is quoted: a number from 6 answers would
+        # read as a measurement when it is noise.
+        lines.append((f"  no overconfidence index yet — {c['verdict']}",
+                      "dim"))
+    if c["confidently_wrong"]:
+        top = ", ".join(f"{r['category']} [{r['app']}] x{r['n']}"
+                        for r in c["confidently_wrong"][:3])
+        lines.append((f"  confidently WRONG ({c['n_confidently_wrong']} "
+                      f"answer(s)): {top}", "red"))
+    else:
+        lines.append(("  no confidently-wrong answers on file — good", ""))
+    lines.append(("  full breakdown: python coach.py --calibration", "dim"))
+    return lines
+
+
+# ---------------------------------------------------------------------------
 # Rendering helpers (shared by rich and plain-text renderers)
 # ---------------------------------------------------------------------------
 
@@ -1351,6 +1900,18 @@ def _render_rich(report: DashboardReport) -> None:
     ))
     console.print()
 
+    # ── Section 5: mistakes by cause + confidence calibration ────────────
+    from rich.markup import escape
+    for text, style in signal_panel_lines(report.mistakes,
+                                          report.calibration):
+        if not text:
+            console.print()
+        elif style:
+            console.print(f"[{style}]{escape(text)}[/{style}]")
+        else:
+            console.print(escape(text))
+    console.print()
+
 
 # ---------------------------------------------------------------------------
 # Plain-text renderer (fallback when rich is not installed)
@@ -1413,6 +1974,14 @@ def _render_plain(report: DashboardReport) -> None:
     print("-" * 62)
     streak = report.streak_days
     print(f"  {streak} consecutive day(s) of study activity")
+    print()
+
+    # Section 5 -- mistakes by cause + confidence calibration.  Rendered from
+    # the same (text, style) lines the rich view uses; nothing in them relies
+    # on colour, so the two views say exactly the same thing.
+    for text, _style in signal_panel_lines(report.mistakes,
+                                           report.calibration):
+        print(text)
     print()
     print(SEP)
     print()

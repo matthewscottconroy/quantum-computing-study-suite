@@ -10,6 +10,16 @@ from core.models import Derivation, Step, StepState, StepCheck
 from ui import theme
 from ui.theme import FLAG_ON_TEXT, FLAG_OFF_TEXT
 from ui.widgets.collapsible import CollapsibleSection
+from ui.widgets.study_journal import ConfidenceStrip, MistakeRow, safe
+import persistence
+
+DERIVATION_CATEGORY = "derivation"   # flag/journal category for guided derivations
+
+
+def step_item_id(derivation, step) -> str:
+    """Stable mistake-journal id for one step of one derivation."""
+    return (f"{derivation.id}:{step.step_id}" if derivation is not None
+            else str(step.step_id))
 
 
 class DerivationScreen(QWidget):
@@ -25,6 +35,8 @@ class DerivationScreen(QWidget):
         self._states: list[StepState] = []
         self._idx = 0
         self._checking = False
+        self._pending_confidence: int | None = None
+        self._mistake_item_id: str | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -78,6 +90,14 @@ class DerivationScreen(QWidget):
         self._bar_lbl.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 12px;")
         root.addWidget(self._bar_lbl)
 
+        # Mistake journal — appears after a model-step reveal and stays put
+        # (skippable) while you carry on with the next step.
+        self._mistake_row = MistakeRow()
+        self._mistake_row.hide()
+        self._mistake_row.cause_chosen.connect(self._on_cause_chosen)
+        self._mistake_row.note_changed.connect(self._on_note_changed)
+        root.addWidget(self._mistake_row)
+
         # Transcript of accepted steps (collapsible entries)
         self._transcript = QVBoxLayout()
         self._transcript.setSpacing(8)
@@ -112,6 +132,11 @@ class DerivationScreen(QWidget):
         self._answer_edit.setMinimumHeight(90)
         self._answer_edit.textChanged.connect(self._validate)
         sf.addWidget(self._answer_edit)
+
+        # Confidence strip — asked BEFORE the step is checked.
+        self._conf_strip = ConfidenceStrip()
+        self._conf_strip.opt_out_requested.connect(self._on_confidence_opt_out)
+        sf.addWidget(self._conf_strip)
 
         btns = QHBoxLayout()
         self._check_btn = QPushButton("Check step")
@@ -160,6 +185,11 @@ class DerivationScreen(QWidget):
         self._states = [StepState(step=s) for s in derivation.steps]
         self._idx = 0
         self._checking = False
+        self._pending_confidence = None
+        self._mistake_item_id = None
+        self._mistake_row.hide()
+        ask = safe(persistence.confidence_prompt_enabled)
+        self._conf_strip.setVisible(True if ask is None else bool(ask))
         self.set_flagged(False)
         self._progress_lbl.setText(f"Derivation {idx} of {total}")
         self._title_lbl.setText(derivation.title)
@@ -191,6 +221,7 @@ class DerivationScreen(QWidget):
         self._hint_lbl.hide()
         self._answer_edit.clear()
         self._answer_edit.setEnabled(True)
+        self._conf_strip.clear()
         self._hint_btn.setVisible(bool(st.step.hint))
         self._hint_btn.setText("Hint")
         # Model step reveal is always available (offline fallback); before
@@ -218,6 +249,8 @@ class DerivationScreen(QWidget):
         if not st.answer:
             return
         st.tries += 1
+        # Snapshot the rating now: the verdict is not visible yet.
+        self._pending_confidence = self._conf_strip.value()
         self._checking = True
         self._validate()
         accepted = [s.step for s in self._states[:self._idx]]
@@ -229,8 +262,15 @@ class DerivationScreen(QWidget):
         if not st or st.step.step_id != step_id:
             self._validate()
             return
+        self._record_confidence(st, check.accepted)
         if check.accepted:
             st.accepted = True
+            if not st.model_revealed:
+                item_id = step_item_id(self._derivation, st.step)
+                safe(persistence.resolve_mistake, item_id)
+                if self._mistake_item_id == item_id:
+                    self._mistake_row.hide()
+                    self._mistake_item_id = None
             note = check.nudge or "Accepted."
             self._append_transcript(st, note)
             self._idx += 1
@@ -252,6 +292,7 @@ class DerivationScreen(QWidget):
     def on_step_failed(self, step_id: str, err: str) -> None:
         st = self._current()
         self._checking = False
+        self._pending_confidence = None       # nothing was graded: log nothing
         if st:
             st.tries = max(0, st.tries - 1)   # failed call doesn't count as a try
         self._nudge_lbl.setText(
@@ -265,11 +306,56 @@ class DerivationScreen(QWidget):
         st = self._current()
         if not st:
             return
+        # Keep whatever the user had typed so the journal records the attempt
+        # (the transcript still shows only the model step, as before).
+        if not st.answer:
+            st.answer = self._answer_edit.toPlainText().strip()
         st.model_revealed = True
         st.accepted = True
+        self._log_reveal_mistake(st)
         self._append_transcript(st, "(model step revealed)")
         self._idx += 1
         self._show_current_step()
+
+    # -- study journal ---------------------------------------------------
+
+    def _record_confidence(self, st: StepState, accepted: bool) -> None:
+        level, self._pending_confidence = self._pending_confidence, None
+        if not level:
+            return
+        safe(persistence.log_confidence,
+             step_item_id(self._derivation, st.step), DERIVATION_CATEGORY,
+             level, accepted)
+
+    def _log_reveal_mistake(self, st: StepState) -> None:
+        """Needing the model step is the derivation's version of a wrong answer."""
+        item_id = step_item_id(self._derivation, st.step)
+        safe(persistence.log_mistake,
+             item_id, DERIVATION_CATEGORY, st.step.prompt,
+             st.answer or "(no answer — model step revealed)", st.step.model_step)
+        self._mistake_item_id = item_id
+        stored = safe(persistence.find_mistake, item_id) or {}
+        self._mistake_row.set_context(
+            f"Step {self._idx + 1} needed the model step — what went wrong?")
+        self._mistake_row.reset(stored.get("cause"), stored.get("note", ""))
+        self._mistake_row.show()
+
+    def _on_cause_chosen(self, cause: str) -> None:
+        if self._mistake_item_id:
+            safe(persistence.set_mistake_cause, self._mistake_item_id, cause,
+                 self._mistake_row.note())
+
+    def _on_note_changed(self, note: str) -> None:
+        if self._mistake_item_id:
+            safe(persistence.set_mistake_cause, self._mistake_item_id,
+                 self._mistake_row.value(), note)
+
+    def _on_confidence_opt_out(self) -> None:
+        """“Don't ask” — persist the opt-out and hide the strip."""
+        safe(persistence.set_confidence_prompt_enabled, False)
+        self._conf_strip.clear()
+        self._conf_strip.hide()
+        self._pending_confidence = None
 
     def _append_transcript(self, st: StepState, note: str) -> None:
         body = QLabel(

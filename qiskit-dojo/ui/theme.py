@@ -51,14 +51,25 @@ QPushButton {{
 QPushButton:hover {{ background-color: {BORDER}; border-color: {ACCENT}; }}
 QPushButton:pressed {{ background-color: {ACCENT2}; color: white; }}
 QPushButton:disabled {{ color: {TEXT_MUTED}; border-color: {SURFACE2}; }}
+/* Visible keyboard focus.  Every variant already reserves a 1px border (the
+   flat and accent buttons paint theirs in the button colour), so taking focus
+   only recolours it — the button never shifts by a pixel. */
+QPushButton:focus {{ border: 1px solid {ACCENT}; background-color: {BORDER}; }}
 QPushButton#accent {{
     background-color: {ACCENT}; color: {BG};
-    border: none; font-weight: bold; font-size: 14px; padding: 10px 28px;
+    border: 1px solid {ACCENT}; font-weight: bold; font-size: 14px; padding: 9px 27px;
 }}
-QPushButton#accent:hover {{ background-color: {ACCENT2}; }}
-QPushButton#accent:disabled {{ background-color: {SURFACE2}; color: {TEXT_MUTED}; }}
-QPushButton#flat {{ background: transparent; border: none; color: {ACCENT}; padding: 4px 8px; }}
+QPushButton#accent:hover {{ background-color: {ACCENT2}; border-color: {ACCENT2}; }}
+QPushButton#accent:focus {{ background-color: {ACCENT}; border-color: {TEXT}; }}
+QPushButton#accent:disabled {{
+    background-color: {SURFACE2}; color: {TEXT_MUTED}; border-color: {SURFACE2};
+}}
+QPushButton#flat {{
+    background: transparent; border: 1px solid transparent;
+    color: {ACCENT}; padding: 4px 8px;
+}}
 QPushButton#flat:hover {{ color: {TEXT}; }}
+QPushButton#flat:focus {{ border-color: {ACCENT}; background-color: {SURFACE2}; }}
 QPlainTextEdit, QLineEdit {{
     background-color: {SURFACE}; color: {TEXT};
     border: 1px solid {BORDER}; border-radius: 6px;
@@ -78,6 +89,8 @@ QFrame#separator {{ background-color: {BORDER}; max-height: 1px; }}
 QCheckBox {{ spacing: 8px; color: {TEXT}; }}
 QCheckBox::indicator {{ width: 16px; height: 16px; border: 1px solid {BORDER}; border-radius: 3px; background: {SURFACE2}; }}
 QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+QCheckBox:focus, QRadioButton:focus {{ color: {ACCENT}; }}
+QCheckBox::indicator:focus, QRadioButton::indicator:focus {{ border-color: {ACCENT}; }}
 QComboBox {{
     background-color: {SURFACE2}; color: {TEXT};
     border: 1px solid {BORDER}; border-radius: 6px; padding: 6px 10px;

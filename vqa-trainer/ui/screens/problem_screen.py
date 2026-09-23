@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QElapsedTimer
 from core.models import Problem, GradeMode
 from ui import theme
 from ui.widgets.loading_overlay import LoadingOverlay
+from ui.widgets.confidence_strip import ConfidenceStrip
 
 
 class ProblemScreen(QWidget):
@@ -116,6 +117,12 @@ class ProblemScreen(QWidget):
 
         root.addStretch()
 
+        # Confidence strip — shown BEFORE the answer is submitted so the rating
+        # can never be hindsight. Optional, skippable, and opt-out-able.
+        self._confidence = ConfidenceStrip()
+        self._confidence.opt_out_requested.connect(self._on_confidence_opt_out)
+        root.addWidget(self._confidence)
+
         btn_row = QHBoxLayout()
         quit_btn = QPushButton("End Session")
         quit_btn.setObjectName("flat")
@@ -158,6 +165,9 @@ class ProblemScreen(QWidget):
         self._freeform_widget.hide()
         self._submit_btn.setEnabled(False)
 
+        self._confidence.reset()
+        self._confidence.setVisible(self._confidence_enabled())
+
         if problem.grade_mode == GradeMode.MC:
             self._mc_widget.show()
             for i, rb in enumerate(self._radio_btns):
@@ -175,6 +185,30 @@ class ProblemScreen(QWidget):
         else:  # CLAUDE
             self._freeform_widget.show()
             self._text_edit.clear()
+
+    @staticmethod
+    def _confidence_enabled() -> bool:
+        try:
+            import persistence
+            return persistence.confidence_prompt_enabled()
+        except Exception:
+            return True
+
+    def _on_confidence_opt_out(self) -> None:
+        """Hide the strip for good; never asked again on any later session."""
+        self._confidence.reset()
+        self._confidence.hide()
+        try:
+            import persistence
+            persistence.set_confidence_prompt_enabled(False)
+        except Exception:
+            pass
+
+    def confidence(self) -> int | None:
+        """The level picked for the current problem, or None if skipped."""
+        if not self._confidence.isVisibleTo(self):
+            return None
+        return self._confidence.value()
 
     def _on_hint(self) -> None:
         if not self._problem or self._hints_shown >= len(self._problem.hints):

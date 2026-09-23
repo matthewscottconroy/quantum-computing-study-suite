@@ -31,6 +31,12 @@ correctness. Free-form explanation questions are graded by Claude (`claude-sonne
   "jump to category" picker that opens the chapter behind each problem category
 - **Flag for review** — toggle a flag on any answered problem; flagged items are listed
   (and can be unflagged) on the history screen and picked up by the repo-level coach
+- **Mistake journal** — every wrong answer is logged to `mistakes.json` with a one-tap
+  *What went wrong?* row (misread / didn't know / knew but slipped / confused / out of
+  time / other) plus an optional note, so a miss becomes analysis instead of a bookmark
+- **Confidence calibration** — an optional 1–4 self-rating *before* you submit, paired
+  with the result in `confidence.json`; the history screen calls out the
+  **confidently wrong** answers, which are the ones that sink exam scores
 
 ---
 
@@ -89,15 +95,25 @@ python main.py
   - **Free-form** — multi-line text box plus **Submit Answer** (Enter also submits)
 - **Hint** button — reveals progressive hints (the label shows how many remain)
 - **Skip →** — counts the problem as attempted-but-unanswered; disabled once answered
+- **How sure are you?** — an optional 1–4 confidence strip above the answer area
+  (click, or press **1 / 2 / 3 / 4**). It locks the moment you answer, so a rating can
+  never be hindsight. **Don't ask again** turns it off for good
 
 ### Feedback
 
 After submission:
 - Auto-graded: the correct choice is highlighted green (and a wrong pick red) immediately
 - Free-form: loading overlay while Claude grades, then score + feedback + model answer
+- A verdict line in words — **✓ Correct** / **✗ Incorrect — correct answer: …** — so the
+  green/red choice highlighting is never the only signal
+- **What went wrong?** — on a wrong answer only, directly under the choices: six cause
+  buttons and a one-line note field. Entirely optional and never blocking (no modal);
+  skipping still leaves the mistake logged, just uncategorised
 - **Worked solution** — step-by-step solution shown inline
 - **Key concepts** — list of tested concepts
-- **⚑ Flag for review** toggle and **Next Problem →** (the last one opens the summary)
+- **⚑ Flag for review** toggle and **Next Problem →** (the last one opens the summary).
+  These sit in a bar pinned below the scrolling panel, so they stay reachable however
+  long the solution runs
 
 ### Summary and History
 
@@ -128,6 +144,89 @@ the suite-wide flagging contract:
  "timestamp": 1788958864.57}
 ```
 
+### Mistake Journal
+
+Any answer that counts as a miss is written to `mistakes.json` the instant it is graded:
+
+- **auto-graded (multiple choice)** — any wrong answer, including a sprint timeout
+- **free-form (Claude-graded)** — any score below 4/10 (4–6 is partial credit: not
+  journalled, and not treated as a pass either)
+
+The result view then shows a compact **What went wrong?** row — six cause buttons and an
+optional one-line note. It is skippable and never blocks: choosing a cause *updates* the
+entry that is already on disk, and skipping leaves `cause: null` ("logged but not yet
+categorised"). The point is the aggregate, not the individual flag — nine
+`knew_but_slipped` entries in a month say something no bookmark list can.
+
+Answering the same item correctly later sets `"resolved": true` on its open entries
+(matched on `app` + `id`), keeping the recorded cause and note intact. The id is
+`persistence.flag_id_for(problem)` — the *same* id the flag contract uses, so a flag, a
+mistake and a confidence rating for one problem all key identically.
+
+```json
+{"id": "f8bd26a68bcf28a8",
+ "app": "circuit-trainer",
+ "category": "Single-gate output",
+ "question": "Apply H to |0⟩. What is the output state?",
+ "your_answer": "|−⟩",
+ "correct_answer": "|+⟩",
+ "cause": "misread",
+ "note": "read the ket as |1⟩",
+ "timestamp": 1790169688.21,
+ "resolved": false}
+```
+
+`cause` is one of `misread`, `didnt_know`, `knew_but_slipped`, `confused`,
+`out_of_time`, `other`, or `null`. `question`, `your_answer` and `correct_answer` are
+whitespace-collapsed and clipped to 200 characters (notes to 500).
+
+### Confidence Calibration
+
+Above the answer area, an optional strip asks **how sure are you?** — `1 Guessing`,
+`2 Unsure`, `3 Fairly sure`, `4 Certain` (click or press 1–4). It is shown *before* the
+answer is revealed or submitted and locks on submit, so the rating can never be
+hindsight. Once the answer is graded the rating is paired with the outcome in
+`confidence.json`:
+
+```json
+{"id": "f8bd26a68bcf28a8", "app": "circuit-trainer",
+ "category": "Single-gate output", "confidence": 4,
+ "correct": false, "timestamp": 1790169688.21}
+```
+
+That pairing is what finds **confidently wrong** topics — the unknown unknowns. Nothing
+else in the suite distinguishes "right" from "right and knew it".
+
+**Skipping and opting out.** The strip is optional: answer without touching it and no
+row is written. **Don't ask again** (on the strip) hides it permanently; the opt-out
+lives in `trainer_prefs.json` and is mirrored by the **Self-rating** checkbox on the
+setup screen, which turns it back on.
+
+**Sprint mode records no confidence, by design.** A sprint question is a 60-second
+reflex drill; asking for a rating first either eats seconds off the clock or gets
+clicked blindly, and a rushed rating is worse than no rating — it poisons the
+calibration numbers. Sprint *mistakes* are still journalled: a wrong answer with
+`cause: null`, and a timeout pre-categorised as `out_of_time` (which needs no UI,
+because the clock already established the cause).
+
+### Mistake Journal on the History Screen
+
+Under the flagged list, the history screen summarises the journal: how many mistakes are
+logged / still open / since answered correctly, a count per cause (biggest first), the
+confidence calibration per level, and — when any "Certain" answer was wrong — a
+`⚠ Confidently wrong: N of M …` callout.
+
+### Accessibility
+
+Every new control (the four confidence buttons, **Don't ask again**, the six cause
+buttons, the note field, the setup checkbox) is in the tab order with a visible
+focus ring and an accessible name. Meaning is never carried by colour alone: the
+selected confidence and cause buttons add a ✓ glyph, the free-form score line is
+prefixed ✓ / ~ / ✗, and the multiple-choice result gets a written verdict line.
+All new text/background pairs clear WCAG AA 4.5:1 against the dark palette
+(button text 12.9:1, selected accent 6.0:1, muted headers 5.6:1, verdict green
+6.8:1 / red 5.2:1) — checked by `tests/test_mistake_ui.py`.
+
 ### Reference
 
 The **Reference** button on the setup screen opens an in-app browser for the shared
@@ -156,6 +255,9 @@ selector applies; category checkboxes are ignored):
   worked solutions mid-sprint.
 - **End screen** — score, accuracy, average response time, and a per-category
   breakdown table.
+- **Mistakes are still journalled** (wrong answers uncategorised, timeouts as
+  `out_of_time`); the confidence strip is deliberately not shown — see
+  *Confidence Calibration* above.
 
 Sprint sessions are saved to `trainer_history.json` in the standard session
 schema (attempts keep their real generator category), with an extra
@@ -242,10 +344,12 @@ circuit-trainer/
 │   ├── main_window.py           Screen controller
 │   ├── screens/
 │   │   ├── setup_screen.py      Category/difficulty/count selection + sprint launch
-│   │   ├── problem_screen.py    Problem display and answer input
+│   │   ├── problem_screen.py    Problem display, answer input, confidence strip,
+│   │   │                        "What went wrong?" mistake row
 │   │   ├── sprint_screen.py     Sprint mode: countdown question screen + end screen
 │   │   ├── summary_screen.py    Session results chart
-│   │   ├── history_screen.py    Lifetime stats + flagged-for-review list (unflag)
+│   │   ├── history_screen.py    Lifetime stats, flagged-for-review list (unflag),
+│   │   │                        mistake-journal + calibration summary
 │   │   └── reference_screen.py  In-app docs browser (docs/**/*.md, category jump)
 │   └── widgets/
 │       ├── circuit_panel.py     Displays circuit PNG
@@ -342,6 +446,29 @@ history.
   `dashboard.py` and `coach.py`; sprint sessions carry `"sprint": true`).
 - `trainer_flagged.json` — flagged problems as a JSON list of
   `{id, label, category, app, timestamp}` entries (see *Flag for Review* above).
+- `mistakes.json` — the suite-wide mistake journal: a JSON list of
+  `{id, app, category, question, your_answer, correct_answer, cause, note, timestamp,
+  resolved}` entries (see *Mistake Journal* above).
+- `confidence.json` — the suite-wide calibration log: a JSON list of
+  `{id, app, category, confidence, correct, timestamp}` rows.
+- `trainer_prefs.json` — this app's own UI state (currently just
+  `{"confidence_prompt": bool}`). Nothing outside circuit-trainer reads it.
 
-`persistence.py` exposes `flag_id_for()`, `toggle_flag()`, `unflag()`, `is_flagged()`,
-`load_flagged()` and `flagged_file()` (the resolved path).
+`mistakes.json` and `confidence.json` are shared-contract files written by every study
+app, so entries always carry `"app": "circuit-trainer"`. Both are written atomically
+(temp file + `os.replace`), treat a missing or corrupt file as empty (and rewrite it
+valid on the next write), and are capped at the newest **2000** mistakes /
+**5000** confidence rows (`_MAX_MISTAKES` / `_MAX_CONFIDENCE`) so they cannot grow
+without bound.
+
+`persistence.py` exposes:
+
+| Group | Helpers |
+|---|---|
+| Flags | `flag_id_for()`, `flag_label_for()`, `toggle_flag()`, `unflag()`, `is_flagged()`, `load_flagged()`, `flagged_file()` |
+| Mistakes | `make_mistake_entry()`, `answer_texts_for()`, `log_mistake_for_attempt()`, `append_mistake()`, `update_mistake()`, `resolve_mistake()`, `load_mistakes()`, `mistake_cause_counts()`, `mistakes_file()`, `MISTAKE_CAUSES` |
+| Confidence | `make_confidence_entry()`, `log_confidence()`, `load_confidence()`, `calibration_by_level()`, `confidence_file()`, `CONFIDENCE_LEVELS` |
+| Prefs | `load_prefs()`, `save_prefs()`, `confidence_prompt_enabled()`, `set_confidence_prompt_enabled()`, `prefs_file()` |
+
+The entry builders are pure functions (no Qt, no I/O), so they unit-test directly —
+see `tests/test_mistake_journal.py`.

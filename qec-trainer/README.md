@@ -24,6 +24,14 @@ Claude (`claude-sonnet-4-6`).
 - **Reference browser** — the suite's shared `docs/**/*.md` corpus rendered inside
   the app: chapter filter, full-text search, jump-to-topic for every QEC category,
   in-app cross-reference links — no API key needed
+- **Mistake journal** — a wrong answer is not just a bookmark: one tap files it under
+  a cause (misread / didn't know / knew but slipped / confused / out of time / other)
+  in the suite-wide `mistakes.json`, and re-answering the item correctly resolves it
+- **Confidence calibration** — an optional 1–4 "how sure are you?" strip shown *before*
+  you submit, paired with the grade in `confidence.json`, so "certain and wrong"
+  becomes visible instead of invisible
+- **Keyboard and screen-reader friendly** — every control is tab-reachable with a
+  visible focus ring and an accessible name, and no state is carried by colour alone
 
 ---
 
@@ -74,14 +82,22 @@ python main.py
 - **Multiple choice**: four radio buttons (A–D)
 - **Free-form**: multi-line text box
 - **Hint** button — click to reveal the next hint (button shows remaining hint count)
+- **Confidence strip** (optional) — *1 Guessing · 2 Unsure · 3 Fairly sure · 4 Certain*,
+  just above Submit. Rate before you submit or ignore it entirely; **Don't ask again**
+  retires it permanently. See
+  [Mistake Journal & Confidence Calibration](#mistake-journal--confidence-calibration).
 - **Submit** enables once a selection or non-empty text is entered
 
 ### Result Screen
 
 After submission:
-- **Verdict badge** — Correct / Incorrect (MC) or Correct / Partially correct / Incorrect (free-form)
+- **Verdict badge** — ✓ Correct / ◐ Partially correct / ✗ Incorrect (glyph + colour)
 - **Feedback** — explanation of the correct answer
 - **Model answer** — what an ideal answer looks like (free-form only)
+- **"What went wrong?"** (wrong answers only) — six cause pills and an optional note.
+  The mistake is already journalled by the time the row appears, so skipping it costs
+  nothing; tapping a pill files it under a cause.
+- **⚑ Flag for Review** — adds the problem to `qec_flagged.json`
 - **Next Problem** or **Finish Session**
 
 ### Summary and History
@@ -161,11 +177,91 @@ layout (X-checks {1,2}, {0,1,3,4}, {4,5,7,8}, {6,7}; Z-checks {0,3},
 {1,2,4,5}, {3,4,6,7}, {5,8}; logical X = X₀X₃X₆, logical Z = Z₀Z₁Z₂ — 0-indexed)
 was verified to be a [[9,1,3]] code by exhaustive symplectic checks.
 
+Every round also gets the confidence strip (before **Submit Correction**), and a failed
+round is journalled under the id `decoder_<level>` — code plus round type — with your
+placed Pauli as `your_answer` and the true error as `correct_answer`; the
+"What went wrong?" row appears inside the feedback card. Decoding that level correctly
+later resolves the entry.
+
 Score and streaks are tracked during the game; the end screen shows the total,
 accuracy, best streak, and a per-level breakdown. Each game is saved to
 `qec_history.json` in the standard session schema under the category
 **"Decoder Game"**, so it appears in the history screen and the repo-level
 dashboard alongside the quiz categories.
+
+---
+
+## Mistake Journal & Confidence Calibration
+
+Two small, skippable prompts turn a session into data you can act on. Both write to
+suite-wide files shared by every app, so a pattern shows up across the whole suite
+rather than one trainer at a time. Neither ever blocks the flow and neither opens a
+dialog.
+
+### Mistake journal — `mistakes.json`
+
+Whenever an answer scores below 7 (any `Incorrect` or `Partially correct` verdict, and
+any failed Decoder Game round) the mistake is written to
+`~/.local/share/quantum-study/mistakes.json` **immediately**, with `cause: null`. The
+result screen then shows a compact **"What went wrong?"** row — six cause pills plus an
+optional one-line note. Tapping a pill fills in the cause; ignoring the row entirely
+still leaves the mistake recorded, so nothing is lost by skipping.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | str | problem id, or `decoder_<level>` for a Decoder Game round (code + round type) |
+| `app` | str | always `qec-trainer` from this app |
+| `category` | str | problem category, or `Decoder Game` |
+| `question` | str | clipped to 200 chars |
+| `your_answer` | str | the letter you chose, your free-form text, or the Pauli you placed |
+| `correct_answer` | str | `C. …` for MC, the model answer for free-form, the true error for a decoder round |
+| `cause` | str \| null | `misread`, `didnt_know`, `knew_but_slipped`, `confused`, `out_of_time`, `other`, or `null` (logged but not yet categorised) |
+| `note` | str | your optional one-liner |
+| `timestamp` | float | epoch seconds |
+| `resolved` | bool | set true when the same `app` + `id` is answered correctly later |
+
+The payload is the *cause counts*: "nine little-endian slips this month" is the signal,
+not nine flagged items. `persistence.cause_counts()` and `persistence.open_mistakes()`
+return that directly.
+
+### Confidence calibration — `confidence.json`
+
+Above the Submit button (and above **Submit Correction** in the Decoder Game) sits an
+optional strip: **1 Guessing · 2 Unsure · 3 Fairly sure · 4 Certain**. It is asked
+*before* the answer is submitted, so it can never be hindsight, and it locks the moment
+you submit. Once the answer is graded the rating is paired with the outcome:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` / `app` / `category` | str | as above |
+| `confidence` | int | 1–4 |
+| `correct` | bool | score ≥ 7 |
+| `timestamp` | float | epoch seconds |
+
+`persistence.calibration_summary()` reduces this to `{confidence: {"n", "correct"}}` —
+the confidently-wrong bucket is the one that sinks exam scores. Skipping the strip
+records nothing. **Don't ask again** hides it for good; the opt-out lives in
+`qec_settings.json` and can be undone with
+`persistence.set_confidence_prompt_enabled(True)`.
+
+### Robustness
+
+Both files honour `QUANTUM_STUDY_DATA_DIR`, tolerate being missing, empty, truncated or
+not-a-list (they read as empty and are repaired on the next write, never crashing the
+app), and are rewritten atomically (temp file + `os.replace`) so a crash or a second app
+writing at the same time cannot leave half a file. Growth is capped at the newest 2,000
+mistakes and 5,000 confidence rows, trimmed by timestamp so no app's records are
+favoured. Records written by other apps in the suite are read and rewritten untouched.
+
+### Accessibility
+
+Every new control is a real `QPushButton` or `QLineEdit`: tab-reachable, with an
+accessible name and a focus ring defined in `ui/theme.py` that never shifts the layout.
+Selected state is shown with a `✓` glyph and a text readout as well as the accent fill,
+the result verdict is prefixed with `✓ / ◐ / ✗`, and a fired stabilizer square in the
+Decoder Game now reads `X−` (quiet ones read `X+`) instead of relying on the red fill
+alone — its contrast also went from 3.4:1 to 5.7:1. All new text is ≥ 4.5:1 against the
+dark palette.
 
 ---
 
@@ -258,7 +354,8 @@ Verdict mapping: score ≥7 → Correct, ≥4 → Partially correct, <4 → Inco
 ```
 qec-trainer/
 ├── main.py
-├── config.py                    MODEL, DATA_DIR, defaults
+├── config.py                    MODEL, DATA_DIR (honours QUANTUM_STUDY_DATA_DIR),
+│                                file paths, defaults
 ├── core/
 │   ├── models.py                Problem, TrainerConfig, Attempt, SessionStats,
 │   │                            GradeMode, Verdict enums
@@ -288,8 +385,11 @@ qec-trainer/
 │   │   ├── reference_screen.py  In-app docs browser (../docs/**/*.md, jump to topic)
 │   │   └── decoder_screen.py    Decoder Game rounds, surface-code grid, results
 │   └── widgets/
-│       └── loading_overlay.py   Grading spinner
-└── persistence.py
+│       ├── loading_overlay.py   Grading spinner
+│       ├── confidence_strip.py  Skippable 1–4 "how sure are you?" strip
+│       └── mistake_row.py       Skippable "what went wrong?" cause pills + note
+└── persistence.py               History, flags, mistake journal, confidence,
+                                 settings — all pure, all monkeypatchable
 ```
 
 ---
@@ -324,15 +424,38 @@ ProblemScreen ─── answer_submitted (problem, answer_str)
 |---|---|---|
 | `MODEL` | `claude-sonnet-4-6` | Claude model for free-form grading |
 | `DEFAULT_PROBLEM_COUNT` | 10 | Pre-filled problem count |
-| `DATA_DIR` | `~/.local/share/quantum-study` | Session history directory |
+| `DATA_DIR` | `$QUANTUM_STUDY_DATA_DIR`, else `~/.local/share/quantum-study` | Data directory for every file below |
+| `HISTORY_FILE` | `<DATA_DIR>/qec_history.json` | Session history (schema read by `coach.py` / `dashboard.py`) |
+| `FLAGGED_FILE` | `<DATA_DIR>/qec_flagged.json` | Flag-for-review ids |
+| `MISTAKES_FILE` | `<DATA_DIR>/mistakes.json` | Suite-wide mistake journal |
+| `CONFIDENCE_FILE` | `<DATA_DIR>/confidence.json` | Suite-wide confidence calibration |
+| `SETTINGS_FILE` | `<DATA_DIR>/qec_settings.json` | This app's opt-outs |
+
+Set `QUANTUM_STUDY_DATA_DIR` to point the whole app at a throwaway directory — the same
+override `coach.py`, `launch.py` and the other apps honour — so experiments and tests
+never touch the real history.
 
 ---
 
 ## Data Persistence
 
-Sessions appended to `~/.local/share/quantum-study/qec_history.json`. Each entry
-records: problem count, correct count, accuracy, and per-attempt detail (problem ID,
-category, difficulty, user answer, score, verdict).
+All files live under `DATA_DIR` (`$QUANTUM_STUDY_DATA_DIR`, defaulting to
+`~/.local/share/quantum-study`):
+
+| File | Written by | Shape |
+|---|---|---|
+| `qec_history.json` | every finished session and Decoder Game | list of sessions: problem count, correct count, accuracy, timestamp, and per-attempt detail (problem id, category, difficulty, score, verdict, hints used, elapsed secs) |
+| `qec_flagged.json` | **⚑ Flag for Review** | sorted list of problem ids |
+| `mistakes.json` | every wrong answer / failed decoder round | shared across the suite — see [Mistake Journal](#mistake-journal--confidence-calibration) |
+| `confidence.json` | every confidence rating you give | shared across the suite |
+| `qec_settings.json` | the **Don't ask again** opt-out | `{"confidence_prompt": bool}` |
+
+The first two schemas are load-bearing — `coach.py` and `dashboard.py` parse them — and
+are unchanged. The helpers behind all five are plain functions in `persistence.py`
+(`make_mistake_entry`, `load_mistakes`, `log_mistake`, `set_mistake_cause`,
+`resolve_mistake`, `cause_counts`, `open_mistakes`, `log_confidence`,
+`calibration_summary`, `confidence_prompt_enabled`, …) with no Qt dependency, so they
+can be called and tested directly.
 
 ---
 

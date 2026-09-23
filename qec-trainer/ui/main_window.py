@@ -11,7 +11,11 @@ from ui.screens.summary_screen import SummaryScreen
 from ui.screens.history_screen import HistoryScreen
 from ui.screens.reference_screen import ReferenceScreen
 from ui.screens.decoder_screen import DecoderScreen
-from persistence import save_session, toggle_flag, load_flagged
+from persistence import (
+    save_session, toggle_flag, load_flagged,
+    make_mistake_entry, log_mistake, set_mistake_cause, resolve_mistake,
+    log_confidence,
+)
 from workers.grading_worker import GradingWorker
 from grading.auto_grader import grade_mc
 
@@ -56,6 +60,8 @@ class MainWindow(QMainWindow):
         self._problem.session_ended.connect(self._finish_session)
         self._result.next_requested.connect(self._advance)
         self._result.flag_requested.connect(self._on_flag)
+        self._result.cause_selected.connect(self._on_mistake_cause)
+        self._result.note_edited.connect(self._on_mistake_note)
         self._summary.session_again.connect(self._go_setup)
         self._summary.back_requested.connect(self._go_setup)
         self._summary.review_mistakes.connect(self._on_review_mistakes)
@@ -66,6 +72,8 @@ class MainWindow(QMainWindow):
         self._idx: int = 0
         self._stats = SessionStats()
         self._streak: int = 0
+        self._last_attempt = None            # the attempt shown on the result screen
+        self._pending_confidence: int | None = None
 
     def _on_session_started(self, config) -> None:
         self._problems = build_problem_set(config)
@@ -86,6 +94,9 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(PAGE_PROBLEM)
 
     def _on_answer_submitted(self, problem, answer: str, hints_used: int, elapsed_secs: int) -> None:
+        # Read the rating now: it was given before the answer was graded, so it
+        # cannot be hindsight.
+        self._pending_confidence = self._problem.confidence()
         if problem.grade_mode == GradeMode.AUTO and problem.choices:
             attempt = grade_mc(problem, answer)
             attempt.hints_used = hints_used
@@ -129,7 +140,10 @@ class MainWindow(QMainWindow):
         self._stats.attempts.append(attempt)
 
         is_last = self._idx + 1 >= len(self._problems)
+        self._last_attempt = attempt
         self._result.show_attempt(attempt, is_last)
+        self._log_confidence(attempt)
+        self._log_mistake(attempt)
 
         # Update flag button state
         try:
@@ -139,6 +153,67 @@ class MainWindow(QMainWindow):
         self._result.set_flagged(flagged)
 
         self._stack.setCurrentIndex(PAGE_RESULT)
+
+    # ── Mistake journal / confidence calibration ─────────────────────────────
+
+    @staticmethod
+    def _correct_answer_text(attempt) -> str:
+        p = attempt.problem
+        if p.choices and 0 <= p.correct_index < len(p.choices):
+            return f"{chr(65 + p.correct_index)}. {p.choices[p.correct_index]}"
+        return attempt.model_answer or p.explanation
+
+    def _log_confidence(self, attempt) -> None:
+        rating, self._pending_confidence = self._pending_confidence, None
+        if rating is None:
+            return
+        try:
+            log_confidence(attempt.problem.id, attempt.problem.category,
+                           rating, attempt.score >= 7)
+        except Exception:
+            pass
+
+    def _log_mistake(self, attempt) -> None:
+        """A wrong answer is journalled immediately with cause=None, so the
+        "What went wrong?" row is pure upside; a right answer resolves any open
+        entry for the same item."""
+        if attempt.score >= 7:
+            self._result.hide_mistake_row()
+            try:
+                resolve_mistake(attempt.problem.id)
+            except Exception:
+                pass
+            return
+        logged = True
+        try:
+            log_mistake(make_mistake_entry(
+                item_id=attempt.problem.id,
+                category=attempt.problem.category,
+                question=attempt.problem.question,
+                your_answer=attempt.answer,
+                correct_answer=self._correct_answer_text(attempt),
+            ))
+        except Exception:
+            logged = False
+        self._result.show_mistake_row(logged=logged)
+
+    def _on_mistake_cause(self, cause: str) -> None:
+        if self._last_attempt is None:
+            return
+        try:
+            set_mistake_cause(self._last_attempt.problem.id, cause,
+                              self._result.mistake_row.note())
+        except Exception:
+            pass
+
+    def _on_mistake_note(self, note: str) -> None:
+        if self._last_attempt is None:
+            return
+        try:
+            set_mistake_cause(self._last_attempt.problem.id,
+                              self._result.mistake_row.cause(), note)
+        except Exception:
+            pass
 
     def _on_flag(self) -> None:
         if not self._problems or self._idx >= len(self._problems):

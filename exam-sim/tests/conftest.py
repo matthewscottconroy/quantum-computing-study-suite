@@ -27,6 +27,9 @@ _PERSISTENCE_PATHS = {
     "DATA_DIR": "",
     "HISTORY_FILE": "exam_history.json",
     "MISSED_FILE": "exam_missed.json",
+    "MISTAKES_FILE": "mistakes.json",
+    "CONFIDENCE_FILE": "confidence.json",
+    "SETTINGS_FILE": "exam_settings.json",
 }
 
 
@@ -44,7 +47,8 @@ def data_dir(tmp_path, monkeypatch):
     # Defensive: also redirect any other Path-valued *_FILE constant that may
     # appear on the module later, so no code path reached from a test can write
     # outside the temp dir. (exam-sim deliberately has no persisted review-flag
-    # file — see README "Full exam"; misses flow to the coach via exam_missed.json.)
+    # file — see README "Full exam"; misses flow to the coach via
+    # exam_missed.json and to the cause journal via mistakes.json.)
     for name, value in list(vars(persistence).items()):
         if name.endswith("_FILE") and isinstance(value, Path) and name not in _PERSISTENCE_PATHS:
             monkeypatch.setattr(persistence, name, root / value.name)

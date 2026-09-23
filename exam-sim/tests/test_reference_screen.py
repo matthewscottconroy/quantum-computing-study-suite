@@ -210,7 +210,9 @@ def test_every_real_doc_prepares_clean_with_live_links(rs):
             problems.append(f"{e.rel}: residual $$")
         if re.search(r"</?(details|summary)>", prose, re.I):
             problems.append(f"{e.rel}: residual <details>")
-        for _label, target in re.findall(r"\[([^\]]+)\]\(([^)]+)\)", out):
+        # Prose only, and doc-shaped targets only: Python like
+        # `PAULIS[rng.integers(4)](qc, q)` inside a fence is not a markdown link.
+        for _label, target in re.findall(r"\[([^\]]+)\]\(([^)]+)\)", prose):
             if target.startswith(("http", "#", "mailto")):
                 continue
             n_links += 1

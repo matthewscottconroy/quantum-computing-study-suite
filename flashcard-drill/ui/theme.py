@@ -79,6 +79,38 @@ QPushButton#missed {{
     border: none; font-weight: bold; font-size: 14px; padding: 10px 24px; border-radius: 6px;
 }}
 QPushButton#missed:hover {{ background-color: #cf222e; }}
+/* --- Review feedback: confidence strip + mistake-cause row ---------------
+   Every control below is Tab-reachable, so each one needs a focus ring that is
+   visible against the dark palette (2 px ACCENT).  State is never colour-only:
+   the buttons carry a "○ / ●" glyph as well as the accent fill. */
+QPushButton#conf_btn, QPushButton#cause_btn {{
+    background-color: {SURFACE2}; color: {TEXT};
+    border: 1px solid {BORDER}; border-radius: 13px;
+    padding: 5px 12px; font-size: 12px; font-weight: normal;
+}}
+QPushButton#conf_btn:hover, QPushButton#cause_btn:hover {{
+    background-color: {BORDER}; border-color: {ACCENT};
+}}
+QPushButton#conf_btn:checked, QPushButton#cause_btn:checked {{
+    background-color: {ACCENT}; color: {BG};
+    border-color: {ACCENT}; font-weight: bold;
+}}
+QPushButton#conf_opt_out, QPushButton#cause_dismiss {{
+    background: transparent; color: {TEXT_MUTED};
+    border: 1px solid transparent; border-radius: 6px;
+    padding: 5px 10px; font-size: 12px;
+}}
+QPushButton#conf_opt_out:hover, QPushButton#cause_dismiss:hover {{
+    color: {TEXT}; border-color: {BORDER};
+}}
+QPushButton#conf_btn:focus, QPushButton#cause_btn:focus,
+QPushButton#conf_opt_out:focus, QPushButton#cause_dismiss:focus {{
+    border: 2px solid {ACCENT}; outline: none;
+}}
+QLineEdit#cause_note {{ font-size: 12px; padding: 5px 8px; }}
+QLineEdit#cause_note:focus {{ border: 2px solid {ACCENT}; }}
+QCheckBox#conf_pref {{ border: 1px solid transparent; border-radius: 4px; padding: 2px; }}
+QCheckBox#conf_pref:focus {{ border-color: {ACCENT}; }}
 QLabel {{ background: transparent; }}
 QLabel#heading {{ font-size: 22px; font-weight: bold; color: {TEXT}; }}
 QLabel#subheading {{ font-size: 15px; color: {TEXT_MUTED}; }}

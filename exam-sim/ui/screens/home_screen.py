@@ -9,6 +9,7 @@ from config import (
     SECTIONS, EXAM_QUESTION_COUNT, EXAM_MINUTES, PASS_MARK,
     SPRINT_QUESTION_COUNT, SPRINT_MINUTES,
 )
+import persistence
 from persistence import load_history, load_missed
 from ui import theme
 
@@ -91,17 +92,32 @@ class HomeScreen(QWidget):
         review_card.layout().addWidget(self._missed_lbl)
         review_card.layout().addStretch()
         self._review_btn = QPushButton("Review Missed Questions")
+        self._review_btn.setAccessibleName("Review previously missed questions")
         self._review_btn.clicked.connect(self.review_requested)
         review_card.layout().addWidget(self._review_btn)
         cards.addWidget(review_card, 1)
 
         root.addStretch()
 
+        # Mistake-journal readout: the payload of the cause categories is the
+        # aggregate ("five little-endian slips"), so it lives on the home screen.
+        self._journal_lbl = QLabel("")
+        self._journal_lbl.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 12px;")
+        self._journal_lbl.setWordWrap(True)
+        root.addWidget(self._journal_lbl)
+
         bottom = QHBoxLayout(); bottom.setSpacing(12)
         self._history_lbl = QLabel("")
         self._history_lbl.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 12px;")
         self._history_lbl.setWordWrap(True)
         bottom.addWidget(self._history_lbl, 1)
+        self._confidence_btn = QPushButton("Confidence prompt: on")
+        self._confidence_btn.setObjectName("flat")
+        self._confidence_btn.setToolTip(
+            "Ask for a 1-4 confidence rating before each answer is graded "
+            "(keys 1-4 during an exam)")
+        self._confidence_btn.clicked.connect(self._toggle_confidence)
+        bottom.addWidget(self._confidence_btn)
         self._history_btn = QPushButton("View History")
         self._history_btn.setObjectName("flat")
         self._history_btn.setToolTip("Past attempts, per-section accuracy and score trend")
@@ -125,7 +141,46 @@ class HomeScreen(QWidget):
         layout.addWidget(lbl)
         return card
 
+    def _toggle_confidence(self) -> None:
+        try:
+            persistence.set_confidence_enabled(not persistence.confidence_enabled())
+        except Exception:
+            pass
+        self._refresh_confidence_btn()
+
+    def _refresh_confidence_btn(self) -> None:
+        try:
+            on = persistence.confidence_enabled()
+        except Exception:
+            on = True
+        self._confidence_btn.setText(f"Confidence prompt: {'on' if on else 'off'}")
+        self._confidence_btn.setAccessibleName(
+            f"Confidence prompt is {'on' if on else 'off'} — activate to turn it "
+            f"{'off' if on else 'on'}")
+
+    def _refresh_journal(self) -> None:
+        try:
+            summary = persistence.mistake_summary()
+        except Exception:
+            summary = {"open": 0, "uncategorised": 0, "top_cause": None, "top_count": 0}
+        if not summary["open"]:
+            self._journal_lbl.setText(
+                "Mistake journal: nothing open — misses you tag on the results "
+                "screen are collected here.")
+            return
+        bits = [f"{summary['open']} open mistake"
+                f"{'s' if summary['open'] != 1 else ''}"]
+        if summary["top_cause"]:
+            label = persistence.CAUSE_LABELS.get(summary["top_cause"],
+                                                 summary["top_cause"])
+            bits.append(f"most common cause: {label} ×{summary['top_count']}")
+        if summary["uncategorised"]:
+            bits.append(f"{summary['uncategorised']} still untagged")
+        self._journal_lbl.setText("Mistake journal: " + " — ".join(bits))
+
     def refresh(self) -> None:
+        self._refresh_confidence_btn()
+        self._refresh_journal()
         missed = load_missed()
         if missed:
             self._missed_lbl.setText(

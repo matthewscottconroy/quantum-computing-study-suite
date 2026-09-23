@@ -37,6 +37,10 @@ class QuestionAttempt:
     question: Question
     answer_text: str
     evaluation: Evaluation | None = None
+    # Pre-answer self-rating, 1 (guessing) – 4 (certain); None when the learner
+    # skipped the confidence strip or switched it off.  Recorded against the
+    # grade in confidence.json so "confidently wrong" topics can be spotted.
+    confidence: int | None = None
 
 
 @dataclass

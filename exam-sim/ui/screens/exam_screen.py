@@ -7,7 +7,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QElapsedTimer
 from core.models import Question, ExamAttempt, ExamResult
+import persistence
 from ui import theme
+from ui.feedback import ConfidenceStrip
 from ui.format import question_html
 
 _NAV_COLS = 6
@@ -77,19 +79,32 @@ class ExamScreen(QWidget):
         opt_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         left.addWidget(opt_scroll, 2)
 
+        # One compact row: rate your confidence before moving on. Nothing is
+        # revealed during the exam, so the rating can never be hindsight.
+        self._confidence = ConfidenceStrip(prompt="How sure?")
+        self._confidence.rated.connect(self._on_confidence)
+        self._confidence.cleared.connect(lambda: self._on_confidence(None))
+        self._confidence.opt_out.connect(self._on_confidence_opt_out)
+        self._confidence.install_shortcuts(self)
+        left.addWidget(self._confidence)
+
         nav_row = QHBoxLayout()
         self._flag_btn = QPushButton("Flag for review")
+        self._flag_btn.setAccessibleName("Flag this question for review")
         self._flag_btn.clicked.connect(self._on_flag)
         nav_row.addWidget(self._flag_btn)
         self._clear_btn = QPushButton("Clear answer")
         self._clear_btn.setObjectName("flat")
+        self._clear_btn.setAccessibleName("Clear the answer to this question")
         self._clear_btn.clicked.connect(self._on_clear)
         nav_row.addWidget(self._clear_btn)
         nav_row.addStretch()
         self._prev_btn = QPushButton("← Previous")
+        self._prev_btn.setAccessibleName("Previous question")
         self._prev_btn.clicked.connect(lambda: self._goto(self._idx - 1))
         nav_row.addWidget(self._prev_btn)
         self._next_btn = QPushButton("Next →")
+        self._next_btn.setAccessibleName("Next question")
         self._next_btn.clicked.connect(lambda: self._goto(self._idx + 1))
         nav_row.addWidget(self._next_btn)
         left.addLayout(nav_row)
@@ -124,10 +139,11 @@ class ExamScreen(QWidget):
         nav_outer.addWidget(nav_scroll)
         legend = QLabel(
             f'<span style="color:{theme.ACCENT}">■</span> answered   '
-            f'<span style="color:{theme.FLAG}">■</span> flagged   '
+            f'<span style="color:{theme.FLAG}">□</span> flagged (dashed)   '
             f'<span style="color:{theme.TEXT_MUTED}">■</span> unanswered'
         )
         legend.setStyleSheet("font-size: 11px;")
+        legend.setWordWrap(True)
         nav_outer.addWidget(legend)
         right.addWidget(nav_frame, 1)
 
@@ -146,6 +162,10 @@ class ExamScreen(QWidget):
         self._idx = 0
         self._mode = mode
         self._remaining_secs = minutes * 60
+        try:
+            self._confidence.setVisible(persistence.confidence_enabled())
+        except Exception:
+            self._confidence.setVisible(True)
         self._elapsed.start()
         self._build_navigator()
         self._update_timer_label()
@@ -182,7 +202,10 @@ class ExamScreen(QWidget):
             rb.setText(f"{chr(65 + i)}.  {q.options[i]}" if i < len(q.options) else "")
             rb.setVisible(i < len(q.options))
             rb.setChecked(attempt.chosen_index == i)
+            rb.setAccessibleName(
+                f"Option {chr(65 + i)}: {q.options[i]}" if i < len(q.options) else "")
             rb.blockSignals(False)
+        self._confidence.set_value(attempt.confidence)
         self._flag_btn.setText("Unflag" if attempt.flagged else "Flag for review")
         self._prev_btn.setEnabled(self._idx > 0)
         self._next_btn.setEnabled(self._idx < total - 1)
@@ -191,8 +214,11 @@ class ExamScreen(QWidget):
     def _refresh_navigator(self) -> None:
         for i, btn in enumerate(self._nav_btns):
             attempt = self._attempts[i]
+            # Flagged is signalled by a dashed border as well as the colour,
+            # so the three states are distinguishable without colour vision.
+            style = "solid"
             if attempt.flagged:
-                bg, fg = theme.FLAG, theme.BG
+                bg, fg, style = theme.FLAG, theme.BG, "dashed"
             elif attempt.answered:
                 bg, fg = theme.ACCENT, theme.BG
             else:
@@ -200,8 +226,16 @@ class ExamScreen(QWidget):
             border = theme.TEXT if i == self._idx else theme.BORDER
             btn.setStyleSheet(
                 f"QPushButton#nav {{ background: {bg}; color: {fg};"
-                f" border: 2px solid {border}; }}"
+                f" border: 2px {style} {border}; }}"
+                f"QPushButton#nav:focus {{ border: 2px {style} {theme.TEXT}; }}"
             )
+            state = "answered" if attempt.answered else "unanswered"
+            if attempt.flagged:
+                state += ", flagged"
+            if attempt.confidence:
+                state += f", confidence {attempt.confidence} of 4"
+            btn.setAccessibleName(f"Question {i + 1}: {state}")
+            btn.setToolTip(f"Question {i + 1} — {state}")
         answered = sum(1 for a in self._attempts if a.answered)
         self._answered_lbl.setText(
             f"{answered}/{len(self._attempts)} answered — "
@@ -225,6 +259,20 @@ class ExamScreen(QWidget):
             rb.setChecked(False)
             rb.blockSignals(False)
         self._refresh_navigator()
+
+    def _on_confidence(self, value: int | None) -> None:
+        """Store the 1-4 rating on the attempt (None clears it); graded on submit."""
+        if self._attempts:
+            self._attempts[self._idx].confidence = value
+            self._refresh_navigator()
+
+    def _on_confidence_opt_out(self) -> None:
+        """'Hide' — remember the opt-out so the user is never asked again."""
+        self._confidence.setVisible(False)
+        try:
+            persistence.set_confidence_enabled(False)
+        except Exception:
+            pass
 
     def _on_flag(self) -> None:
         attempt = self._attempts[self._idx]

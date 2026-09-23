@@ -296,3 +296,403 @@ gives the same three hashes, so a re-export is a no-op unless a card changed.
 swallows per-module import errors, so the exporter compares the loaded count
 against the number of card modules on disk and fails loudly if a card file is
 broken, rather than shipping 549 cards.
+
+<!-- ===================== Concept map ===================== -->
+
+## `concept_map.py` + `concept_graph.json` — the corpus as a graph, not a ladder
+
+Eighty-plus chapter files is past the point where "read chapter 3, then chapter
+4" is useful navigation. `concept_graph.json` is a **curated prerequisite DAG**
+over the corpus and `concept_map.py` scores it against your study history, so
+the question it answers is the one you actually have: *given what I already
+know, what am I ready to learn next?*
+
+```bash
+tools/concept_map.py                  # terminal view + "ready to learn next"
+tools/concept_map.py --next 15        # a longer ready list (default 8)
+tools/concept_map.py --area qec       # one area only
+tools/concept_map.py --html           # exports/concept_map.html
+tools/concept_map.py --dot | dot -Tsvg -o map.svg
+tools/concept_map.py --check          # validate the graph against the repo
+```
+
+Stdlib only. It never writes to the study data directory — it only reads it,
+through `dashboard.py`, and `QUANTUM_STUDY_DATA_DIR` is honoured because
+dashboard honours it.
+
+### `concept_graph.json` — the curated part
+
+Nodes are **concepts, not files**. A concept names the corpus files that teach
+it and the app categories that drill it, which is what makes mastery
+computable:
+
+```json
+{ "id": "qpe", "label": "Quantum phase estimation", "area": "algo",
+  "docs": ["docs/04_quantum_algorithms/04_quantum_phase_estimation.md"],
+  "drills": [{ "app": "Flashcard Drill", "category": "Algorithms" },
+             { "app": "Problem Trainer", "category": "Algorithms" },
+             { "app": "Quantum Quiz",    "category": "Quantum Algorithm Design" }],
+  "needs": ["qft", "eigen_spectral"] }
+```
+
+| Field | Meaning |
+|---|---|
+| `id` | stable snake_case key; `needs` lists refer to it |
+| `label` | what the terminal view, the SVG and the DOT node print |
+| `area` | one of the `areas[]` ids — a chapter group, used for grouping and DOT clusters |
+| `docs` | repo-relative files that **teach** the concept (`docs/`, `lesson-plans/`, `labs/`, `projects/`) |
+| `drills` | `{app, category}` pairs that **exercise** it; `app` is a `dashboard._FILES` key, `category` is that app's own vocabulary |
+| `needs` | prerequisite concept ids — the edges. `A needs B` = B should be solid before A makes sense |
+
+`mastery.threshold` / `mastery.min_evidence` / `mastery.seen_evidence` at the
+top of the file are the band cut-offs (below). Edit those three numbers rather
+than the code.
+
+The node set covers every `docs/` chapter and every `lesson-plans/` lesson, at
+roughly one to four concepts per chapter. **It is hand-curated on purpose** —
+a graph derived from headings would be a table of contents, not a prerequisite
+order. After any edit, run `--check`.
+
+`category` uses each app's *own* vocabulary, which is not always what the
+history file literally stores:
+
+| App | `category` is | Why |
+|---|---|---|
+| Math Quiz / Quantum Quiz | the **subject** (`"Linear Algebra"`) | the history stores subject *and* topic; the graph works at subject level and `concept_map.py` folds each topic back to its subject via `<app>/core/topics.py` |
+| Problem Trainer | the problem **topic** (`"Algorithms"`) | `problems_history.json` stores only `{problem_id, kind}`, so the id is mapped back to its topic via `problem-trainer/problems/**` |
+| everything else | exactly what the history stores | flashcard/qec/vqa category, dojo & exam section, circuit-trainer `ProblemCategory` value |
+
+Derivation attempts land in Problem Trainer's `"derivation"` bucket, which
+carries no topic at all — seven different derivations share one label — so no
+concept claims it and `--check` says so. That is the honest answer, not a bug.
+
+### Mastery — dashboard's weighting, not a second copy of it
+
+`concept_map.py` **imports** `dashboard.py`. Every graded encounter in every
+app is flattened by `dashboard.iter_retention_events` and decayed by
+`dashboard._session_weight` (14-day half-life). There is deliberately no second
+history parser in the repo: the schemas are load-bearing.
+
+For each concept, over the encounters in its drill categories:
+
+- **score** = `Σ w·correct / Σ w·total` — decayed accuracy, 0–1
+- **evidence** = `Σ w·total` — decayed count of graded items
+
+| Band | Rule | Glyph |
+|---|---|---|
+| mastered | score ≥ `threshold` (0.80) **and** evidence ≥ `min_evidence` (5.0) | `●` |
+| strong | score ≥ threshold but too few reps to trust it | `■` |
+| learning | 0.5 ≤ score < threshold | `◆` |
+| weak | score < 0.5 | `▼` |
+| untouched | evidence < `seen_evidence` (0.5) | `·` |
+
+Evidence is what stops one lucky answer from marking a concept mastered, and
+the decay is what makes mastery expire: stop drilling a category and its
+concepts slide back down on their own.
+
+**Ready to learn next** = concepts that are *not* mastered but whose every
+prerequisite *is*, ordered by how many concepts each one unlocks. With an empty
+history that is exactly the graph's roots; as areas go green it walks forward.
+
+### `--html` — one self-contained file
+
+`exports/concept_map.html` (~210 KB, gitignored) is a layered left-to-right
+drawing of the whole graph as **inline SVG**, generated server-side so it
+renders with JavaScript off. No CDN, no fonts, no images, no `fetch` — nothing
+it would have to go to the network for.
+
+Hover a concept for its status, the files that teach it and the apps that drill
+it; click to pin it and grey out everything that is not one of its
+prerequisites or one of the things it unlocks; filter by name, area, docs path
+or drill; drag to pan, wheel to zoom, **table view** for the same data as rows.
+Light and dark are both selected, not auto-flipped.
+
+Mastery is ordinal, so it is encoded **three ways at once** — colour, glyph and
+written label — in the graph, the tooltip, the legend and the table. That is
+deliberate: the status palette puts red beside green, which a deuteranope
+cannot separate, so colour never carries the meaning alone.
+
+### `--dot`
+
+Graphviz `digraph`, one `cluster_*` subgraph per area, node fill and tooltip by
+mastery band. Goes to stdout (or `--out FILE`), so
+`tools/concept_map.py --dot | dot -Tsvg -o map.svg` gives a poster-sized
+rendering with Graphviz's own layout.
+
+### `--check` — the thing to run after editing the graph
+
+| Check | Fails when |
+|---|---|
+| structure | an id is duplicated, a label or `docs` list is empty, `area` is unknown, `needs` has a duplicate or a self-loop, or a prerequisite id does not exist |
+| acyclic | there is a prerequisite cycle — the offending path is printed |
+| corpus refs | a `docs` path does not exist on disk |
+| drills | `app` is not a dashboard app, or `category` is not in that app's real vocabulary (a case-only miss is reported with the correct spelling) |
+| coverage | a `docs/` or `lesson-plans/` chapter is taught by no concept — **a warning by default**, a failure under `--strict` |
+
+Coverage is only advisory by default on purpose: a chapter someone else just
+added is a gap in the graph, not a broken reference, and it must not break this
+check for everyone else. Run `--check --strict` when you are the one curating.
+
+The app vocabularies are read **statically** out of the apps — card/problem/kata
+modules are scanned for their `category=` / `section=` / `topic=` literals, and
+`SECTIONS`, `SECTION_ORDER`, `TOPICS` and `ProblemCategory` are parsed with
+`ast`, the same trick `export_cards.py` uses for the flashcard palette. The ten
+app trees cannot be imported side by side (they all define a top-level `core`),
+and nothing is duplicated into this tool.
+
+Warnings never affect the exit status: `0` = clean, `1` = at least one failure.
+
+<!-- ===================== History sync ===================== -->
+
+## `sync_history.sh` — keep the study history across machines
+
+`~/.local/share/quantum-study/` is the one thing in this project that cannot
+be regenerated: every app's history file, `coach_state.json`, the flashcard
+schedule. It is a flat directory of small JSON files, it lives outside this
+repository on purpose (it is private, and it changes every time you study),
+and until now it existed on exactly one disk.
+
+`sync_history.sh` makes that directory **a git repository in its own right**
+— not a submodule of the study suite, never a subdirectory of the public repo
+— and syncs it to a private remote. Git is the right tool here because the
+files are small, textual and append-mostly: you get the backup, the second
+machine and the full "what did I know in March" history for free.
+
+```bash
+tools/sync_history.sh init      # once per machine
+tools/sync_history.sh push      # commit everything and upload
+tools/sync_history.sh pull      # fetch and merge
+tools/sync_history.sh status    # where things stand
+tools/sync_history.sh auto      # pull then push — for cron
+```
+
+### Subcommands
+
+| Subcommand | What it does |
+|---|---|
+| `init [--remote URL]` | `git init -b main` the data dir if it is not a repo yet, write a managed `.gitattributes` and `.gitignore`, set the `diff.json` hunk-header driver, point `origin` at the remote, and print the exact one-line command that creates the bare repo on the server. |
+| `push` | Stage everything, commit with a timestamped message (`study history 2026-09-23 09:40:41 on fedora`), push `main`. Never force. |
+| `pull` | Fetch, and merge only if the fetch actually brought something. Local edits are committed first so the merge never mixes in unsaved study data. |
+| `status` | Data dir, file count, branch, remote, whether the remote is reachable, ahead/behind, uncommitted files, and any merge left in progress. |
+| `auto` | `pull` then `push`, stopping before the push if the pull failed. This is the cron entry point. |
+
+### Flags
+
+| Flag | Meaning |
+|---|---|
+| `--data-dir DIR` | sync `DIR` instead of the default. The default is `$QUANTUM_STUDY_DATA_DIR`, else `~/.local/share/quantum-study` — the same resolution `coach.py`, `dashboard.py`, `launch.py` and every app use. |
+| `--remote URL` | `init` only. Default `ssh://matthewscott@52.5.128.243/var/git/quantum-study-history.git`. An existing `origin` is left alone unless you pass this. |
+| `--dry-run`, `-n` | print every command that would run; change nothing, locally or remotely. |
+| `--quiet`, `-q` | warnings and errors only. A successful `auto -q` prints nothing at all, which is what you want from cron. |
+
+Exit status: `0` success (including "nothing to do"), `1` failure, `2` bad
+command line, `3` a merge conflict waiting for your decision.
+
+### First machine
+
+```bash
+tools/sync_history.sh init
+# it prints, with your remote substituted:
+ssh matthewscott@52.5.128.243 'git init --bare -b main /var/git/quantum-study-history.git'
+tools/sync_history.sh push
+```
+
+The `-b main` matters. A plain `git init --bare` on a server whose
+`init.defaultBranch` is still `master` leaves `HEAD` pointing at a branch that
+never appears, and `git clone` of that repo checks out **nothing**. `init`
+also prints the two-command form for a server git older than 2.28, which has
+no `init -b`.
+
+### Second machine — clone, do not init
+
+```bash
+git clone ssh://matthewscott@52.5.128.243/var/git/quantum-study-history.git \
+          ~/.local/share/quantum-study
+tools/sync_history.sh init      # adds the local-only bits: diff driver, remote check
+tools/sync_history.sh auto
+```
+
+`init` on a second machine would start a *second* root commit, and the two
+histories would then have to be joined. Cloning avoids that. (If it happens
+anyway, `pull` detects the unrelated histories and joins them rather than
+refusing; and if you cloned a bare repo with the dangling `HEAD` described
+above, `pull` notices the unborn local branch and adopts the remote's.)
+
+### Cron
+
+`auto` is idempotent and silent on success, so it is safe on a timer:
+
+```crontab
+*/30 * * * * /path/to/repo/tools/sync_history.sh auto --quiet
+```
+
+Cron has no terminal, so the script sets `GIT_TERMINAL_PROMPT=0` and
+`ssh -o BatchMode=yes -o ConnectTimeout=15` for itself when stdin/stderr are
+not a tty. Without that a cron run blocks forever on a passphrase or a
+host-key prompt instead of reporting "remote unreachable" and exiting.
+Your key has to be available non-interactively (an agent, or a passphraseless
+key for this one repo).
+
+### Conflicts
+
+Two machines appending to the same history file on the same day will
+eventually collide. `pull` stops, exits `3`, and prints which file conflicted
+plus the resolution that is almost always right:
+
+```
+sync_history.sh: merge conflict — the same history file changed on both machines.
+
+  Conflicting file(s) in /home/you/.local/share/quantum-study:
+
+      quiz_history.json
+
+  History files are append-mostly: each machine added its own entries to
+  the same list, so "take both" is almost always the right answer.  Open
+  the file, keep BOTH sides of every <<<<<<< / ======= / >>>>>>> block,
+  and delete those three marker lines.  In JSON that usually leaves one
+  missing comma where the two sides meet — add it, then check it parses:
+  ...
+```
+
+It then gives the literal `$EDITOR`, `python3 -m json.tool`, `git add`,
+`git commit` and `checkout --ours/--theirs` commands with your paths already
+filled in, and `merge --abort` to back out. Until you resolve it, `push`,
+`pull` and `auto` all refuse with exit `3` rather than syncing a half-merged
+tree.
+
+### What `init` writes into the data dir
+
+- **`.gitattributes`** — `* text=auto eol=lf` and `*.json diff=json`, so the
+  JSON diffs line-wise with the enclosing key in the hunk header
+  (`@@ -125,3 +125,3 @@ "score":`) instead of a bare line number. It
+  deliberately does **not** set `merge=union`: a union merge concatenates both
+  sides and turns two valid JSON documents into one invalid one.
+- **`.gitignore`** — `*.tmp`, `.*-*.json` and friends. Every app writes
+  atomically (temp file in the same directory, then `os.replace`), and a sync
+  that catches one mid-write must not commit the half-written copy.
+- **`diff.json.xfuncname`** in the repo's own `.git/config` — the hunk-header
+  pattern the `diff=json` attribute refers to. It is repo-local, so run `init`
+  once on each machine even after a clone.
+
+Both files carry a marker comment on line 1. If you edit them, or write your
+own, `init` sees the marker is gone and leaves them alone.
+
+### Safety
+
+- **Refuses to run at all if the data dir is inside this repository** — any
+  subcommand, checked both by path and by `git rev-parse --show-toplevel`, so
+  a symlink cannot sneak past it. Study history must never reach the public
+  repo. A data dir inside some *other* checkout is a loud warning, not a
+  refusal.
+- **Never force-pushes**, never rewrites history, never passes `--force`;
+  the push is an explicit `refs/heads/main:refs/heads/main` refspec.
+- **Never touches the study-suite repo.** Every git write goes through a
+  helper pinned to `git -C "$DATA_DIR"`. The single unpinned git call in the
+  script is the read-only `rev-parse --show-toplevel` of the safety check.
+  It also unsets `GIT_DIR`, `GIT_WORK_TREE` and friends on startup so it
+  cannot inherit another repository's context from cron or a git hook.
+- **Every subcommand is idempotent** and exits `0` when there is nothing to
+  do — running `auto` every half hour costs one fetch.
+- **An unreachable remote changes nothing.** `pull` talks to the network
+  before it touches the repo, so a failed fetch leaves the tree exactly as it
+  was. `push` commits locally first (your work is saved either way) and says
+  so explicitly when only the upload failed.
+- **Conflict markers can never be committed.** Beyond the merge-in-progress
+  guard, a staged `*.json` containing `<<<<<<<` or `>>>>>>>` aborts the commit.
+
+### Testing it without a server
+
+Point it at a bare repo on the local disk — everything except the SSH hop is
+identical:
+
+```bash
+git init --bare -b main /tmp/hist.git
+tools/sync_history.sh init  --data-dir /tmp/A --remote /tmp/hist.git
+tools/sync_history.sh push  --data-dir /tmp/A
+git clone /tmp/hist.git /tmp/B
+tools/sync_history.sh auto  --data-dir /tmp/B
+```
+
+`sync_history.sh` passes `bash -n` and `shellcheck -S style` cleanly.
+
+---
+
+## `gen_cloze.py` — cloze cards from the docs' Key Formulas
+
+Every chapter under `docs/` closes with a **Key Formulas** section. That is a
+large body of already-verified content that nothing turned into retrieval
+practice, so `gen_cloze.py` reads those sections and blanks the right-hand side
+of each identity:
+
+```
+FRONT  Grover operator:  G = ______
+BACK   G = (2|s⟩⟨s| - I)(I - 2|x*⟩⟨x*|)  ·  Source: docs/04_quantum_algorithms/05_grover_search.md — Grover's Search Algorithm
+```
+
+The cards land one-per-file in `flashcard-drill/cards/cloze/` under the
+category **Cloze**, in exactly the `Flashcard` shape the hand-written cards use,
+so `cards.all_cards()`, the SM-2 scheduler, `export_cards.py` and the web deck
+pick them up with no changes. The source chapter is always on the back, so a
+missed card points straight at the reading.
+
+```
+python3 tools/gen_cloze.py                    # == --dry-run: report, write nothing
+python3 tools/gen_cloze.py --write            # (re)generate the cards
+python3 tools/gen_cloze.py --clean            # remove every generated card
+python3 tools/gen_cloze.py --write --limit N  # cap the deck at the first N cards
+python3 tools/gen_cloze.py --sample 20 --seed 7   # print a review sample
+```
+
+### Conservative by construction
+
+A bad cloze is worse than no cloze, so every stage rejects rather than guesses.
+A bug in this tool loses cards; it cannot ship a garbled one.
+
+* **LaTeX → Unicode is a whitelist.** Chapters 01–04 write their formulas as
+  `$$…$$`; chapters 05 onwards write them as Unicode in backticks. The
+  converter maps each command the corpus actually uses and *raises* on anything
+  else — an unknown macro, a `pmatrix`/`cases` environment, an alignment `&`, a
+  surviving backslash or a stray brace — and the formula is dropped whole.
+* **One card per entry, one relation per card.** The chosen clause must have a
+  single kind of top-level relation. A chain of `=` is fine (the whole chain is
+  the answer); `1/d ≤ Tr(ρ²) ≤ 1` and `P ≥ 4/π² ≈ 0.405` are dropped, because
+  there is no single blank to fill.
+* **The answer has to be recoverable from the prompt.** Dropped: ellipses
+  (`…`), prose on the left-hand side, generic labels (`**Problem**:`), answers
+  over 110 characters, an answer that is the prompt plus a decoration
+  (`γ = γ†`), and any answer that already appears in the prompt.
+* **Conditional and parenthetical formulas are dropped.** "Syndrome bit:
+  `sᵢ = +1` **if** `E` commutes with `gᵢ`" would ask for a coin flip, because
+  the condition lives in the prose outside the code span. So would an entry
+  that gives two right-hand sides for one left-hand side (three jump operators
+  all called `L`; the bit-flip and phase-flip `|0_L⟩`).
+* **Duplicates are collapsed** across chapters: same left-hand side and answer,
+  same left-hand side under the same label keywords, or two chapters stating one
+  identity to different depths (`⟨M⟩ = ⟨ψ|M|ψ⟩` and
+  `⟨M⟩ = ⟨ψ|M|ψ⟩ = Σ_m m p(m)`).
+
+### Idempotence
+
+A card's id is `cz_<chapter>_<file>_<label slug>_<hash>`, where the hash is over
+*source path + label + left-hand side*. `--write` writes a file only when its
+bytes change and deletes generated files that no longer correspond to a formula,
+so two runs in a row leave the tree untouched (`unchanged: N`, nothing created,
+updated or removed) and editing a chapter only rewrites that chapter's cards.
+`--clean` removes the generated cards, the package `__init__.py` and the
+directory, returning the deck to exactly its hand-written size.
+
+### When the card count changes
+
+Adding a chapter to `docs/` adds cards, which moves numbers that live outside
+this tool. After a `--write` that changes the count, update:
+
+* `flashcard-drill/tests/test_cards.py` — `EXPECTED_CARD_COUNT` and
+  `EXPECTED_CATEGORY_COUNT` (15 with the Cloze category present).
+* the card counts in `README.md`, `flashcard-drill/README.md`,
+  `GETTING_STARTED.md`, `tools/README.md`, `launch.py` and `CONTRIBUTING.md`.
+* `flashcard-drill/ui/theme.py` — `CATEGORY_COLORS` needs a `"Cloze"` entry, or
+  the category falls back to the accent colour in the app and to
+  `FALLBACK_COLOR` (`#58a6ff`, already used by Qiskit API) in the web deck.
+
+`export_cards.py` needs no change: it reads the deck through
+`cards.all_cards()` and compares the count against the modules on disk.

@@ -3,8 +3,9 @@
 A spaced-repetition flashcard app for quantum computing — the only app in the suite that
 requires no API key and no Qiskit. 550 cards across 14 categories, with a real **SM-2
 scheduler** (due dates and a daily pull — "23 cards due today"), SRS-weighted free drills,
-an optional per-card countdown timer, flag-for-review, an in-app Reference browser for the
-shared docs corpus, and full session history.
+an optional per-card countdown timer, flag-for-review, a **mistake journal** and
+**confidence calibration**, an in-app Reference browser for the shared docs corpus, and full
+session history.
 
 ---
 
@@ -22,6 +23,14 @@ shared docs corpus, and full session history.
 - **Three-way rating** — Got it / Unsure / Missed after each reveal
 - **Flag for review** — mark any card after revealing it; drill only flagged cards, and
   review / unflag them from the History screen
+- **Mistake journal** — a *Missed* rating is logged to the suite-wide `mistakes.json`
+  together with *why* you missed it (misread / didn't know / knew but slipped / confused /
+  out of time / other). A wrong answer stops being a bookmark and becomes analysis: "nine
+  little-endian slips this month" is the signal, not nine flagged cards. Skippable, never
+  modal, and rating the card *Got it* later resolves the entry
+- **Confidence calibration** — an optional 1–4 strip on the card **front**, before the
+  answer can be seen, paired with the grade in `confidence.json`. It finds the
+  *confidently wrong* topics — the unknown unknowns nothing else in the suite surfaces
 - **Reference browser** — read every chapter of the suite's `docs/` corpus inside the
   app, with chapter filter, full-text search and hideable exercise solutions
 - **Browse mode** — read-only view of every card by category
@@ -80,7 +89,10 @@ the next review date; before your first rating it reads `No review schedule yet`
 4. **Time limit per card** — No timer / 10 / 20 / 30 / 60 s
 5. **Show Flagged Only** — drill just the cards you have flagged (ignores categories and
    the schedule); *Start Drill* stays disabled until at least one card is flagged
-6. Click **Start Drill**
+6. **Self-assessment** — *Ask my confidence before each reveal* switches the confidence
+   strip on the card screen on or off. It is the same setting the card screen's
+   *Don't ask* button writes, so the tick box always shows the current state
+7. Click **Start Drill**
 
 In *Due today* mode with nothing due and no new cards left, *Start Drill* is disabled and
 its tooltip says when to come back.
@@ -93,17 +105,44 @@ Footer buttons: **View History**, **Browse Cards**, **Reference**.
 ### Card Screen
 
 - The **front** of the card is shown centred in the card frame
+- **How sure are you?** — an optional 1–4 strip under the front: `1 Guessing`,
+  `2 Unsure`, `3 Fairly sure`, `4 Certain` (keys `1`–`4`, *before* the reveal). It
+  disappears the moment the answer is shown, so the rating can never be hindsight.
+  Click the same button again to clear it, or **Don't ask** to switch the strip off for
+  good (the Setup screen's *Self-assessment* tick box turns it back on)
 - Click **Reveal Answer** (or press Space / Enter, or wait for the timer) to flip the card
 - Rate yourself (buttons or keys `1` / `2` / `3`). The card screen keeps keyboard focus
-  itself (no button on it can take focus), so the shortcuts work after mouse clicks too
+  itself (no button in the drill flow can take focus), so the shortcuts work after mouse
+  clicks too
   - **Got it** — you knew the answer confidently
   - **Unsure** — you had partial recall
   - **Missed** — you did not know the answer
+- **✗ Missed · … / Answer: …** — rating a card *Missed* journals it straight away and
+  raises a compact **What went wrong?** row carrying the question and the answer. Pick a
+  cause (*Misread*, *Didn't know*, *Knew but slipped*, *Confused*, *Out of time*, *Other*),
+  add an optional one-line note, or ignore it entirely — the mistake is already logged with
+  `cause: null`, so nothing is lost. The drill **never waits**: the next card is already on
+  screen and there is no dialog to close. `W` jumps into the row, Escape or **✕ Dismiss**
+  closes it, and rating the next card closes it too
 - **⚑ Flag for Review** appears after the reveal; it is a toggle — click again to unflag
 - **End Session** finishes early (rated cards are still saved; with nothing rated it
   simply returns to Setup and nothing is written)
 
 Repeat until all cards are done; the session summary appears automatically.
+
+Both review features are additive. Your ratings, history, flags and SM-2 schedule behave
+exactly as they did before: **a journalled mistake is analysis, not a second lapse**, so it
+never touches `flashcard_schedule.json`.
+
+#### Accessibility
+
+Every control added by these two features is Tab-reachable with a 2 px accent focus ring
+and an accessible name, and hands focus straight back to the card screen when activated so
+Space / `1`–`3` keep working. Selected state is never colour alone — the buttons carry a
+`○` / `●` glyph — and the missed-card header pairs its red with the `✗` glyph and the word
+"Missed". Every new label clears 4.5:1 against the dark palette (body text `#e6edf3` on
+`#21262d` is 12.9:1, muted `#8b949e` on `#161b22` is 6.1:1, the `✗ Missed` header `#f85149`
+on `#0d1117` is 5.7:1, and a selected button is `#0d1117` on `#58a6ff` at 7.5:1).
 
 ### Summary Screen
 
@@ -297,16 +336,21 @@ flashcard-drill/
 ├── persistence/
 │   ├── storage.py               save_session(), card_weights(), lifetime_stats(),
 │   │                            load_flagged() / save_flagged() / toggle_flag()
-│   └── schedule_store.py        flashcard_schedule.json: load/save, record_rating(),
-│                                ensure_states() (migration from history)
+│   ├── schedule_store.py        flashcard_schedule.json: load/save, record_rating(),
+│   │                            ensure_states() (migration from history)
+│   └── review_store.py          mistakes.json / confidence.json / flashcard_settings.json:
+│                                make_mistake_entry(), log_mistake(), set_mistake_cause(),
+│                                resolve_mistakes(), cause_counts(), log_confidence(),
+│                                calibration_summary(), confidently_wrong()
 └── ui/
     ├── theme.py                  Shared dark palette + QSS
     ├── main_window.py            QStackedWidget controller (setup, cards, summary,
     │                             history, browse, reference)
     ├── screens/
     │   ├── setup_screen.py       Daily pull banner, session mode, categories, count,
-    │   │                         timer, flagged-only
-    │   ├── card_screen.py        Card display, reveal, rating buttons, timer, flag toggle
+    │   │                         timer, flagged-only, confidence opt-in
+    │   ├── card_screen.py        Card display, reveal, rating buttons, timer, flag toggle,
+    │   │                         confidence strip, "what went wrong?" cause row
     │   ├── summary_screen.py     Session stats, SM-2 outcome line, review-missed
     │   ├── history_screen.py     Lifetime stats, trend chart, flagged-card list / unflag
     │   ├── browse_screen.py      Read-only card browser by category
@@ -343,6 +387,9 @@ card of a run), so the call is wrapped in `try/except (TypeError, RuntimeError)`
 | `DATA_DIR` | `~/.local/share/quantum-study` | History / flag / schedule storage directory |
 | `HISTORY_FILE` | `DATA_DIR/flashcard_history.json` | Session history (shared with the suite) |
 | `SCHEDULE_FILE` | `DATA_DIR/flashcard_schedule.json` | SM-2 schedule (this app only) |
+| `MISTAKES_FILE` | `DATA_DIR/mistakes.json` | Mistake journal (shared with the suite) |
+| `CONFIDENCE_FILE` | `DATA_DIR/confidence.json` | Confidence calibration (shared with the suite) |
+| `SETTINGS_FILE` | `DATA_DIR/flashcard_settings.json` | This app's preferences (confidence opt-out) |
 
 Set the `QUANTUM_STUDY_DATA_DIR` environment variable to point `DATA_DIR` somewhere else
 (the same override `coach.py` honours) — handy for tests and experiments that must not
@@ -352,8 +399,9 @@ touch your real history.
 
 ## Data Persistence
 
-Three files live in `DATA_DIR`; the first two are shared with `dashboard.py` / `coach.py`
-and their schemas are frozen:
+Six files live in `DATA_DIR`. The first two are shared with `dashboard.py` / `coach.py`
+and their schemas are frozen; `mistakes.json` and `confidence.json` are shared with the
+other nine apps in the suite; the last two belong to this app alone:
 
 - **`flashcard_history.json`** — a JSON list; one entry per completed session with
   `total`, `got_it`, `unsure`, `missed`, `timestamp` (epoch seconds) and `results`, a
@@ -388,6 +436,61 @@ and their schemas are frozen:
   abandoned session still keeps the reviews you did. A missing, unreadable or corrupt
   entry degrades to "this card is new" instead of raising — scheduling never interrupts a
   drill.
+
+- **`mistakes.json`** — the suite-wide **mistake journal**, a JSON list of
+
+  ```json
+  {
+    "id": "pauli_xyx",
+    "app": "flashcard-drill",
+    "category": "Pauli Matrices",
+    "question": "XYX = ?",
+    "your_answer": "Self-rated: Missed (no recall)",
+    "correct_answer": "-Y",
+    "cause": "knew_but_slipped",
+    "note": "little-endian slip again",
+    "timestamp": 1790169677.507137,
+    "resolved": false
+  }
+  ```
+
+  `id` is the card id, `category` the card category, and `cause` is one of `misread`,
+  `didnt_know`, `knew_but_slipped`, `confused`, `out_of_time`, `other` — or `null`, meaning
+  "logged but not yet categorised" (what you get when you skip the row). The three text
+  fields are collapsed to one line and clipped to 200 characters. One entry is appended per
+  miss, so repeats are separate events; answering the card *Got it* later sets `resolved`
+  on every open entry for that `app` + `id`. A miss on the very last card of a session is
+  logged but cannot show its row (the summary screen takes over), so it stays
+  uncategorised.
+
+- **`confidence.json`** — the suite-wide **calibration log**, a JSON list of
+
+  ```json
+  {
+    "id": "pauli_xyx",
+    "app": "flashcard-drill",
+    "category": "Pauli Matrices",
+    "confidence": 4,
+    "correct": false,
+    "timestamp": 1790169677.506926
+  }
+  ```
+
+  `confidence` is 1 = guessing … 4 = certain, recorded before the reveal; `correct` is
+  `true` only for a *Got it* rating. A row is written only when you actually picked a
+  confidence. `confidently_wrong()` returns the `confidence >= 3 and not correct` rows —
+  the unknown unknowns — and `calibration_summary()` gives per-level accuracy.
+
+- **`flashcard_settings.json`** — `{"confidence_prompt": true}`; written by *Don't ask* on
+  the card screen and by the Setup screen's *Self-assessment* tick box.
+
+Both shared files carry every app's rows. This app reads them whole, rewrites only rows
+whose `app` is `flashcard-drill`, and leaves the rest byte-for-byte alone. Both are written
+atomically (temp file plus `os.replace`), both tolerate a missing, unreadable, corrupt or
+partially malformed file by starting fresh and skipping unusable rows, and neither can
+raise into a drill — a failed write simply means that one entry was not recorded. Growth is
+capped on every write at this app's newest 2000 mistakes and 5000 confidence rows (other
+apps' rows are never trimmed by us).
 
 **Migration.** The first run that has history but no schedule replays
 `flashcard_history.json` through the scheduler in timestamp order, at the dates the
@@ -438,4 +541,6 @@ set by `tests/conftest.py`, so the suite never touches your real history.
 | `test_schedule_simulation.py` | 200 cards over 90 simulated days (fixed seed): bounded backlog, every card eventually scheduled |
 | `test_schedule_store.py` | `flashcard_schedule.json` round-trips, migration from history, corrupt / unwritable files |
 | `test_due_session.py` | the UI end to end offscreen: due counts, mode defaulting, a *Due today* session, the summary line |
+| `test_review_store.py` | the journal / calibration helpers with no Qt: the contract schema field for field, cause validation, 200-char clipping, per-app isolation, corrupt and unwritable files, the atomic write, the growth cap, the opt-out setting |
+| `test_review_feedback.py` | the same features driven offscreen: a miss journalled and categorised, skip / Escape / dismiss, confidence taken before the reveal and paired with the grade, *Got it* resolving the entry, the *Don't ask* round trip, keyboard reach and accessible names, and proof that the SM-2 schedule and the frozen history schemas are unchanged |
 | `test_deck.py`, `test_card_flow.py`, `test_persistence.py`, … | pre-existing deck, flow and persistence coverage |

@@ -1,23 +1,40 @@
-"""Per-question feedback screen — shows score, feedback, model answer, and a
-flag-for-review toggle."""
+"""Per-question feedback screen — shows score, feedback, model answer, a
+flag-for-review toggle, and (on a wrong answer) the mistake-journal row."""
 from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextBrowser,
-    QPushButton, QFrame,
+    QPushButton, QFrame, QLineEdit,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from core.models import QuestionAttempt, Verdict
 from ui import theme
+
+# Cause categories of the shared mistake-journal contract, in the order shown.
+# A wrong answer is logged the moment it is graded; picking a cause turns that
+# bookmark into analysis ("six misreads this month" is the signal).
+MISTAKE_CAUSES = (
+    ("misread",          "Misread"),
+    ("didnt_know",       "Didn't know"),
+    ("knew_but_slipped", "Knew but slipped"),
+    ("confused",         "Confused"),
+    ("out_of_time",      "Out of time"),
+    ("other",            "Other"),
+)
 
 
 class FeedbackScreen(QWidget):
     next_requested = pyqtSignal()
     done_requested = pyqtSignal()    # emitted on last question
     flag_requested = pyqtSignal()    # toggle "flag for review" on the shown question
+    # (cause key or "" when only a note was typed, note text) — the journal
+    # entry already exists by the time this fires; it is an update, not a save.
+    mistake_cause_selected = pyqtSignal(str, str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._is_last = False
+        self._cause = None
+        self._cause_buttons: dict[str, QPushButton] = {}
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -73,6 +90,10 @@ class FeedbackScreen(QWidget):
 
         root.addStretch()
 
+        self._mistake_row = self._build_mistake_row()
+        root.addWidget(self._mistake_row)
+        self._mistake_row.hide()
+
         btn_row = QHBoxLayout()
         self._flag_btn = QPushButton("⚑ Flag for Review")
         self._flag_btn.setObjectName("flat")
@@ -105,6 +126,7 @@ class FeedbackScreen(QWidget):
         self._model_browser.setPlainText(ev.model_answer if ev else "")
         self._next_btn.setText("View Summary" if is_last else "Next Question")
         self.set_flagged(False)   # caller refreshes from persistence after this
+        self.show_mistake_prompt(False)   # ditto: the controller decides
 
     def set_flagged(self, flagged: bool) -> None:
         """Reflect the question's flagged state on the toggle button."""
@@ -117,6 +139,112 @@ class FeedbackScreen(QWidget):
 
     def is_flagged_shown(self) -> bool:
         return self._flag_btn.text().startswith("⚑ Flagged")
+
+    # ------------------------------------------------------------------
+    # Mistake journal — "What went wrong?"
+    # ------------------------------------------------------------------
+
+    def _build_mistake_row(self) -> QWidget:
+        """Compact, skippable cause picker shown under a wrong answer.
+
+        Never a modal and never a blocker: Next Question stays live, and the
+        mistake is already on record with cause=null before this row is even
+        shown.  Keyboard reachable, dashed accent focus ring, ✓ glyph on the
+        chosen cause (state is never colour alone).
+        """
+        card = QFrame()
+        card.setObjectName("card")
+        card.setStyleSheet(
+            f"QFrame#card {{ background-color: {theme.SURFACE};"
+            f" border: 1px solid {theme.BORDER}; border-radius: 8px; }}"
+            f"QPushButton {{ padding: 5px 12px; font-size: 12px; }}"
+            f"QPushButton[chosen=\"yes\"] {{ border: 2px solid {theme.ACCENT};"
+            f" color: {theme.TEXT}; font-weight: bold; background: {theme.SURFACE2}; }}"
+            f"QPushButton:focus {{ border: 2px dashed {theme.ACCENT}; }}"
+            f"QLineEdit:focus {{ border: 2px dashed {theme.ACCENT}; }}"
+        )
+        outer = QVBoxLayout(card)
+        outer.setContentsMargins(20, 12, 20, 12)
+        outer.setSpacing(8)
+
+        hdr_row = QHBoxLayout()
+        hdr_row.setSpacing(8)
+        hdr = QLabel("What went wrong?")
+        hdr.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {theme.TEXT};")
+        hdr_row.addWidget(hdr)
+        hint = QLabel("optional — skip it and the mistake is still logged")
+        hint.setStyleSheet(f"font-size: 12px; color: {theme.TEXT_MUTED};")
+        hdr_row.addWidget(hint)
+        hdr_row.addStretch()
+        outer.addLayout(hdr_row)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        for key, label in MISTAKE_CAUSES:
+            btn = QPushButton(label)
+            btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            btn.setAccessibleName(f"Cause: {label}")
+            btn.setAccessibleDescription("Optional — why this answer was wrong")
+            btn.clicked.connect(lambda _checked=False, k=key: self._on_cause(k))
+            self._cause_buttons[key] = btn
+            btns.addWidget(btn)
+        btns.addStretch()
+        outer.addLayout(btns)
+
+        self._note_edit = QLineEdit()
+        self._note_edit.setPlaceholderText(
+            "Optional note — e.g. \u201cread the qubit order backwards again\u201d"
+        )
+        self._note_edit.setAccessibleName("Note about this mistake (optional)")
+        self._note_edit.setMaxLength(200)
+        self._note_edit.returnPressed.connect(self._on_note_committed)
+        self._note_edit.editingFinished.connect(self._on_note_committed)
+        outer.addWidget(self._note_edit)
+        return card
+
+    def show_mistake_prompt(self, visible: bool) -> None:
+        """Show (and reset) the cause picker, or hide it on a right answer."""
+        self._cause = None
+        self._note_edit.clear()
+        self._paint_causes()
+        self._mistake_row.setVisible(bool(visible))
+
+    def mistake_prompt_visible(self) -> bool:
+        return not self._mistake_row.isHidden()
+
+    def selected_cause(self) -> str | None:
+        return self._cause
+
+    def note_text(self) -> str:
+        return self._note_edit.text().strip()
+
+    def _paint_causes(self) -> None:
+        for key, label in MISTAKE_CAUSES:
+            btn = self._cause_buttons[key]
+            chosen = (key == self._cause)
+            btn.setText(f"✓ {label}" if chosen else label)
+            btn.setProperty("chosen", "yes" if chosen else "no")
+            btn.setAccessibleDescription(
+                "Selected" if chosen else "Optional — why this answer was wrong"
+            )
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+    def _on_cause(self, key: str) -> None:
+        # Clicking the chosen cause again clears it back to "not categorised".
+        self._cause = None if self._cause == key else key
+        self._paint_causes()
+        self.mistake_cause_selected.emit(self._cause or "", self.note_text())
+
+    def _on_note_committed(self) -> None:
+        if not self.mistake_prompt_visible():
+            return
+        note = self.note_text()
+        if not note and self._cause is None:
+            return          # nothing to say — leave the entry as it was logged
+        self.mistake_cause_selected.emit(self._cause or "", note)
+
+    # ------------------------------------------------------------------
 
     def _on_next(self) -> None:
         if self._is_last:

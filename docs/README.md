@@ -5,6 +5,10 @@ topics. Whether you are a graduate student starting fresh, a physicist transitio
 information, or an engineer wanting to understand the theory behind quantum hardware, follow the
 ladder from bottom to top. Each rung builds on the ones below.
 
+Rungs 1–8 are the core ladder. Rungs 9–11 are **application tracks** — quantum machine learning,
+quantum chemistry, and quantum networking — each self-contained once Rung 6 is done, and each
+readable in any order.
+
 ---
 
 ## The Ladder
@@ -21,8 +25,9 @@ Before starting, you should be comfortable with:
 
 Optional but helpful:
 - Differential equations (for time evolution in Chapter 2).
-- Classical information theory (for Chapter 8).
-- Basic chemistry concepts (for Chapter 6 VQE discussions).
+- Classical information theory (for Chapters 8 and 11).
+- Classical machine learning: kernels, empirical risk minimization, SVMs (for Chapter 9).
+- Basic chemistry concepts (for Chapter 6 VQE discussions and all of Chapter 10).
 
 ---
 
@@ -249,11 +254,12 @@ optimization, and for designing experiments on real hardware.
 ---
 
 ### Rung 7: Quantum Hardware (Chapter 7)
-**Files**: `07_quantum_hardware/` | **Time**: 1–2 weeks
+**Files**: `07_quantum_hardware/` | **Time**: 1–3 weeks
 
 How quantum computers are physically built. Superconducting qubits (transmon, Josephson
 junction), trapped ions (Paul trap, MS gate), photonic and other platforms, and how to
-benchmark and characterize hardware.
+benchmark and characterize hardware — both the classic protocols and the modern scalable
+ones (mirror circuits, volumetric benchmarks, XEB, layer fidelity) that scale past them.
 
 **Key concepts you will master**:
 - Transmon qubit: Josephson junction, `E_J/E_C` ratio, anharmonicity
@@ -262,10 +268,16 @@ benchmark and characterize hardware.
 - Trapped ion qubits: Lamb-Dicke, Mølmer-Sørensen gate, all-to-all connectivity
 - Photonic QC: LOQC, KLM, boson sampling, Rydberg arrays
 - Benchmarking: T1/T2, randomized benchmarking, GST, quantum volume, CLOPS
+- Why RB over-reports: twirling coherent error, `O(n²/log n)` Clifford cost, omitted crosstalk
+- Mirror circuits, effective polarization, and volumetric (depth × width) capability regions
+- Cross-entropy benchmarking, the Porter-Thomas distribution, and what "supremacy" measured
+- Layer fidelity and `EPLG = 1 - LF^{1/(N-1)}`, which runs 2–3× above the per-gate error
 
 **Why it matters**: Algorithm performance depends critically on hardware characteristics.
 Understanding gate fidelity, coherence times, connectivity, and benchmarking metrics is
-essential for choosing hardware and interpreting experimental results.
+essential for choosing hardware and interpreting experimental results — and for reading a
+vendor benchmark critically, since the headline number and the number your circuit will see
+are usually not the same.
 
 **File map**:
 | File | Topic |
@@ -274,6 +286,7 @@ essential for choosing hardware and interpreting experimental results.
 | `02_trapped_ion_qubits.md` | Paul trap, Jaynes-Cummings, MS gate, QCCD |
 | `03_photonic_and_other_platforms.md` | Photonics, NV centers, Rydberg, Majorana |
 | `04_benchmarking_and_characterization.md` | T1/T2, RB, GST, quantum volume, CLOPS |
+| `05_modern_benchmarking.md` | Mirror circuits, volumetric benchmarks, XEB, layer fidelity, EPLG |
 
 ---
 
@@ -308,6 +321,128 @@ intrinsically fault-tolerant hardware.
 | `03_many_body_physics_and_simulation.md` | Models, Trotter, JW/BK, FeMoco |
 | `04_topological_quantum_computation.md` | Anyons, Fibonacci TQC, Kitaev chain |
 | `05_qsvt.md` | Block encodings, QSP, quantum singular value transformation |
+
+---
+
+### Rung 9: Quantum Machine Learning (Chapter 9)
+**Files**: `09_quantum_machine_learning/` | **Time**: 1–2 weeks
+
+What a quantum computer can and cannot do with classical data. Feature maps and the encoding
+problem, fidelity kernels and their exponential concentration, variational classifiers as linear
+models in feature space, and an evidence-based audit of the advantage claims. This is the most
+over-claimed area of the field, so the chapter measures rather than asserts: every gate count,
+kernel entry and gradient variance quoted here was produced by running the circuit.
+
+**Key concepts you will master**:
+- Encoding as the central design choice: basis, amplitude, angle, and IQP/ZZ feature maps
+- The state-preparation bottleneck: amplitude encoding costs `2ⁿ - n - 1` CNOTs, linear in the data
+- Data re-uploading and the truncated-Fourier-series picture that unifies all encodings
+- The fidelity quantum kernel `K_Q(x,x') = |⟨φ(x)|φ(x')⟩|²` and the compute–uncompute estimator
+- Exponential concentration: kernel entries and gradients decay as `2^{-n}`, so shot budgets
+  grow exponentially; bandwidth tuning and projected kernels defeat it only by moving toward
+  the classically simulable regime
+- Variational quantum classifiers: losses, parameter-shift training, and why a VQC is a linear
+  model in the encoding's feature space that cannot beat the kernel machine on that encoding
+- The Caro et al. generalization bound `O(√(T log T / M))` and why it is numerically vacuous
+- Encoding-induced barren plateaus, which no ansatz-side mitigation can reach
+- Dequantization, honest benchmarking, and the proven separations for learning from *quantum* data
+
+**Why it matters**: QML proposals are easy to write and hard to evaluate. Knowing the four numbers
+that decide a proposal — state-preparation cost, expected kernel or gradient magnitude, total
+shots, and the standard error of the accuracy being compared — is what separates a design that
+could work from one that provably cannot. The chapter also points at where the real results are:
+learning from experiments on quantum data, where there is no loading cost to pay and nothing to
+dequantize.
+
+**File map**:
+| File | Topic |
+|------|-------|
+| `01_data_encoding.md` | Basis/amplitude/angle/IQP feature maps, state-preparation cost, data re-uploading |
+| `02_quantum_kernels.md` | Fidelity kernels, compute–uncompute, exponential concentration, classical shadows |
+| `03_variational_classifiers.md` | VQC architecture, losses, parameter-shift training, generalization, encoding-induced plateaus |
+| `04_qml_in_practice.md` | Claims vs evidence, the four failure modes, benchmarks, quantum-data separations |
+
+---
+
+### Rung 10: Quantum Chemistry (Chapter 10)
+**Files**: `10_quantum_chemistry/` | **Time**: 1–2 weeks
+
+The flagship application, end to end. From the electronic-structure Hamiltonian in second
+quantization, through fermion-to-qubit mappings and qubit tapering, to active spaces, ansätze and
+chemical accuracy, and finally to fault-tolerant phase estimation with honest resource estimates
+for FeMoco. Chapter 6 supplies the VQE loop; this chapter supplies the Hamiltonian that goes into
+it and the fault-tolerant algorithm that will eventually replace it.
+
+**Key concepts you will master**:
+- Second quantization: Fock space, creation/annihilation operators, the CAR `{a_p, a_q†} = δ_pq`
+- The one- and two-electron integrals `h_pq` and `(pq|rs)`, their `O(M²)`/`O(M⁴)` counts and
+  8-fold permutational symmetry; Slater-Condon rules and why singles and doubles dominate
+- Jordan-Wigner, parity and Bravyi-Kitaev as one construction `q = β n (mod 2)`, and the
+  locality/weight trade-off: `O(N)` strings versus `O(log N)` with a binary-tree `β`
+- `Z₂` symmetries as the `GF(2)` symplectic kernel, and qubit tapering (H₂/STO-3G: 4 → 2 → 1 qubits)
+- Active spaces, the frozen core, `E_core` folding, and CASSCF / orbital-optimized VQE
+- UCCSD (`O(M⁴)` amplitudes), k-UpCCGSD, and why hardware-efficient ansätze break symmetries
+- What chemical accuracy (`1.5936` mHa) really demands, including the `S ≈ (λ/ε)²` shot wall
+- QPE for chemistry: `O(1/ε)` versus VQE's `O(1/ε²)`, reference overlap, readout bits
+- Trotter versus qubitization, `λ = ||H||₁`, and Hamiltonian factorizations (single, double, THC)
+- FeMoco resource estimates falling from `~10^{14}` T gates to low `10⁹` Toffolis
+
+**Why it matters**: Chemistry is the application with the clearest asymptotic case for quantum
+advantage, and the one where the resource estimates are most carefully done. It is also where the
+whole stack shows up at once: the Hamiltonian comes from classical quantum chemistry, the mapping
+is stabilizer algebra over `GF(2)`, the ansatz is a VQA, and the fault-tolerant version is bought
+in surface-code Toffolis. Understanding why FeMoco costs what it costs is the best single lesson
+in quantum resource accounting.
+
+**File map**:
+| File | Topic |
+|------|-------|
+| `01_second_quantization.md` | Fock space, creation/annihilation operators, integrals, Slater-Condon, H₂/STO-3G |
+| `02_qubit_mappings.md` | JW/parity/Bravyi-Kitaev as `q = βn`, Pauli weight, `Z₂` symmetries, tapering |
+| `03_active_spaces_and_ansatze.md` | Frozen core, CAS/CASSCF, UCCSD, k-UpCCGSD, chemical accuracy, shot cost |
+| `04_beyond_vqe.md` | QPE for chemistry, Trotter vs qubitization, factorizations, FeMoco estimates |
+
+---
+
+### Rung 11: Quantum Networking (Chapter 11)
+**Files**: `11_quantum_networking/` | **Time**: 1–2 weeks
+
+How entanglement is moved across distance, and what it buys once it arrives. Fibre loss and the
+repeaterless bound, heralded generation, Bell-state measurement and swapping; distillation and the
+three repeater generations; and distributed quantum computing priced in explicit ebits and
+classical bits. This is the scaling path that does not fit on one chip.
+
+**Key concepts you will master**:
+- Exponential fibre loss `η(L) = 10^{-αL/10}` at `α ≈ 0.2 dB/km`, and why no-cloning forbids amplifiers
+- The repeaterless PLOB bound `C = -log₂(1-η) ≈ 1.44η`, and how a quantum midpoint escapes it
+  via `η(L) = √η(2L)`
+- Heralded entanglement generation: single-photon (`p ≈ 2α_e η_arm`) versus two-photon
+  Barrett-Kok (`p = ½η_arm²`), and the phase-stability trade-off between them
+- The Bell-state measurement and its 50% linear-optics ceiling, which forces memories into chains
+- Entanglement swapping: 2 ebits + 2 cbits for twice the distance, with Werner parameters
+  *multiplying* (`W_out = W₁W₂`)
+- Distillation as error correction under LOCC: BBPSSW versus DEJMPS, the `F > 1/2` threshold, and
+  the fixed point `F_max(ε) < 1` imposed by imperfect local gates
+- The three repeater generations, the 3 dB segment-loss constraint of 3G, and what a quantum
+  memory must do (hold, couple, compute, multiplex)
+- Distributed quantum computing: telegate (1 ebit + 2 cbits) versus teledata (2 ebits + 4 cbits),
+  the cat-entangler/disentangler construction, and the proof that the cost is tight
+- Imperfect ebits as exact Pauli channels, so network noise is what stabilizer codes already correct
+- GHZ resources that buy *rounds* rather than ebits; the physical → link → network → transport
+  → application stack and why the link layer needs a cutoff time
+
+**Why it matters**: Every modular hardware roadmap crosses a module boundary somewhere, and that
+crossing is priced in the same currency as this chapter's telegates. Networking is also the
+physical layer beneath QKD (04/08) and the reason the repeaterless bound matters commercially.
+The honest headline is that fidelity is close to solved and *rate* is the open problem: a
+distilled telegate over 800 km runs at `0.18 Hz`, some `5 × 10⁶` times slower than a local gate.
+
+**File map**:
+| File | Topic |
+|------|-------|
+| `01_entanglement_distribution.md` | Fibre loss, PLOB bound, heralding, Bell-state measurement, swapping |
+| `02_repeaters_and_distillation.md` | Rate-distance, BBPSSW/DEJMPS, three repeater generations, memories |
+| `03_distributed_quantum_computing.md` | Telegate/teledata costs, distributed CNOT, GHZ, the network stack |
 
 ---
 
@@ -359,6 +494,20 @@ intrinsically fault-tolerant hardware.
 | Magic state distillation | 05/07 |
 | Bosonic/cat qubits | 05/08 |
 | Quantum optimal control (GRAPE) | 06/07 |
+| Mirror circuits and volumetric benchmarks | 07/05 |
+| Cross-entropy benchmarking (XEB) | 07/05 |
+| Layer fidelity and EPLG | 07/05 |
+| QML data encoding and feature maps | 09/01 |
+| Quantum kernels and exponential concentration | 09/02 |
+| Variational quantum classifiers | 09/03 |
+| QML advantage claims, dequantization, benchmarks | 09/04 |
+| Second quantization, electronic-structure Hamiltonian | 10/01 |
+| Fermion-to-qubit mappings and qubit tapering | 10/02 |
+| Active spaces, CASSCF, UCCSD, chemical accuracy | 10/03 |
+| Qubitization and FeMoco resource estimates | 10/04 |
+| Entanglement distribution, heralding, swapping | 11/01 |
+| Quantum repeaters and entanglement distillation | 11/02 |
+| Distributed quantum computing and telegates | 11/03 |
 
 ---
 
@@ -373,9 +522,13 @@ intrinsically fault-tolerant hardware.
 | 4: Algorithms | 1 week | 4 weeks | — |
 | 5: QEC | 1 week | 4 weeks | 2+ months |
 | 6: VQA | 1 week | 3 weeks | 2+ months |
-| 7: Hardware | 3 days | 2 weeks | 1+ month |
+| 7: Hardware | 4 days | 3 weeks | 1+ month |
 | 8: Advanced | 1 week | 4 weeks | ongoing |
-| **Total** | **~9 weeks** | **~6 months** | **ongoing** |
+| 9: QML | 4 days | 2 weeks | ongoing |
+| 10: Chemistry | 4 days | 2 weeks | 2+ months |
+| 11: Networking | 3 days | 2 weeks | 1+ month |
+| **Core total (1–8)** | **~9 weeks** | **~7 months** | **ongoing** |
+| **Total (1–11)** | **~11 weeks** | **~8 months** | **ongoing** |
 
 ---
 
@@ -396,13 +549,25 @@ Chapters 1–4 form a solid one-semester "Introduction to Quantum Computing" cou
 Chapters 5–8 form an advanced graduate seminar on "Quantum Error Correction, Hardware, and
 Algorithms."
 
-A 10-week intensive covering the full curriculum:
+Chapters 9–11 are **application electives**. Each is self-contained once Chapter 6 is done, each
+fits a 2–3 week module, and any one of them supports a term project: quantum machine learning (9),
+quantum chemistry (10), or quantum networking and distributed quantum computing (11). Chapter 10
+is the natural elective for a chemistry or materials audience, Chapter 11 for a networking or
+systems audience, and Chapter 9 works well as a critical-reading module, since its main lesson is
+how to audit an advantage claim.
+
+A 10-week intensive covering the core ladder (Chapters 1–8):
 - Weeks 1–2: Chapters 1–2 (math and QM foundations)
 - Weeks 3–4: Chapters 3–4 (circuits and algorithms)
 - Weeks 5–6: Chapter 5 (error correction)
 - Weeks 7–8: Chapter 6 (variational algorithms)
-- Week 9: Chapter 7 (hardware)
+- Week 9: Chapter 7 (hardware, including modern benchmarking)
 - Week 10: Chapter 8 (advanced topics, selective deep dives)
+
+A 13-week semester adds the electives:
+- Week 11: Chapter 9 (quantum machine learning) — pairs directly with Chapter 6
+- Week 12: Chapter 10 (quantum chemistry) — the end-to-end flagship application
+- Week 13: Chapter 11 (quantum networking and distributed quantum computing)
 
 ### For Reference
 
@@ -443,7 +608,7 @@ These notes are part of the Quantum Computing Learning Suite:
   generated by Claude based on the chapter content. Run `python main.py` in that directory.
 - **`circuit-trainer/`**: Local Qiskit PyQt6 app for building and simulating quantum circuits.
   Hands-on practice for Chapters 3–6. Run `python main.py` in that directory.
-- **`lesson-plans/`**: 10 structured lesson plan markdown files for course instructors.
+- **`lesson-plans/`**: 12 structured lesson plan markdown files for course instructors.
 
 ---
 

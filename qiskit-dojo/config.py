@@ -11,6 +11,11 @@ DATA_DIR           = (
 )
 HISTORY_FILE       = DATA_DIR / "dojo_history.json"
 FLAGGED_FILE       = DATA_DIR / "dojo_flagged.json"
+# Suite-wide study-analytics files (shared schema across all ten apps).
+MISTAKES_FILE      = DATA_DIR / "mistakes.json"
+CONFIDENCE_FILE    = DATA_DIR / "confidence.json"
+# App-local UI preferences (e.g. the confidence-strip opt-out).
+SETTINGS_FILE      = DATA_DIR / "dojo_settings.json"
 API_KEY_FILE       = Path.home() / ".config" / "quantum-study" / "api_key.txt"
 MODEL              = "claude-sonnet-4-6"
 DEFAULT_KATA_COUNT = 8
