@@ -59,6 +59,20 @@ class MainWindow(QMainWindow):
     _EMPTY_DECK_NOTICE = ("No cards match that configuration"
                           " — flag some cards or pick other categories.")
 
+    @staticmethod
+    def _empty_deck_notice(config) -> str:
+        """Why the deck came back empty — mode-aware, so 'Due today' says when to return."""
+        if getattr(config, "due_only", False) and not getattr(config, "flagged_only", False):
+            try:
+                from core.deck import due_summary
+                from core.scheduler import describe_due
+                nxt = describe_due(due_summary(config.categories).next_due)
+            except Exception:
+                return MainWindow._EMPTY_DECK_NOTICE
+            return (f"Nothing due and no new cards left — next review {nxt}."
+                    "  Switch to Free drill to study anyway.")
+        return MainWindow._EMPTY_DECK_NOTICE
+
     def _on_drill_started(self, config) -> None:
         self._last_config = config
         self._start_cards(config)
@@ -66,7 +80,7 @@ class MainWindow(QMainWindow):
     def _start_cards(self, config) -> None:
         """Start a drill for *config*; stay on Setup (with a notice) if the deck is empty."""
         if not self._cards.start(config):
-            self._setup.show_notice(self._EMPTY_DECK_NOTICE)
+            self._setup.show_notice(self._empty_deck_notice(config))
             self._go_setup()
             return
         self._setup.clear_notice()
@@ -82,8 +96,17 @@ class MainWindow(QMainWindow):
             # Nothing was rated — there is nothing to summarise or persist.
             self._go_setup()
             return
-        save_session(stats)
+        try:
+            save_session(stats)
+            save_error = ""
+        except Exception as exc:
+            # A read-only / full data directory must not abort the app: show the
+            # session, say plainly that it was not recorded.  (The SM-2 schedule
+            # is written per rating and fails just as quietly.)
+            save_error = f"This session could not be saved to your history: {exc}"
         self._summary.show_stats(stats)
+        if save_error:
+            self._summary.show_warning(save_error)
         self._stack.setCurrentIndex(PAGE_SUMMARY)
 
     def _on_drill_again(self) -> None:

@@ -1,0 +1,141 @@
+# Publishes the flashcard deck as a static site on GitHub Pages, so the daily
+# drill works on a phone instead of only on the desktop that runs the PyQt6
+# apps:  https://matthewscottconroy.github.io/quantum-computing-study-suite/
+#
+# ONE-TIME SETUP: this workflow cannot turn Pages on by itself.  In the repo,
+# go to Settings -> Pages -> "Build and deployment" -> Source: **GitHub Actions**.
+# Until that is set, the deploy step fails with "Get Pages site failed".
+#
+# The build installs nothing.  tools/export_cards.py --html/--json touches only
+# the standard library (the card modules and core/models.py are plain
+# dataclasses -- no PyQt6, no qiskit), so the whole job is a checkout plus a
+# sub-second export.  The .apkg export is the one format that needs a third-
+# party package (genanki); it is built locally / for releases, not here.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Read the repo, mint the OIDC token deploy-pages exchanges for a deployment,
+# and write the Pages site.  Nothing else.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# GitHub's documented policy for Pages: one queue for the whole repository, and
+# never cancel a run that may already be mid-deployment -- a cancelled deploy
+# can leave the live site on a half-published artifact.  Queued runs collapse
+# to the newest, so a burst of pushes still ends with main's latest content.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build web deck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      # Fail with one readable annotation if a commit lands the workflow
+      # without the exporter or its templates, instead of an opaque traceback.
+      - name: Check required files are in the checkout
+        run: |
+          missing=()
+          for p in tools/export_cards.py tools/webdeck/index.html \
+                   tools/webdeck/deck.css tools/webdeck/deck.js \
+                   flashcard-drill/cards flashcard-drill/core/models.py; do
+            [ -e "$p" ] || missing+=("$p")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Required files missing::not in the checkout: ${missing[*]}"
+            exit 1
+          fi
+          echo "all required files present"
+
+      # No `cache: pip`: this job never runs pip.
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      # --html is the site itself; --json publishes the raw deck at
+      # <pages-url>/cards.json so other tools can consume it.
+      - name: Build the static deck
+        run: python3 tools/export_cards.py --html --json --out _site
+
+      # A silently-empty deck would deploy just as happily as a full one, so
+      # check the artifact before it is uploaded: the page must exist, must
+      # carry as many cards as there are card modules on disk, and must not
+      # reference anything it would have to fetch over the network.
+      - name: Verify the built site
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, re, sys
+
+          site = pathlib.Path("_site")
+          page = site / "index.html"
+          expected = sum(1 for p in pathlib.Path("flashcard-drill/cards").glob("*/*.py")
+                         if p.stem != "__init__")
+
+          def fail(msg):
+              print(f"::error title=Web deck build::{msg}")
+              sys.exit(1)
+
+          if not page.is_file():
+              fail("_site/index.html was not produced")
+          html = page.read_text(encoding="utf-8")
+
+          m = re.search(r'<script type="application/json" id="deck-data">(.*?)</script>',
+                        html, re.S)
+          if not m:
+              fail("no inlined deck-data block in _site/index.html")
+          try:
+              cards = json.loads(m.group(1))["cards"]
+          except (ValueError, KeyError) as exc:
+              fail(f"inlined deck JSON is unusable: {exc}")
+          if len(cards) != expected:
+              fail(f"page carries {len(cards)} cards but {expected} card modules exist")
+
+          data = json.loads((site / "cards.json").read_text(encoding="utf-8"))
+          if data["count"] != expected:
+              fail(f"cards.json carries {data['count']} cards, expected {expected}")
+
+          remote = [u for u in re.findall(r'(?:src|href)\s*=\s*"([^"]+)"', html)
+                    if re.match(r'https?://|//', u) and "github.com/" not in u]
+          if remote:
+              fail(f"page is not self-contained, it would fetch: {remote}")
+
+          print(f"_site/index.html: {len(cards)} cards, {page.stat().st_size / 1024:.0f} KB, "
+                f"no external requests")
+          print(f"_site/cards.json: {data['count']} cards")
+          PY
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

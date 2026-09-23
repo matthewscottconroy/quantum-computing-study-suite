@@ -21,9 +21,18 @@ Part of the quantum-study suite; mirrors the architecture and theme of
 Tests (offscreen Qt, temp data dir — never touches your real history):
 
 ```bash
-cd qiskit-dojo && ../.venv/bin/python -m pytest          # ~5 s
-../.venv/bin/python -m pytest -m slow tests/test_sweep.py  # all 36 katas, ~30 s
+cd qiskit-dojo && ../.venv/bin/python -m pytest          # fast suite, a few seconds
+../.venv/bin/python -m pytest -m slow tests/test_sweep.py  # all 72 katas through the harness
+../.venv/bin/python -m pytest -m slow tests/test_sweep.py -k "dbg or mod"  # fix-it katas only
 ```
+
+The fast suite checks the bank structurally (`tests/test_katas.py`: at least
+72 katas, per-section floors matching the exam blueprint, unique ids and
+titles, 2-3 hints, code compiles, files live in their section directory).
+The slow sweep runs every kata twice through `core/runner.py` - the
+reference solution must pass and the starter must not - so it is one
+parametrised case per kata (144+ cases, ~1-1.5 s each on an idle machine;
+several minutes on a loaded one).
 
 Dependencies: see `requirements.txt` (PyQt6, anthropic, matplotlib for the
 UI). The **execution harness** additionally needs qiskit, qiskit-aer, and
@@ -83,32 +92,35 @@ home path is hard-coded). Every `docs/**/*.md` file is listed:
 
 Fully offline; nothing here touches the network or the API key.
 
-## Sections (~36 katas)
+## Sections (72 katas)
 
-The 8 C1000-179 exam areas, weighted roughly like the exam, plus two
+The 8 C1000-179 exam areas, weighted like the exam blueprint, plus two
 dojo-specific practice styles:
 
 | Section            | Katas | Notes |
 |--------------------|-------|-------|
-| Create circuits    | 4     | Bell/GHZ, registers, Parameter/assign_parameters, compose |
-| Quantum operations | 3     | Operator identities, SparsePauliOp (little-endian), Statevector evolve |
-| Run circuits       | 3     | AerSimulator run, generate_preset_pass_manager/ISA, optimization levels |
-| Sampler            | 3     | SamplerV2 PUBs, parameterized PUBs, named-creg BitArray access |
-| Estimator          | 3     | EstimatorV2 PUBs, parameter sweeps, Hamiltonian energies |
-| Visualization      | 3     | plot_histogram, plot_bloch_multivector, draw() return types |
-| Results analysis   | 2     | per-qubit probabilities (endianness), ⟨ZZ⟩ from counts |
-| OpenQASM           | 2     | qasm2 round-trip, qasm3 loads/dumps |
-| Debugging          | 6     | starter contains a REAL bug you must find and fix |
-| Modernization      | 7     | starter uses retired 0.x APIs you must rewrite for 2.x |
+| Create circuits    | 10    | Bell/GHZ, registers (incl. cross-register Toffoli), Parameter/ParameterVector sweeps, compose, `to_gate` + control, dynamic `if_test`, inverse/uncompute, W state |
+| Quantum operations | 9     | Operator identities, SparsePauliOp (little-endian) and Hamiltonian simplification, Statevector evolve, global phase vs equality, partial_trace/purity/fidelity, commuting groups, random_clifford |
+| Run circuits       | 8     | AerSimulator run and one-job batches, generate_preset_pass_manager/ISA compliance, optimization level vs depth, Target queries, lowest-error qubit chain |
+| Sampler            | 7     | SamplerV2 PUBs, parameterized and multi-PUB jobs, named- and two-creg BitArrays, post-selection, parameter broadcasting/PUB shape |
+| Estimator          | 7     | EstimatorV2 PUBs, parameter sweeps, Hamiltonian energies, estimate vs exact diagonalisation, precision/shots/stds, observable broadcasting |
+| Visualization      | 6     | plot_histogram (one and two datasets), plot_bloch_multivector, plot_state_city, `draw()` return types, `idle_wires`/`fold`/`cregbundle` |
+| Results analysis   | 6     | per-qubit probabilities (endianness), ⟨ZZ⟩ and ⟨Z2 Z0⟩ from counts, marginal_counts, BitArray basics, shot-noise error bars |
+| OpenQASM           | 3     | qasm2 round-trip, qasm3 loads/dumps, qasm3 round-trip that preserves the unitary |
+| Debugging          | 8     | starter contains a REAL bug you must find and fix |
+| Modernization      | 8     | starter uses retired 0.x APIs you must rewrite for 2.x |
 
-Debugging bugs: wrong bit order, measured circuit passed to the Estimator,
-non-ISA circuit submitted to a backend, off-by-one in a parameter loop,
-wrong measurement basis, mutating `qc.data` while iterating.
+Debugging bugs: wrong bit order, `enumerate()` reading a counts key
+big-endian, measured circuit passed to the Estimator, observable not mapped
+to the transpiled layout, non-ISA circuit submitted to a backend,
+off-by-one in a parameter loop, wrong measurement basis, mutating `qc.data`
+while iterating.
 
 Modernization targets: `qiskit.execute`, `from qiskit import Aer`,
 `BasicAer`, V1 primitives (`quasi_dists`), `bind_parameters`, `qc.qasm()`,
-`CXCancellation`. Their tests fail on the legacy starter and pass on a
-correct 2.x rewrite.
+`CXCancellation`, and a full `execute` + V1-Sampler script that has to
+become a preset pass manager + SamplerV2. Their tests fail on the legacy
+starter and pass on a correct 2.x rewrite.
 
 ## Kata file format
 
@@ -140,8 +152,10 @@ KATA = Kata(
    `katas/__init__.py`).
 2. Write `test_code` as bare asserts with actionable messages — the
    harness reports the first failing assert to the user.
-3. Verify: the `solution_code` must pass, and for Debugging/Modernization
-   katas the `starter_code` must fail. Quick check from the app dir:
+3. Verify: the `solution_code` must pass, and the `starter_code` must not
+   (for Debugging/Modernization katas it must fail with a test failure or
+   an error in the user's code - never a timeout). Quick check from the
+   app dir:
 
 ```python
 import sys; sys.path.insert(0, ".")
@@ -150,6 +164,13 @@ from core.runner import run_kata
 k = next(k for k in all_katas() if k.id == "my_kata")
 print(run_kata(k.solution_code, k.test_code))
 ```
+
+   Then run the fast suite (it will tell you if the file failed to import,
+   sits in the wrong directory, or has the wrong number of hints) and the
+   sweep for just your kata:
+   `../.venv/bin/python -m pytest -m slow tests/test_sweep.py -k my_kata`.
+   Section floors live in `tests/test_katas.py::SECTION_TARGETS`; raise
+   the floor when a section grows and you want the new count locked in.
 
 ## Execution harness (core/runner.py)
 

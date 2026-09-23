@@ -1,0 +1,85 @@
+name: Content error
+description: A wrong answer, a wrong number, or an incorrect claim in the docs, lesson plans, banks, katas or notebooks.
+title: "[content] "
+labels:
+  - content
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is mostly *written material* — chapters, curricula,
+        flashcards, exam questions, katas and problems. A report that names the
+        file, quotes the exact claim and says why it is wrong is close to a
+        patch already; a report that says "chapter 4 seems off" is not.
+
+        If the error is in a bank item, the file stem is the item `id`
+        (e.g. `exam-sim/bank/<section_dir>/<id>.py`).
+
+  - type: input
+    id: file
+    attributes:
+      label: File
+      description: Repository-relative path, and the heading or item id if the file is long.
+      placeholder: docs/ch04-measurement.md — section "Expectation values", or flashcard-drill/cards/gates/hadamard_matrix.py
+    validations:
+      required: true
+
+  - type: textarea
+    id: quote
+    attributes:
+      label: Quote the text exactly as it appears
+      description: Copy and paste it — do not paraphrase. Include the surrounding sentence if the claim depends on it.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: why_wrong
+    attributes:
+      label: Why it is wrong
+      description: |
+        The specific defect: a wrong sign, a wrong probability, a retired
+        Qiskit 1.x API, a mislabelled basis state, a claim that contradicts
+        another file. If it contradicts something else in the repo, name that
+        file too.
+    validations:
+      required: true
+
+  - type: textarea
+    id: correction
+    attributes:
+      label: What it should say
+      description: The corrected wording, matrix or number, if you have one.
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: How you verified the correction
+      description: |
+        Every number in this repo is supposed to be checked by a script. Paste
+        the calculation, the Qiskit snippet and its output, or the citation.
+        State the Qiskit version if you ran code.
+      render: python
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Wrong — teaches something false, or a bank answer is incorrect
+        - Misleading — technically defensible but reads wrong
+        - Typo or formatting only
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before filing
+      options:
+        - label: I am reporting against the latest `main`.
+          required: true
+        - label: The quoted text is copied verbatim from the file.
+          required: true
+        - label: No real certification-exam content is included in this report.
+          required: true

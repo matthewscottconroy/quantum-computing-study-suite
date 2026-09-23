@@ -8,6 +8,9 @@ APP_NAME            = "Flashcard Drill"
 DATA_DIR            = Path(os.environ.get("QUANTUM_STUDY_DATA_DIR")
                            or (Path.home() / ".local" / "share" / "quantum-study"))
 HISTORY_FILE        = DATA_DIR / "flashcard_history.json"
+# SM-2 schedule (own file: flashcard_history.json / flagged_cards.json are parsed
+# by coach.py and dashboard.py and must keep their schemas).
+SCHEDULE_FILE       = DATA_DIR / "flashcard_schedule.json"
 DEFAULT_CARD_COUNT  = 20
 DEFAULT_TIMER_SECS  = 0          # 0 = no timer
 WINDOW_TITLE        = "Flashcard Drill — Quantum Computing"

@@ -16,6 +16,10 @@ source .venv/bin/activate
 python launch.py              # the launcher — every app one click away
 ```
 
+`make setup` and `make launch` do the same two things, and plain `make` lists every
+target (`test`, `docs`, `export`, `coverage`, `lint`, `notebooks`, `clean`). Each one
+just shells out to the script it names, so nothing can drift.
+
 `python launch.py flashcard-drill` (or an alias such as `python launch.py dojo`) starts
 one app directly; `python launch.py --list` prints the names, aliases and which apps
 use an API key for their full feature set (section 2 lists what each does without one). If you would rather not use the launcher, every app also runs as
@@ -30,9 +34,8 @@ table in [README.md](README.md#shared-data-directory)), the API-key file describ
 if you create it, a Jupyter kernelspec named `quantum-study` under
 `~/.local/share/jupyter/kernels/` (only with `./setup.sh --dev`), and the usual pip and
 matplotlib caches under `~/.cache/`. `QUANTUM_STUDY_DATA_DIR`
-redirects the history directory for `coach.py`, `launch.py`, flashcard-drill,
-qiskit-dojo, math-quiz and quantum-quiz only; the other six apps and `dashboard.py`
-always use the default path.
+redirects the history directory for `coach.py`, `dashboard.py`, `launch.py` and every app
+except qec-trainer and vqa-trainer, which still use the default path.
 
 ## 2. The one optional piece: an API key
 
@@ -52,10 +55,10 @@ echo "sk-ant-..." > ~/.config/quantum-study/api_key.txt
 
 What works today with **no key at all**:
 
-- **flashcard-drill** — all 550 cards, fully offline
+- **flashcard-drill** — all 550 cards on the SM-2 scheduler, fully offline
 - **exam-sim** — full timed 68-question mocks, section sprints, missed-question review,
   score-trend history; fully offline
-- **qiskit-dojo** — all 36 coding katas, execution-graded locally (only the optional
+- **qiskit-dojo** — all 72 coding katas, execution-graded locally (only the optional
   Claude style review needs a key)
 - **qec-trainer** — the 170 auto-graded problems (of 178) plus the decoder game
 - **vqa-trainer** — the 153 multiple-choice and 7 exact-numeric problems (of 179)
@@ -65,7 +68,8 @@ What works today with **no key at all**:
 - the **Reference** button in every app (the whole `docs/` corpus, rendered in-app)
 - **docs/**, **lesson-plans/**, **notebooks/**, **labs/** (fake-backend paths),
   **projects/** — all reading and executable material
-- `python coach.py` and `python dashboard.py`
+- `python coach.py` and `python dashboard.py`, including `--readiness` and `--calibrate`
+- the **phone deck** — `python tools/export_cards.py` and the published web deck below
 
 With a key: **quantum-quiz**, **math-quiz** and **paper-drill** become live, and the
 free-form / rubric grading switches on everywhere else.
@@ -74,26 +78,63 @@ free-form / rubric grading switches on everywhere else.
 
 ## 3. Day 1
 
+**First, put the deck on your phone.** The single biggest reason a study habit dies is
+that studying requires sitting at the machine that has the software. It does not here —
+open this on your phone and use **Add to Home Screen**:
+
+**<https://matthewscottconroy.github.io/quantum-computing-study-suite/>**
+
+That is all 550 cards in one self-contained page: no app, no account, no network once it
+has loaded. Rate cards Again / Good / Easy and it schedules them for you (Leitner boxes,
+in the phone's own storage — separate from the desktop app's SM-2 schedule, which it
+never reads or writes). On your own fork, GitHub Pages has to be enabled once by hand —
+repository **Settings → Pages → Build and deployment → Source: GitHub Actions** — before
+the `pages.yml` deploy succeeds; `make export` builds the same page locally into
+`exports/index.html`, and `exports/quantum-study.apkg` imports into Anki if you already
+live there.
+
+Then, on the desktop:
+
 ```bash
 source .venv/bin/activate
 python launch.py flashcard-drill
 ```
 
-Do one flashcard session (no key needed) to establish the daily habit. Then run
-`python coach.py --diagnostic` once — a 20-question placement quiz that tells you which
-rung of the docs ladder to start on — and skim [docs/README.md](docs/README.md), the
-ladder itself. Read the first file of Chapter 1. That's it.
+Do one flashcard session (no key needed) to establish the daily habit — the desktop app
+keeps its own SM-2 schedule, and the setup screen will greet you with "N cards due today"
+from tomorrow on. Then run `python coach.py --diagnostic` once — a 20-question placement
+quiz that tells you which rung of the docs ladder to start on — and skim
+[docs/README.md](docs/README.md), the ladder itself. Read the first file of Chapter 1.
+That's it.
+
+Finally, make the plan come to you:
+
+```bash
+tools/install_nudge.sh --time 08:00     # a daily desktop notification with today's plan
+```
+
+It installs a systemd `--user` timer (or a crontab line where no user systemd answers)
+that runs `tools/daily_nudge.sh`, which delivers `coach.py`'s plan as a notification and
+on stdout. `tools/daily_nudge.sh --dry-run` shows what you would get without notifying;
+`tools/install_nudge.sh --status` reports what is scheduled and `--uninstall` removes it.
 
 ## 4. The rhythm
 
 The workflow every resource here is designed around:
 
 1. **Read** a docs file (or lesson-plan module) and work its exercises on paper —
-   solutions are in the collapsible blocks at the end of every file. Every app's
+   every exercise has a worked solution in a collapsible block (at the end of each docs
+   file, under each exercise in the lesson plans). Every app's
    **Reference** button opens the same corpus, so you can read the chapter behind a
    problem without leaving the app.
-2. **Drill** the matching flashcard categories daily (10–15 min; the SRS weights
-   what you miss).
+2. **Clear the due queue** in flashcard-drill, daily (10–15 min). The setup screen opens
+   on today's pull — `23 cards due today`, broken down into overdue / scheduled / new —
+   and **Review Due Cards** starts exactly that queue, oldest due first, topped up with
+   cards you have never seen. That is the loop: whatever SM-2 says is due, cleared every
+   day. *Free drill* is still there when you want a weighted mix of a particular
+   category rather than the schedule, and it updates the schedule just the same. Away
+   from the desk, drill the phone deck instead; its progress is separate, so the desktop
+   queue is still waiting when you get back.
 3. **Quiz** yourself with the matching app to test retention:
 
 | Reading | App |
@@ -133,7 +174,17 @@ The workflow every resource here is designed around:
      through it, then unflag items as they stick (History screen; result screen in
      qec-trainer and vqa-trainer).
    - `python coach.py --badges` — the IBM Quantum Learning badge checklist.
-   - `python dashboard.py` — the raw mastery report.
+   - `python coach.py --readiness` — once you have real exam-sim and dojo history, a
+     projected C1000-179 score with a confidence band and a per-section evidence table.
+     It refuses to guess: with thin data it says so and tells you what would earn a
+     number (one full 68-question mock covers all eight sections at once).
+   - `python coach.py --calibrate` — checks the SM-2 intervals against your measured
+     recall and says whether the schedule is running too long or too short.
+   - `python dashboard.py` — the raw mastery report, plus a retention view (weekly
+     review table and a fitted forgetting curve).
+
+   If you installed the nudge on Day 1, the plan arrives on its own each morning; the
+   rest of these are worth a look weekly rather than daily.
 
 Follow the ladder order in [docs/README.md](docs/README.md) (Rung 1 → 8). The
 recommended pace and per-chapter time estimates are in that file.
@@ -144,11 +195,15 @@ Follow [lesson-plans/11-certification-prep.md](lesson-plans/11-certification-pre
 it maps every C1000-179 exam section to specific modules here, with a 5-week
 schedule and a self-assessment checklist. Support tools:
 
-- **qiskit-dojo** — 36 write-and-run katas weighted to the exam sections,
-  including debugging and API-modernization drills
-- **exam-sim** — timed 68-question/90-minute mocks scored against the 47/68 pass
-  bar with per-section breakdowns, 10-minute section sprints, a review mode for
-  missed questions, and a History screen with your score trend against the pass mark
+- **qiskit-dojo** — 72 write-and-run katas balanced to the exam blueprint,
+  including 8 debugging and 8 API-modernization drills
+- **exam-sim** — a 300-question bank in the published section proportions; timed
+  68-question/90-minute mocks scored against the 47/68 pass bar with per-section
+  breakdowns, 10-minute section sprints, a review mode for missed questions, and a
+  History screen with your score trend against the pass mark
+- `python coach.py --readiness` — the projected score and 95 % band once you have
+  about 40 exam-sim/dojo observations covering 60 % of the exam weight (one full mock
+  gets you most of the way); below that it lists what each section still needs
 - flashcard-drill's **Qiskit API** category (45 exam-aligned cards)
 - quantum-quiz's **Qiskit Certification (C1000-179)** subject (needs API key)
 - Lessons 06 (Qiskit), 07 (QASM), 10 (Transpiling) — code verified on Qiskit 2.5.2
@@ -159,13 +214,14 @@ cert track — the exam assumes the concepts, and tests the API.
 
 ## 6. Housekeeping
 
-- After any content edit, run the regression gate: `python tools/verify_docs.py --all`
-  (from the venv). The full test suite is `tools/run_tests.sh` after `./setup.sh --dev`;
-  see [CONTRIBUTING.md](CONTRIBUTING.md).
-- Your history lives in `~/.local/share/quantum-study/`. Back it up like any other
-  data; nothing in the suite deletes it.
-- The exam-sim **History** screen and `coach.py` are the two places that show progress
-  over time — glance at them weekly.
+- After any content edit, run the regression gate: `make docs` (`python
+  tools/verify_docs.py --all` from the venv). The full test suite is `make test`
+  (`tools/run_tests.sh`) after `./setup.sh --dev`; see [CONTRIBUTING.md](CONTRIBUTING.md).
+- Your history lives in `~/.local/share/quantum-study/`, including the SM-2 schedule
+  (`flashcard_schedule.json`). Back it up like any other data; nothing in the suite
+  deletes it. Phone-deck and Anki progress live on those devices and are not part of it.
+- The exam-sim **History** screen, `coach.py --readiness` and `dashboard.py --retention`
+  are the places that show progress over time — glance at them weekly.
 
 ## 7. Known limitations (documented, not blockers)
 

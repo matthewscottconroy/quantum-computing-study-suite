@@ -898,3 +898,715 @@ class TestCLI:
         for cat in ("Transpiler", "grover", "eigenvalues"):
             assert cat in out
         assert coach.load_state()["last_plan_date"] == coach._TODAY
+
+
+# ---------------------------------------------------------------------------
+# Tier-4: exam readiness (--readiness), SM-2 calibration (--calibrate)
+# and the default plan's one-line teaser.
+#
+# Everything is exercised against synthetic data at three densities — none,
+# below the thresholds, and rich — because the real data dir is empty.
+# ---------------------------------------------------------------------------
+
+# One full C1000-179 exam, split across the eight official sections in
+# proportion to their weights (sums to 68).
+FULL_EXAM_COUNTS = {"Create circuits": 12, "Quantum operations": 11,
+                    "Run circuits": 10, "Sampler": 8, "Estimator": 8,
+                    "Visualization": 8, "Results analysis": 7, "OpenQASM": 4}
+
+
+def full_exam(ts: float, accuracy: float = 0.8, mode: str = "full") -> dict:
+    sections, total, correct = {}, 0, 0
+    for name, n in FULL_EXAM_COUNTS.items():
+        c = int(round(n * accuracy))
+        sections[name] = {"total": n, "correct": c}
+        total += n
+        correct += c
+    return {"timestamp": ts, "mode": mode, "total": total, "correct": correct,
+            "duration_secs": 4800, "sections": sections}
+
+
+def dojo_session(ts: float, rows) -> dict:
+    attempts = [{"kata_id": f"{sec[:3]}_{i}", "section": sec,
+                 "passed": passed, "tries": 1}
+                for i, (sec, passed) in enumerate(rows)]
+    return {"timestamp": ts, "total": len(attempts),
+            "passed": sum(1 for a in attempts if a["passed"]),
+            "attempts": attempts}
+
+
+def fc_session(ts: float, rows) -> dict:
+    results = [{"card_id": cid, "category": cat, "rating": rating}
+               for cid, cat, rating in rows]
+    return {"total": len(results), "timestamp": ts,
+            "got_it": sum(1 for r in results if r["rating"] == "got_it"),
+            "unsure": sum(1 for r in results if r["rating"] == "unsure"),
+            "missed": sum(1 for r in results if r["rating"] == "missed"),
+            "results": results}
+
+
+def rich_histories(now: float) -> dict[str, list]:
+    """Multi-week history across all ten apps, dense enough for every view."""
+    h = empty_histories()
+    h["exam-sim"] = [full_exam(now - d * DAY, acc)
+                     for d, acc in ((40, 0.65), (20, 0.75), (4, 0.85))]
+    h["qiskit-dojo"] = [
+        dojo_session(now - d * DAY,
+                     [(sec, (i + j) % 3 != 0)
+                      for j, sec in enumerate(FULL_EXAM_COUNTS)]
+                     + [("Debugging", True)])
+        for i, d in enumerate((35, 21, 14, 7, 2))]
+    weeks = [now - d * DAY for d in (2, 9, 16, 23, 30, 37)]
+    fc = []
+    for i, ts in enumerate(weeks):
+        rows = [(f"api_{c}", "Qiskit API",
+                 "got_it" if (i + c) % 4 else "missed") for c in range(8)]
+        rows += [(f"hw_{c}", "Quantum Hardware", "unsure") for c in range(3)]
+        fc.append(fc_session(ts, rows))
+    for k in range(3):                     # short-gap repeats
+        fc.append(fc_session(now - (1 + k) * DAY,
+                             [(f"api_{c}", "Qiskit API", "got_it")
+                              for c in range(8)]))
+    h["flashcard-drill"] = fc
+    h["qec-trainer"] = [{"timestamp": now - 9 * DAY, "attempts": [
+        {"problem_id": "q1", "category": "stabilizers", "score": 4}]}]
+    h["problem-trainer"] = [{"timestamp": now - 3 * DAY, "attempts": [
+        {"problem_id": "p1", "kind": "derivation", "score": 6}]}]
+    return h
+
+
+def write_histories(directory: Path, histories: dict[str, list]) -> None:
+    for app, sessions in histories.items():
+        if sessions:
+            write_json(directory, coach._HISTORY_FILES[app], sessions)
+
+
+# ---------------------------------------------------------------------------
+# Exam readiness
+# ---------------------------------------------------------------------------
+
+class TestReadinessWeights:
+    def test_official_weights_match_the_certification_blueprint(self):
+        assert coach.EXAM_SECTION_WEIGHTS == [
+            ("Create circuits", 18), ("Quantum operations", 16),
+            ("Run circuits", 15), ("Sampler", 12), ("Estimator", 12),
+            ("Visualization", 11), ("Results analysis", 10), ("OpenQASM", 6)]
+        assert coach.EXAM_WEIGHT_TOTAL == 100
+        assert coach.EXAM_PASS_TOTAL == 68 and coach.EXAM_PASS_CORRECT == 47
+
+    def test_every_section_has_a_next_action(self):
+        for name, _w in coach.EXAM_SECTION_WEIGHTS:
+            assert coach._SECTION_ACTIONS[name].strip()
+
+    def test_canonical_section_matches_the_real_apps(self):
+        # exam-sim/config.py SECTIONS and qiskit-dojo kata sections
+        for name, _w in coach.EXAM_SECTION_WEIGHTS:
+            assert coach.canonical_section(name) == name
+        assert coach.canonical_section("openqasm") == "OpenQASM"
+        assert coach.canonical_section("  Create Circuits  ") == "Create circuits"
+        assert coach.canonical_section("visualisation") == "Visualization"
+        assert coach.canonical_section("qiskit_api") is None
+        # dojo has two sections that are not exam sections: never guessed
+        assert coach.canonical_section("Debugging") is None
+        assert coach.canonical_section("Modernization") is None
+        # conftest's synthetic names are not C1000-179 sections
+        for bogus in ("Primitives", "Transpiler", "Circuits", "", None, 42):
+            assert coach.canonical_section(bogus) is None, bogus
+
+    def test_norm_name_collapses_punctuation_and_case(self):
+        assert coach._norm_name("Qiskit API") == "qiskit api"
+        assert coach._norm_name("qiskit_api") == "qiskit api"
+        assert coach._norm_name(" Qiskit-API  ") == "qiskit api"
+        assert coach._norm_name(None) == "none"
+
+
+class TestSectionEvidence:
+    def test_counts_exam_dojo_and_flashcards_separately(self, now):
+        h = empty_histories()
+        h["exam-sim"] = [full_exam(now - DAY, 0.5)]
+        h["qiskit-dojo"] = [dojo_session(now, [("Sampler", True),
+                                               ("Sampler", False),
+                                               ("Debugging", True)])]
+        h["flashcard-drill"] = [fc_session(now, [
+            ("a", "Qiskit API", "got_it"), ("b", "qiskit_api", "missed"),
+            ("c", "Quantum Hardware", "got_it")])]
+        ev = coach.section_evidence(h)
+        assert ev["exam"]["Sampler"].n == 8
+        assert ev["exam"]["Sampler"].accuracy == approx(0.5)
+        assert ev["dojo"]["Sampler"].n == 2
+        assert ev["dojo"]["Sampler"].accuracy == approx(0.5)
+        # only the qiskit_api category counts, both spellings
+        assert ev["flashcard"].n == 2
+        assert ev["flashcard"].accuracy == approx(0.5)
+        assert ev["unmapped"] == {"Debugging": (1, ["qiskit-dojo"])}
+
+    def test_unmapped_exam_sections_are_reported_not_guessed(self, now):
+        h = empty_histories()
+        h["exam-sim"] = [{"timestamp": now, "mode": "full", "total": 30,
+                          "correct": 15, "sections": {
+                              "Primitives": {"total": 20, "correct": 10},
+                              "Sampler": {"total": 10, "correct": 5}}}]
+        ev = coach.section_evidence(h)
+        assert set(ev["exam"]) == {"Sampler"}
+        assert ev["unmapped"] == {"Primitives": (20, ["exam-sim"])}
+
+    def test_tolerates_malformed_sessions(self, now):
+        h = empty_histories()
+        h["exam-sim"] = [None, 5, {"sections": "oops"},
+                         {"timestamp": now, "sections": {"Sampler": "nope",
+                                                         "Estimator": {}}}]
+        h["qiskit-dojo"] = [{"timestamp": now, "attempts": ["x", None, {}]}]
+        h["flashcard-drill"] = [{"timestamp": now, "results": "nope"}]
+        ev = coach.section_evidence(h)
+        assert ev["exam"] == {} and ev["dojo"] == {}
+        assert ev["flashcard"].n == 0
+
+    def test_effective_sample_size_discounts_old_sessions(self, now):
+        fresh = coach._Evidence()
+        fresh.add(1.0, 8.0, 10)
+        assert fresh.n == 10 and fresh.n_eff == approx(10.0)
+        assert fresh.accuracy == approx(0.8)
+        mixed = coach._Evidence()
+        mixed.add(1.0, 5.0, 10)     # recent
+        mixed.add(0.1, 0.0, 10)     # old, all wrong
+        assert mixed.n == 20
+        assert mixed.n_eff < 20                     # old evidence counts less
+        assert mixed.accuracy > 0.25                # ... and is down-weighted
+        empty = coach._Evidence()
+        assert empty.accuracy is None and empty.n_eff == 0.0
+
+
+class TestBuildReadiness:
+    def test_empty_history_refuses_a_number(self, data_dir):
+        r = coach.build_readiness(empty_histories())
+        assert r["confident"] is False
+        assert r["projected"] is None and r["low"] is None and r["high"] is None
+        assert r["verdict"] == "not enough evidence for a projected score"
+        assert r["covered_weight"] == 0 and r["total_direct"] == 0
+        assert len(r["thin"]) == 8 and r["measured"] == []
+        assert len(r["reasons"]) == 3
+        assert all(s["accuracy"] is None for s in r["sections"])
+
+    def test_thin_history_refuses_and_says_what_is_missing(self, data_dir, now):
+        h = empty_histories()
+        h["exam-sim"] = [{"timestamp": now, "mode": "sprint", "total": 10,
+                          "correct": 6, "sections": {
+                              "Sampler": {"total": 5, "correct": 3},
+                              "Estimator": {"total": 5, "correct": 3}}}]
+        r = coach.build_readiness(h)
+        assert r["confident"] is False
+        assert r["total_direct"] == 10
+        assert r["covered_weight"] == 0          # 5 obs each, below the floor
+        reasons = " ".join(r["reasons"])
+        assert "30 more" in reasons              # 40 - 10
+        assert "60 needed" in reasons
+        assert {s["name"] for s in r["thin"]} == \
+            {name for name, _w in coach.EXAM_SECTION_WEIGHTS}
+
+    def test_one_full_exam_is_enough_for_a_number(self, data_dir, now):
+        r = coach.build_readiness({**empty_histories(),
+                                   "exam-sim": [full_exam(now - DAY, 0.8)]})
+        assert r["confident"] is True
+        assert r["total_direct"] == 68
+        assert r["covered_weight"] >= coach.READINESS_MIN_COVERED_WEIGHT
+        assert r["low"] < r["projected"] < r["high"]
+        assert 0.0 <= r["low"] and r["high"] <= 68
+        assert r["projected"] == approx(0.8 * 68, abs=4.0)
+        # OpenQASM only had 4 questions -> still unmeasured, still flagged
+        assert [s["name"] for s in r["thin"]] == ["Results analysis",
+                                                  "OpenQASM"]
+
+    def test_two_full_exams_measure_every_section(self, data_dir, now):
+        # OpenQASM is only 4 questions per exam, so it is the last section to
+        # clear the 8-observation floor -- exactly the honesty it is there for.
+        h = {**empty_histories(),
+             "exam-sim": [full_exam(now - 10 * DAY, 0.8),
+                          full_exam(now - DAY, 0.8)]}
+        r = coach.build_readiness(h)
+        assert r["confident"] is True
+        assert r["thin"] == [] and r["stale_sections"] == []
+        assert r["covered_weight"] == 100
+        assert r["total_direct"] == 136
+        assert all(s["measured"] for s in r["sections"])
+
+    def test_stale_evidence_stops_counting(self, data_dir, now):
+        fresh = coach.build_readiness(
+            {**empty_histories(), "exam-sim": [full_exam(now - DAY, 0.8)]})
+        stale = coach.build_readiness(
+            {**empty_histories(),
+             "exam-sim": [full_exam(now - 200 * DAY, 0.8)]})
+        assert fresh["confident"] is True
+        assert stale["confident"] is False
+        assert stale["total_direct"] == 68           # raw count is unchanged
+        assert stale["covered_weight"] == 0
+        assert stale["measured"] == []
+        # ... and it is called stale, not thin-on-questions
+        names = [s["name"] for s in stale["stale_sections"]]
+        assert "Create circuits" in names and "OpenQASM" not in names
+        assert "too old to trust" in " ".join(stale["reasons"])
+        for s in stale["sections"]:
+            if s["n_direct"] >= coach.READINESS_MIN_SECTION_OBS:
+                assert s["stale"] is True
+                assert s["age_days"] == approx(200, rel=0.05)
+
+    def test_freshness_helpers(self):
+        assert coach._evidence_age_days(1.0) == 0.0
+        assert coach._evidence_age_days(0.5) == approx(14.0)
+        assert coach._evidence_age_days(0.125) == approx(42.0)
+        assert coach._evidence_age_days(0.0) == float("inf")
+        assert coach._fmt_age(0.0) == "0d"
+        assert coach._fmt_age(42.4) == "42d"
+        assert coach._fmt_age(float("inf")) == ">1y"
+        assert coach.READINESS_MAX_AGE_DAYS == approx(
+            coach._evidence_age_days(coach.READINESS_MIN_FRESHNESS))
+
+    def test_band_narrows_as_evidence_grows(self, data_dir, now):
+        one = coach.build_readiness({**empty_histories(),
+                                     "exam-sim": [full_exam(now - DAY, 0.8)]})
+        many = coach.build_readiness(
+            {**empty_histories(),
+             "exam-sim": [full_exam(now - d * DAY, 0.8)
+                          for d in (1, 2, 3, 4, 5, 6)]})
+        assert (many["high"] - many["low"]) < (one["high"] - one["low"])
+
+    def test_verdicts_track_the_pass_line(self, data_dir, now):
+        strong = coach.build_readiness(
+            {**empty_histories(),
+             "exam-sim": [full_exam(now - d * DAY, 0.95) for d in (1, 3, 5)]})
+        assert strong["verdict"] == "on track to pass"
+        weak = coach.build_readiness(
+            {**empty_histories(),
+             "exam-sim": [full_exam(now - d * DAY, 0.30) for d in (1, 3, 5)]})
+        assert weak["verdict"] == "below the pass line"
+        borderline = coach.build_readiness(
+            {**empty_histories(),
+             "exam-sim": [full_exam(now - DAY, 47 / 68)]})
+        assert borderline["verdict"] == "too close to call"
+
+    def test_dojo_and_flashcards_are_blended_in(self, data_dir, now):
+        base = {**empty_histories(), "exam-sim": [full_exam(now - DAY, 0.5)]}
+        plain = coach.build_readiness(base)
+        with_dojo = coach.build_readiness({
+            **base,
+            "qiskit-dojo": [dojo_session(now, [("Sampler", True)] * 6)]})
+        sampler_plain = next(s for s in plain["sections"]
+                             if s["name"] == "Sampler")
+        sampler_dojo = next(s for s in with_dojo["sections"]
+                            if s["name"] == "Sampler")
+        assert sampler_dojo["accuracy"] > sampler_plain["accuracy"]
+        assert sampler_dojo["sources"] == ["exam-sim", "qiskit-dojo"]
+        assert sampler_dojo["n_direct"] == 8 + 6
+
+        with_fc = coach.build_readiness({
+            **base,
+            "flashcard-drill": [fc_session(now, [(f"c{i}", "Qiskit API",
+                                                  "got_it")
+                                                 for i in range(20)])]})
+        sampler_fc = next(s for s in with_fc["sections"]
+                          if s["name"] == "Sampler")
+        assert sampler_fc["accuracy"] > sampler_plain["accuracy"]
+        assert "flashcard-drill" in sampler_fc["sources"]
+        # ... but flashcards alone never make a section measurable
+        only_fc = coach.build_readiness({
+            **empty_histories(),
+            "flashcard-drill": [fc_session(now, [(f"c{i}", "Qiskit API",
+                                                  "got_it")
+                                                 for i in range(50)])]})
+        assert only_fc["confident"] is False
+        assert all(not s["measured"] for s in only_fc["sections"])
+        assert only_fc["total_direct"] == 0
+
+    def test_rich_history_gives_a_number_with_a_band(self, data_dir, now):
+        r = coach.build_readiness(rich_histories(now))
+        assert r["confident"] is True
+        assert r["thin"] == [] and r["covered_weight"] == 100
+        assert 0 <= r["low"] < r["projected"] < r["high"] <= 68
+        assert r["unmapped"] == {"Debugging": (5, ["qiskit-dojo"])}
+        assert r["flashcard_n"] > 0
+        for s in r["sections"]:
+            assert s["se"] >= coach.READINESS_MIN_SE
+            assert 0.0 <= s["accuracy"] <= 1.0
+
+    def test_weak_sections_are_listed_worst_first_with_actions(self, data_dir,
+                                                               now):
+        h = {**empty_histories(),
+             "exam-sim": [full_exam(now - d * DAY, 0.9) for d in (1, 2, 3)]}
+        # tank one section
+        for session in h["exam-sim"]:
+            session["sections"]["OpenQASM"]["correct"] = 0
+            session["sections"]["Sampler"]["correct"] = 2
+        r = coach.build_readiness(h)
+        names = [s["name"] for s in r["weak"]]
+        assert names[:2] == ["OpenQASM", "Sampler"]
+        for s in r["weak"]:
+            assert s["accuracy"] < coach.READINESS_WEAK_ACC
+            assert s["action"] == coach._SECTION_ACTIONS[s["name"]]
+
+
+class TestReadinessRendering:
+    @pytest.mark.parametrize("scenario", ["empty", "thin", "stale", "rich"])
+    def test_renders_without_crashing(self, data_dir, now, scenario, capsys):
+        if scenario == "empty":
+            h = empty_histories()
+        elif scenario == "thin":
+            h = {**empty_histories(),
+                 "exam-sim": [full_exam(now - DAY, 0.7, mode="sprint")]}
+            h["exam-sim"][0]["sections"] = {"Sampler": {"total": 5,
+                                                        "correct": 3}}
+        elif scenario == "stale":
+            h = {**empty_histories(),
+                 "exam-sim": [full_exam(now - 200 * DAY, 0.8)]}
+        else:
+            h = rich_histories(now)
+        coach.render_readiness(coach.build_readiness(h))
+        out = capsys.readouterr().out
+        assert "Exam Readiness" in out
+        for name, _w in coach.EXAM_SECTION_WEIGHTS:
+            assert name in out
+        if scenario == "rich":
+            assert "Projected score" in out
+            assert "No projected score" not in out
+        else:
+            assert "No projected score" in out
+            assert "To earn a number" in out
+        if scenario == "stale":
+            assert f"stale (> {coach.READINESS_MAX_AGE_DAYS}d old)" in out
+            assert "too old to trust" in out
+            assert "(stale, n=" in out
+
+
+# ---------------------------------------------------------------------------
+# SM-2 calibration
+# ---------------------------------------------------------------------------
+
+def recall_history(now: float, gaps_and_ratings) -> list:
+    """One session per (gap, rating) chain for a single card per chain."""
+    sessions: dict[float, list] = {}
+    for idx, (gap, rating) in enumerate(gaps_and_ratings):
+        card = f"card_{idx}"
+        first, second = now - (gap + 1) * DAY, now - 1 * DAY
+        sessions.setdefault(first, []).append((card, "Qiskit API", "got_it"))
+        sessions.setdefault(second, []).append((card, "Qiskit API", rating))
+    return [fc_session(ts, rows) for ts, rows in sorted(sessions.items())]
+
+
+class TestRecallObservations:
+    def test_pairs_consecutive_reviews_of_the_same_card(self, now):
+        sessions = [
+            fc_session(now - 20 * DAY, [("a", "Qiskit API", "got_it")]),
+            fc_session(now - 10 * DAY, [("a", "Qiskit API", "missed"),
+                                        ("b", "Qiskit API", "got_it")]),
+            fc_session(now - 2 * DAY, [("a", "Qiskit API", "unsure")]),
+        ]
+        obs = coach.flashcard_recall_observations(sessions)
+        assert [(o["card_id"], round(o["gap_days"]), o["rating"])
+                for o in obs] == [("a", 8, "unsure"), ("a", 10, "missed")]
+        assert all(o["category"] == "Qiskit API" for o in obs)
+
+    def test_single_sightings_and_junk_yield_nothing(self, now):
+        assert coach.flashcard_recall_observations([]) == []
+        assert coach.flashcard_recall_observations(
+            [fc_session(now, [("a", "c", "got_it")])]) == []
+        assert coach.flashcard_recall_observations(
+            [None, 4, {"results": "x"},
+             {"timestamp": now, "results": [None, {"card_id": "  "},
+                                            {"rating": "got_it"}]}]) == []
+
+    def test_sessions_without_timestamps_are_skipped(self):
+        assert coach.flashcard_recall_observations(
+            [{"results": [{"card_id": "a", "rating": "got_it"}]},
+             {"results": [{"card_id": "a", "rating": "missed"}]}]) == []
+
+    def test_bucket_recall_counts_lapses_and_judges_only_at_n(self, now):
+        obs = ([{"gap_days": 5.0, "rating": "missed"}] * 3
+               + [{"gap_days": 5.0, "rating": "got_it"}] * 5
+               + [{"gap_days": 20.0, "rating": "got_it"}] * 2)
+        rows = coach.bucket_recall(obs)
+        by_label = {r["label"]: r for r in rows}
+        assert set(by_label) == {"3-7d", "14-30d"}
+        short = by_label["3-7d"]
+        assert (short["n"], short["lapses"]) == (8, 3)
+        assert short["lapse_rate"] == approx(3 / 8)
+        assert short["judged"] is True
+        assert short["verdict"] == "intervals too long"
+        long = by_label["14-30d"]
+        assert long["judged"] is False
+        assert long["verdict"] == f"too few (n<{coach.CALIBRATE_MIN_BUCKET_OBS})"
+
+    def test_unsure_is_half_a_success_and_not_a_lapse(self):
+        rows = coach.bucket_recall([{"gap_days": 5.0, "rating": "unsure"}] * 10)
+        assert rows[0]["lapses"] == 0
+        assert rows[0]["lapse_rate"] == 0.0
+        assert rows[0]["recall"] == approx(0.5)
+        assert rows[0]["verdict"] == "intervals too short"
+
+
+class TestScheduleFile:
+    def test_absent_file_is_tolerated(self, data_dir):
+        assert coach.load_schedule() is None
+        assert coach.summarise_schedule(None) is None
+
+    @pytest.mark.parametrize("content",
+                             ["", "{bad", "null", "[]", '["a"]', "42", '"s"'])
+    def test_unreadable_or_wrong_shape_file_is_tolerated(self, data_dir,
+                                                         content):
+        (data_dir / coach.SCHEDULE_FILE).write_text(content)
+        assert coach.load_schedule() is None
+
+    def test_normalises_fields_and_survives_junk_values(self, data_dir, now):
+        due = datetime.fromtimestamp(now - DAY, tz=timezone.utc).isoformat()
+        write_json(data_dir, coach.SCHEDULE_FILE, {
+            "good": {"n": 3, "ef": 2.35, "interval_days": 12.5,
+                     "due_iso": due, "last_seen_iso": due, "lapses": 1},
+            "junk": {"n": "x", "ef": None, "interval_days": "NaN",
+                     "due_iso": 7, "last_seen_iso": [], "lapses": 1e400},
+            "not-a-dict": "nope",
+        })
+        sched = coach.load_schedule()
+        assert set(sched) == {"good", "junk"}
+        assert sched["good"] == {"n": 3, "ef": approx(2.35),
+                                 "interval_days": approx(12.5),
+                                 "due_iso": due, "last_seen_iso": due,
+                                 "lapses": 1}
+        assert sched["junk"]["n"] == 0
+        assert sched["junk"]["ef"] == approx(coach.SM2_DEFAULT_EF)
+        assert sched["junk"]["interval_days"] == 0.0
+        assert sched["junk"]["due_iso"] is None
+        assert sched["junk"]["lapses"] == 0
+
+        summary = coach.summarise_schedule(sched)
+        assert summary["cards"] == 2
+        assert summary["scheduled"] == 1
+        assert summary["overdue"] == 1            # "good" is due in the past
+        assert summary["lapses"] == 1
+        assert summary["relearning"] == 1         # "junk" has n = 0
+        assert summary["median_interval"] == approx(12.5)
+
+    def test_median_helper(self):
+        assert coach._median([]) is None
+        assert coach._median([3.0]) == 3.0
+        assert coach._median([1.0, 3.0]) == 2.0
+        assert coach._median([5.0, 1.0, 3.0]) == 3.0
+
+
+class TestBuildCalibration:
+    def test_empty_history_refuses_a_verdict(self, data_dir):
+        c = coach.build_calibration(empty_histories())
+        assert c["confident"] is False
+        assert c["n_obs"] == 0 and c["buckets"] == []
+        assert c["schedule"] is None and c["schedule_present"] is False
+        assert c["schedule_unreadable"] is False
+        assert c["stability_days"] is None and c["suggested_ef"] is None
+        assert c["verdict"] == "not enough repeat reviews to judge the schedule"
+        assert "20 more" in " ".join(c["reasons"])
+
+    def test_thin_history_shows_counts_but_no_verdict(self, data_dir, now):
+        h = empty_histories()
+        h["flashcard-drill"] = recall_history(
+            now, [(5.0, "got_it"), (5.0, "missed"), (5.0, "got_it")])
+        c = coach.build_calibration(h)
+        assert c["n_obs"] == 3 and c["n_cards"] == 3
+        assert c["confident"] is False
+        assert [b["n"] for b in c["buckets"]] == [3]
+        assert c["buckets"][0]["judged"] is False
+        assert "17 more" in " ".join(c["reasons"])
+
+    def test_long_intervals_are_called_out(self, data_dir, now):
+        h = empty_histories()
+        pairs = ([(2.0, "got_it")] * 10
+                 + [(20.0, "missed")] * 8 + [(20.0, "got_it")] * 2)
+        h["flashcard-drill"] = recall_history(now, pairs)
+        c = coach.build_calibration(h)
+        assert c["confident"] is True
+        assert c["n_obs"] == 20
+        by_label = {b["label"]: b for b in c["buckets"]}
+        assert by_label["14-30d"]["verdict"] == "intervals too long"
+        assert by_label["1-3d"]["verdict"] == "intervals too short"
+        assert c["verdict"] in ("intervals look too long",
+                                "intervals look too short",
+                                "intervals look about right")
+        assert c["observed_interval_days"] is not None
+
+    def test_schedule_is_compared_and_an_ef_is_suggested(self, data_dir, now):
+        h = empty_histories()
+        pairs = ([(2.0, "got_it")] * 12 + [(2.0, "missed")] * 2
+                 + [(20.0, "missed")] * 8 + [(20.0, "got_it")] * 2)
+        h["flashcard-drill"] = recall_history(now, pairs)
+        write_json(data_dir, coach.SCHEDULE_FILE,
+                   {f"card_{i}": {"n": 3, "ef": 2.5, "interval_days": 20.0,
+                                  "due_iso": None, "last_seen_iso": None,
+                                  "lapses": 1}
+                    for i in range(len(pairs))})
+        c = coach.build_calibration(h)
+        assert c["schedule_present"] is True
+        assert c["schedule"]["cards"] == len(pairs)
+        assert c["schedule_interval_days"] == approx(20.0)
+        assert c["current_ef"] == approx(2.5)
+        if c["stability_days"]:
+            assert c["schedule_factor"] == approx(
+                c["optimal_interval_days"] / 20.0)
+            assert coach.SM2_MIN_EF <= c["suggested_ef"] <= coach.SM2_MAX_EF
+            assert c["suggested_ef"] < 2.5        # 20d is far too long
+        assert c["verdict"] == "intervals look too long"
+
+    def test_refuses_the_fit_when_recall_does_not_track_the_interval(
+            self, data_dir, now):
+        h = empty_histories()
+        # identical recall at every interval: nothing to fit
+        pairs = [(2.0, "got_it")] * 10 + [(20.0, "got_it")] * 10
+        h["flashcard-drill"] = recall_history(now, pairs)
+        c = coach.build_calibration(h)
+        assert c["confident"] is True
+        assert c["stability_days"] is None
+        assert c["suggested_ef"] is None
+        assert c["verdict"] == "intervals look too short"   # 0% lapse rate
+
+    def test_thresholds_are_the_documented_ones(self):
+        assert coach.CALIBRATE_MIN_OBS == 20
+        assert coach.CALIBRATE_MIN_BUCKET_OBS == 8
+        assert coach.SM2_TARGET_RECALL == 0.90
+        assert coach.CALIBRATE_MIN_R2 == 0.50
+
+
+class TestCalibrationRendering:
+    @pytest.mark.parametrize("scenario", ["empty", "thin", "rich", "corrupt"])
+    def test_renders_without_crashing(self, data_dir, now, scenario, capsys):
+        h = empty_histories()
+        if scenario == "thin":
+            h["flashcard-drill"] = recall_history(now, [(5.0, "got_it")] * 3)
+        elif scenario in ("rich", "corrupt"):
+            h["flashcard-drill"] = recall_history(
+                now, [(2.0, "got_it")] * 12 + [(20.0, "missed")] * 10)
+            if scenario == "corrupt":
+                (data_dir / coach.SCHEDULE_FILE).write_text("[not a dict]")
+            else:
+                write_json(data_dir, coach.SCHEDULE_FILE,
+                           {"card_0": {"n": 2, "ef": 2.4,
+                                       "interval_days": 9.0,
+                                       "due_iso": None,
+                                       "last_seen_iso": None, "lapses": 0}})
+        coach.render_calibration(coach.build_calibration(h))
+        out = capsys.readouterr().out
+        assert "SM-2 Calibration" in out
+        assert "Verdict:" in out
+        if scenario == "corrupt":
+            assert "present but not a readable" in out
+        elif scenario == "rich":
+            assert "Schedule file:" in out
+        else:
+            assert "No flashcard_schedule.json yet" in out
+
+
+# ---------------------------------------------------------------------------
+# Default-plan teaser + CLI wiring
+# ---------------------------------------------------------------------------
+
+class TestPlanTeaser:
+    def test_absent_without_data(self, data_dir):
+        assert coach.plan_teaser(empty_histories()) is None
+        plan = coach.build_plan(empty_histories(), coach.load_state())
+        assert plan["teaser"] is None
+
+    def test_mentions_readiness_gap_when_evidence_is_thin(self, data_dir, now):
+        h = {**empty_histories(),
+             "exam-sim": [{"timestamp": now, "mode": "sprint", "total": 6,
+                           "correct": 3,
+                           "sections": {"Sampler": {"total": 6,
+                                                    "correct": 3}}}]}
+        teaser = coach.plan_teaser(h)
+        assert "readiness not scoreable yet" in teaser
+        assert "6 obs" in teaser
+        assert "--readiness" in teaser
+
+    def test_reports_a_projection_once_it_exists(self, data_dir, now):
+        h = {**empty_histories(),
+             "exam-sim": [full_exam(now - DAY, 0.8),
+                          full_exam(now - 5 * DAY, 0.8)]}
+        teaser = coach.plan_teaser(h)
+        assert teaser.startswith("readiness ~")
+        assert "/68" in teaser and "pass 47" in teaser
+
+    def test_includes_retention_when_items_repeat(self, data_dir, now):
+        teaser = coach.plan_teaser(rich_histories(now))
+        assert "half-life" in teaser or "this week" in teaser
+        assert "`dashboard.py`" in teaser
+
+    def test_plan_stays_deterministic_with_the_teaser(self, data_dir, now):
+        h = rich_histories(now)
+        write_histories(data_dir, h)
+        first = coach.build_plan(coach.load_histories(), coach.load_state())
+        second = coach.build_plan(coach.load_histories(), coach.load_state())
+        assert first == second
+        assert json.dumps(first, sort_keys=True, default=str) == \
+            json.dumps(second, sort_keys=True, default=str)
+        assert first["teaser"]
+
+    def test_rendered_plan_shows_the_teaser(self, data_dir, now, capsys):
+        write_histories(data_dir, rich_histories(now))
+        coach.main([])
+        out = capsys.readouterr().out
+        assert "readiness" in out
+        assert "coach.py --readiness" in out
+
+
+class TestTier4CLI(TestCLI):
+    def test_readiness_and_calibrate_run_on_an_empty_dir(self, tmp_path):
+        for flag, marker in (("--readiness", "No projected score"),
+                             ("--calibrate", "SM-2 Calibration")):
+            r = self._run(["coach.py", flag], tmp_path)
+            assert r.returncode == 0, r.stderr
+            assert marker in r.stdout
+        # read-only modes: nothing written, not even coach_state.json
+        assert list(tmp_path.iterdir()) == []
+
+    def test_readiness_on_rich_data_prints_a_projection(self, tmp_path, now):
+        write_histories(tmp_path, rich_histories(now))
+        r = self._run(["coach.py", "--readiness"], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert "Projected score:" in r.stdout
+        assert "/68" in r.stdout and "pass mark 47/68" in r.stdout
+        for name, _w in coach.EXAM_SECTION_WEIGHTS:
+            assert name in r.stdout
+
+    def test_calibrate_on_rich_data_prints_buckets(self, tmp_path, now):
+        write_histories(tmp_path, rich_histories(now))
+        r = self._run(["coach.py", "--calibrate"], tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert "Measured recall from flashcard_history.json" in r.stdout
+        assert "lapse rate" in r.stdout
+
+    def test_modes_remain_mutually_exclusive(self, tmp_path):
+        r = self._run(["coach.py", "--readiness", "--calibrate"], tmp_path)
+        assert r.returncode != 0
+        assert "not allowed with" in r.stderr
+
+    def test_existing_flags_still_work(self, tmp_path):
+        for flag in ("--review", "--diagnostic", "--badges"):
+            r = self._run(["coach.py", flag], tmp_path,
+                          stdin=subprocess.DEVNULL)
+            assert r.returncode == 0, (flag, r.stderr)
+
+
+def test_nan_and_infinity_in_json_never_reach_the_readiness_maths(data_dir,
+                                                                  now):
+    # json.loads accepts NaN / Infinity, so a hand-edited file can hold them
+    sessions = json.loads(
+        '[{"timestamp": 1.0, "mode": "full", "total": NaN, "correct": NaN,'
+        ' "sections": {"Sampler": {"total": NaN, "correct": 1},'
+        '              "Estimator": {"total": 4, "correct": Infinity}}}]')
+    ev = coach.section_evidence({**empty_histories(), "exam-sim": sessions})
+    assert "Sampler" not in ev["exam"]                  # NaN total dropped
+    # timestamp 1.0 is 1970: the 14-day half-life decays its weight to zero,
+    # so the questions are still counted but carry no signal
+    assert ev["exam"]["Estimator"].n == 4
+    assert ev["exam"]["Estimator"].n_eff == 0.0
+    assert ev["exam"]["Estimator"].accuracy is None
+    assert coach._safe_float(float("nan")) == 0.0
+    assert coach._safe_float(float("inf"), 2.5) == 2.5
+    assert coach._safe_int(float("nan")) == 0
+    r = coach.build_readiness({**empty_histories(), "exam-sim": sessions})
+    assert r["confident"] is False
+    assert r["total_direct"] == 4
+    estimator = next(s for s in r["sections"] if s["name"] == "Estimator")
+    assert estimator["freshness"] == 0.0
+    assert estimator["measured"] is False

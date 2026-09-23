@@ -6,7 +6,24 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from core.models import SessionStats, Rating
+from core.scheduler import describe_due, next_due_date
 from ui import theme
+
+
+def _next_review_phrase() -> str:
+    """'next review tomorrow (8 cards)' from the saved schedule, or '' if none."""
+    try:
+        from datetime import date
+        from persistence.schedule_store import load_states
+        states = load_states()
+        when = next_due_date(states)
+        if when is None:
+            return ""
+        today = date.today()
+        n = sum(1 for s in states.values() if s.due is not None and s.due <= when)
+        return f"next review {describe_due(when, today)} ({n} card{'' if n == 1 else 's'})"
+    except Exception:
+        return ""
 
 
 class SummaryScreen(QWidget):
@@ -40,6 +57,22 @@ class SummaryScreen(QWidget):
         self._sub_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._sub_lbl)
 
+        # Persistence problem (read-only data dir, full disk); hidden normally.
+        self._warning_lbl = QLabel("")
+        self._warning_lbl.setWordWrap(True)
+        self._warning_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._warning_lbl.setStyleSheet(f"font-size: 12px; color: {theme.WARNING};")
+        self._warning_lbl.hide()
+        root.addWidget(self._warning_lbl)
+
+        # SM-2 outcome of this session (hidden when nothing was scheduled).
+        self._schedule_lbl = QLabel("")
+        self._schedule_lbl.setWordWrap(True)
+        self._schedule_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._schedule_lbl.setStyleSheet(f"font-size: 13px; color: {theme.TEXT_MUTED};")
+        self._schedule_lbl.hide()
+        root.addWidget(self._schedule_lbl)
+
         # Breakdown row (mini-cards)
         self._breakdown = QHBoxLayout(); self._breakdown.setSpacing(16)
         root.addLayout(self._breakdown)
@@ -70,7 +103,16 @@ class SummaryScreen(QWidget):
         btn_row.addWidget(again_btn)
         root.addLayout(btn_row)
 
+    def show_warning(self, text: str) -> None:
+        """Surface a persistence failure instead of losing it silently."""
+        self._warning_lbl.setText(text)
+        self._warning_lbl.setVisible(bool(text))
+
+    def warning_text(self) -> str:
+        return self._warning_lbl.text() if not self._warning_lbl.isHidden() else ""
+
     def show_stats(self, stats: SessionStats) -> None:
+        self.show_warning("")
         has_missed = stats.missed > 0
         self._missed_review_btn.setVisible(has_missed)
 
@@ -82,6 +124,7 @@ class SummaryScreen(QWidget):
             f"{stats.got_it} of {stats.total} cards known cold  |  "
             f"{stats.unsure} unsure  |  {stats.missed} missed"
         )
+        self._show_schedule(stats)
 
         # Clear and rebuild breakdown
         while self._breakdown.count():
@@ -178,6 +221,25 @@ class SummaryScreen(QWidget):
                 self._cat_layout.addWidget(row_widget)
 
         self._cat_frame.setVisible(bool(cat_counts))
+
+    def _show_schedule(self, stats: SessionStats) -> None:
+        """Graduated / lapsed counts for this session plus the next review date."""
+        if not stats.schedule:
+            self._schedule_lbl.hide()
+            return
+        graduated, lapsed = stats.graduated, stats.lapsed
+        longest = max((o.interval_days for o in stats.schedule), default=0)
+        bits = [
+            f"{graduated} graduated to a longer interval",
+            f"{lapsed} lapsed back to 1 day",
+        ]
+        if longest:
+            bits.append(f"longest interval now {longest} day{'' if longest == 1 else 's'}")
+        phrase = _next_review_phrase()
+        if phrase:
+            bits.append(phrase)
+        self._schedule_lbl.setText("  ·  ".join(bits))
+        self._schedule_lbl.show()
 
 
 class _MiniCard(QFrame):

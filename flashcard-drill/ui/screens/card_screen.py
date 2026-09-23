@@ -301,5 +301,24 @@ class CardScreen(QWidget):
             card_id=card.id, category=card.category, rating=rating.value,
             elapsed_secs=elapsed,
         ))
+        self._record_schedule(card.id, rating)
         self._idx += 1
         self._show_card()
+
+    @staticmethod
+    def _schedule_outcome(card_id: str, rating: Rating):
+        """Persist one SM-2 review; ``None`` if the schedule could not be written.
+
+        Isolated (and swallowing every error) so a read-only data directory or a
+        corrupt schedule file can never interrupt a drill in progress.
+        """
+        try:
+            from persistence.schedule_store import record_rating
+            return record_rating(card_id, rating.value)
+        except Exception:
+            return None
+
+    def _record_schedule(self, card_id: str, rating: Rating) -> None:
+        outcome = self._schedule_outcome(card_id, rating)
+        if outcome is not None:
+            self._stats.schedule.append(outcome)

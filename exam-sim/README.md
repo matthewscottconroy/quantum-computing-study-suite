@@ -4,7 +4,7 @@ A timed mock-exam simulator for **IBM certification exam C1000-179 —
 "Fundamentals of Quantum Computing Using Qiskit v2.X Developer"**
 (68 questions, 90 minutes, 47 correct to pass).
 
-Fully offline: a static bank of 110 original multiple-choice questions, no API
+Fully offline: a static bank of 300 original multiple-choice questions, no API
 keys, no network access. Part of the quantum-study suite (see `vqa-trainer`,
 `qec-trainer`, etc.), sharing its dark theme and persistence directory.
 
@@ -96,43 +96,54 @@ qiskit 2.5.2.
 
 ## Question bank
 
-110 questions across the exact C1000-179 objective sections, proportional to
-the exam weights:
+300 questions across the exact C1000-179 objective sections. Each section's
+share of the bank tracks its exam weight (the `config.SECTIONS` numbers,
+20/18/16/13/13/12/11/7). Every section holds at least four full exams' worth
+of questions (draws are independent, so repeats across sessions are possible
+but rare) and comfortably more than one 10-question sprint (OpenQASM, the
+smallest, has 18):
 
-| Section | Questions |
-|---|---|
-| Create circuits | 20 |
-| Quantum operations | 18 |
-| Run circuits | 16 |
-| Sampler | 13 |
-| Estimator | 13 |
-| Visualization | 12 |
-| Results analysis | 11 |
-| OpenQASM | 7 |
+| Section | Questions | Share of bank | Exam weight | Per full exam (of 68) |
+|---|---|---|---|---|
+| Create circuits | 54 | 18.0 % | 18.2 % | 12 |
+| Quantum operations | 48 | 16.0 % | 16.4 % | 11 |
+| Run circuits | 45 | 15.0 % | 14.5 % | 10 |
+| Sampler | 36 | 12.0 % | 11.8 % | 8 |
+| Estimator | 36 | 12.0 % | 11.8 % | 8 |
+| Visualization | 33 | 11.0 % | 10.9 % | 8 |
+| Results analysis | 30 | 10.0 % | 10.0 % | 7 |
+| OpenQASM | 18 | 6.0 % | 6.4 % | 4 |
+| **Total** | **300** | | | **68** |
 
 Style mimics associate-level exam items: a short Qiskit 2.x code snippet plus
 "what is the output / which line is wrong / which option completes this", with
 plausible distractors (off-by-one qubit indices, big-endian assumptions,
 V1-primitive idioms, removed APIs such as `execute`, `qiskit.Aer`,
-`bind_parameters`, `c_if`, `quasi_dists`). 109 of the 110 questions were
-verified by actually executing their code against qiskit 2.5.2 + qiskit-aer;
-the single remaining question (IBM Runtime ISA-circuit requirement) was
-verified against the Qiskit 2.x / Runtime documentation.
+`bind_parameters`, `c_if`, `quasi_dists`). Code snippets target qiskit 2.x +
+qiskit-aer (2.5.2 at the time of writing). The original 110-question core was
+verified by executing every snippet against qiskit 2.5.2 (one question, the
+IBM Runtime ISA-circuit requirement, against the Qiskit / Runtime docs
+instead), and `CONTRIBUTING.md` requires the same of every addition,
+including the September 2026 expansion to 300: a printed output goes in the
+bank only after the code has been run and the output confirmed.
 
 ### Bank format
 
 One file per question under `bank/<section_dir>/`, auto-discovered — no
-registration step:
+registration step. The section directory is the section name lower-cased with
+spaces as underscores (`Results analysis` → `results_analysis/`), the file
+stem **is** the question id, and the id starts with the section's two-letter
+prefix (`cc_` `qo_` `rc_` `sa_` `es_` `vz_` `ra_` `oq_`):
 
 ```python
 """Question: cc_example"""
 from core.models import Question
 
 QUESTION = Question(
-    id="cc_example",                  # unique across the bank
+    id="cc_example",                  # unique across the bank; == file stem
     section="Create circuits",        # one of the 8 exact section names
     question="What does this print?\n\n```python\nprint(1 + 1)\n```",
-    options=["2", "11", "1", "It raises TypeError"],   # exactly 4
+    options=["2", "11", "1", "It raises TypeError"],   # exactly 4, distinct
     correct_index=0,
     explanation="Why the answer is right and the distractors are wrong.",
     difficulty="easy",                # easy | medium | hard
@@ -140,6 +151,27 @@ QUESTION = Question(
 ```
 
 A fenced ``` block inside `question` is rendered monospace in the UI.
+
+Adding a question is one new file plus bumping `BANK_TOTAL` in
+`tests/test_bank.py`. The loader silently skips a file that fails to import,
+so run the tests after adding one — `test_every_question_file_loads` reports
+the actual exception. The other bank tests check shape rather than exact
+counts: every section present and at least sprint-sized, each section's share
+of the bank within 2 percentage points of its exam weight, unique ids that
+match their file names and section prefixes, four distinct options, a valid
+`correct_index`, a substantive explanation, balanced code fences, and no two
+questions with identical text or with the same snippet and answer.
+
+### Tests
+
+```bash
+cd exam-sim && python -m pytest        # ~2 s bank/allocation + offscreen Qt screens
+```
+
+One test is currently marked `xfail`: `correct_index` is 0 for 261 of the
+300 questions and the UI shows options in stored order, so "A" is the right
+answer far more often than in a real exam. Rebalancing the bank (or shuffling
+options per attempt in the UI) will flip it green.
 
 ---
 
@@ -180,15 +212,16 @@ exam-sim/
 │   └── models.py              Question, ExamAttempt, ExamResult
 ├── bank/
 │   ├── __init__.py            auto-discovery + weighted exam-set builder
-│   ├── create_circuits/       20 questions (one file each)
-│   ├── quantum_operations/    18
-│   ├── run_circuits/          16
-│   ├── sampler/               13
-│   ├── estimator/             13
-│   ├── visualization/         12
-│   ├── results_analysis/      11
-│   └── openqasm/              7
+│   ├── create_circuits/       54 questions (one file each, id == file stem)
+│   ├── quantum_operations/    48
+│   ├── run_circuits/          45
+│   ├── sampler/               36
+│   ├── estimator/             36
+│   ├── visualization/         33
+│   ├── results_analysis/      30
+│   └── openqasm/              18
 ├── persistence.py             exam_history.json / exam_missed.json
+├── tests/                     pytest suite: bank shape, allocation, persistence, offscreen screens
 └── ui/
     ├── theme.py               dark theme (mirrors vqa-trainer)
     ├── format.py              fenced-code → HTML rendering

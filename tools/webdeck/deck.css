@@ -1,0 +1,476 @@
+/* Quantum Study web deck — palette mirrors flashcard-drill/ui/theme.py.
+   Mobile-first: the base rules are the phone layout, the one media query
+   widens it for desktop.  No external fonts, no CDN, no network at all. */
+
+:root {
+  --bg:        #0d1117;
+  --surface:   #161b22;
+  --surface2:  #21262d;
+  --border:    #30363d;
+  --accent:    #58a6ff;
+  --accent2:   #388bfd;
+  --text:      #e6edf3;
+  --muted:     #8b949e;
+  --success:   #3fb950;
+  --warning:   #d29922;
+  --error:     #f85149;
+  --radius:    12px;
+  --pad:       16px;
+  --topbar-h:  52px;
+  --sans: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* ---------------------------------------------------------------- top bar */
+
+.topbar {
+  flex: 0 0 auto;
+  height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar .title {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  line-height: 1.15;
+}
+.topbar .title strong { display: block; font-size: 15px; font-weight: 600; }
+.topbar .title span   { display: block; font-size: 11px; color: var(--muted); }
+
+.icon-btn {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.icon-btn:hover  { background: var(--surface2); border-color: var(--border); }
+.icon-btn:active { background: var(--border); }
+
+/* --------------------------------------------------------------- progress */
+
+.progress {
+  flex: 0 0 auto;
+  height: 3px;
+  background: var(--surface2);
+}
+.progress > div {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width .2s ease;
+}
+
+.counters {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px var(--pad) 0;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.chip b { color: var(--text); font-variant-numeric: tabular-nums; }
+.chip.due   b { color: var(--accent); }
+.chip.fresh b { color: var(--success); }
+
+/* ------------------------------------------------------------------ stage */
+
+.stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px var(--pad);
+  display: flex;
+  flex-direction: column;
+}
+
+.card {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  appearance: none;
+}
+.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.cat-chip {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--accent);
+}
+
+.face {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.face.front {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.face.back {
+  font-size: 16px;
+  color: var(--text);
+  font-family: var(--mono);
+  line-height: 1.6;
+}
+
+.rule {
+  border: 0;
+  border-top: 1px dashed var(--border);
+  margin: 4px 0;
+}
+
+.card-foot {
+  margin-top: auto;            /* pin hint + id to the bottom in both states */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+  padding-top: 8px;
+}
+
+.card-id {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  opacity: .65;
+  text-align: right;
+}
+
+/* --------------------------------------------------- done / empty screens */
+
+.panel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 24px 8px;
+}
+.panel .big   { font-size: 40px; line-height: 1; }
+.panel h2     { margin: 0; font-size: 20px; }
+.panel p      { margin: 0; color: var(--muted); font-size: 14px; }
+.panel .grid  {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+}
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 6px;
+}
+.stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 11px; color: var(--muted); }
+.stat.again b { color: var(--error); }
+.stat.good  b { color: var(--accent); }
+.stat.easy  b { color: var(--success); }
+
+/* ---------------------------------------------------------------- actions */
+
+.actions {
+  flex: 0 0 auto;
+  padding: 10px var(--pad) calc(10px + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+.actions > * { max-width: 720px; margin: 0 auto; }
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 16px;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.btn:hover  { border-color: var(--accent); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+.btn.primary:hover { background: var(--accent); border-color: var(--accent); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.rate-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.rate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: 8px 4px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.rate:active { transform: translateY(1px); }
+.rate:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rate small { font-size: 10px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rate[data-rate="again"]        { border-color: #6e2b28; }
+.rate[data-rate="again"]:hover  { border-color: var(--error);   background: #2b1614; }
+.rate[data-rate="good"]         { border-color: #1f4b7a; }
+.rate[data-rate="good"]:hover   { border-color: var(--accent);  background: #10243a; }
+.rate[data-rate="easy"]         { border-color: #1f5c2e; }
+.rate[data-rate="easy"]:hover   { border-color: var(--success); background: #112a19; }
+
+kbd {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* ------------------------------------------------------ sheets (overlays) */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(1, 4, 9, .72);
+  z-index: 20;
+}
+
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  max-height: 82dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, .55);
+  animation: rise .18s ease-out;
+}
+@keyframes rise { from { transform: translateY(14px); opacity: .4; } to { transform: none; opacity: 1; } }
+
+.sheet header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px var(--pad);
+  border-bottom: 1px solid var(--border);
+}
+.sheet header h2 { flex: 1 1 auto; margin: 0; font-size: 15px; font-weight: 600; }
+.sheet .body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px var(--pad) calc(16px + env(safe-area-inset-bottom));
+}
+
+.mini-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.mini {
+  flex: 1 1 auto;
+  min-height: 38px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mini:hover { border-color: var(--accent); }
+.mini kbd { margin-left: 6px; }
+.mini.danger:hover { border-color: var(--error); color: var(--error); }
+
+.cat-list { display: flex; flex-direction: column; gap: 2px; }
+.cat-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.cat-row:hover { background: var(--surface2); }
+.cat-row input { width: 18px; height: 18px; accent-color: var(--accent); flex: 0 0 auto; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+.cat-row .name { flex: 1 1 auto; font-size: 14px; }
+.cat-row .n {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kv { width: 100%; border-collapse: collapse; font-size: 13px; }
+.kv td { padding: 7px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.kv td:first-child { width: 96px; color: var(--muted); }
+.kv td kbd { display: inline-block; }
+.kv tr:last-child td { border-bottom: 0; }
+
+.note { font-size: 12px; color: var(--muted); margin: 12px 0 0; }
+.note a { color: var(--accent); }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 40;
+  max-width: 88vw;
+  padding: 9px 14px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .5);
+}
+
+.contents { display: contents; }
+.flush { margin-top: 0; }
+.boxed { border: 1px solid var(--border); margin-bottom: 10px; }
+.mini-actions.spaced { margin: 14px 0 0; }
+
+[hidden] { display: none !important; }
+
+/* ----------------------------------------------------------- desktop tier */
+
+@media (min-width: 720px) {
+  body { font-size: 16px; }
+  .stage { padding: 20px; }
+  .card { padding: 26px; gap: 16px; }
+  .face.front { font-size: 23px; }
+  .face.back  { font-size: 16.5px; }
+  .actions { padding: 12px 20px; }
+  .sheet {
+    left: 50%;
+    right: auto;
+    bottom: 50%;
+    width: min(520px, 92vw);
+    max-height: 78dvh;
+    transform: translate(-50%, 50%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+  @keyframes rise { from { transform: translate(-50%, calc(50% + 10px)); opacity: .4; } to { transform: translate(-50%, 50%); opacity: 1; } }
+}
+
+/* Decorative shortcut hints on the card and the buttons: shown only where a
+   physical keyboard is likely.  Every label still reads correctly without
+   them ("Show answer", "Tap to reveal"), so a browser that reports no hover
+   -- including headless Chrome -- degrades to the touch wording rather than
+   to a broken sentence.  The shortcuts table in the help sheet is NOT marked
+   .kb-only: its <kbd> cells are the content, not a hint. */
+.kb-only { display: none; }
+
+@media (hover: hover) and (pointer: fine) {
+  span.kb-only { display: inline; }
+  kbd.kb-only, small.kb-only { display: inline-block; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}

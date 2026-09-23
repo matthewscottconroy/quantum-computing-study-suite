@@ -14,3 +14,8 @@ nbformat>=5.10
 nbclient>=0.10
 ipykernel>=6.29
 jupyterlab>=4.2
+
+# --- Flashcard export (tools/export_cards.py --apkg) --------------------------
+# Only the Anki package needs it; --json and --html are standard library only,
+# which is why .github/workflows/pages.yml installs nothing.
+genanki>=0.13

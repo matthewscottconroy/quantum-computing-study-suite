@@ -1,0 +1,4 @@
+[console_scripts]
+quantum-coach = coach:main
+quantum-dashboard = dashboard:main
+quantum-study = launch:main

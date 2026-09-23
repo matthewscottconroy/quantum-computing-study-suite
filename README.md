@@ -9,7 +9,8 @@ foundations through hardware-level error correction, variational algorithms, and
 IBM's **C1000-179** Qiskit developer certification. Ten PyQt6 apps drill, quiz, grade
 and time you; a 58-file teaching corpus, twelve lesson plans, nine executable notebooks,
 five hardware labs and five capstone projects supply the material; two console tools
-read every app's history and tell you what to study next.
+read every app's history and tell you what to study next; and the whole flashcard deck
+exports to a phone, so the daily drill is not tied to this desktop.
 
 Everything runs locally. Three apps (flashcard-drill, exam-sim, qiskit-dojo) are fully
 usable offline and four more (qec-trainer, vqa-trainer, circuit-trainer, problem-trainer)
@@ -19,15 +20,53 @@ its offline features, Reference browser and history intact — when no key is co
 
 ---
 
+## Study away from the desk
+
+The PyQt6 apps need a desktop. The flashcards do not.
+[`tools/export_cards.py`](tools/export_cards.py) reads the deck through flashcard-drill's
+own loader — the card text is never duplicated — and re-emits all 550 cards in three
+portable formats. The web deck is published from `main` on every push by
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml):
+
+**<https://matthewscottconroy.github.io/quantum-computing-study-suite/>**
+
+One self-contained HTML file: no CDN, no network requests of any kind. Open it on a
+phone, **Add to Home Screen**, and it drills offline — category filters with due/new
+counts, tap to reveal, Again / Good / Easy, undo, and Leitner scheduling saved in
+`localStorage`. That progress is per-browser and deliberately separate from the desktop
+app's SM-2 schedule, which it never reads or writes.
+
+```bash
+make export                                        # all three formats into exports/
+python tools/export_cards.py --html --out _site    # just the web deck
+```
+
+| Output (in `exports/`) | What it is | Needs |
+|---|---|---|
+| `index.html` | the offline web deck above, built from the templates in `tools/webdeck/` | stdlib |
+| `cards.json` | the deck as `{id, category, front, back}` objects, for piping anywhere | stdlib |
+| `quantum-study.apkg` | an Anki package, one subdeck per category. Re-importing **updates notes in place** — GUIDs are the flashcard ids — so your Anki review history survives a re-export | `genanki` |
+
+Outputs are byte-for-byte reproducible and the exporter refuses to ship a short deck;
+[tools/README.md](tools/README.md#export_cardspy--take-the-flashcards-off-this-desktop)
+has the formats, the web-deck keyboard shortcuts and the Anki re-import rules.
+
+> **GitHub Pages must be switched on once, by hand:** repository **Settings → Pages →
+> Build and deployment → Source: GitHub Actions**. A workflow cannot enable Pages for its
+> own repository; until that is set, the deploy job fails with *"Get Pages site failed"*.
+> The raw deck is served alongside the page at `/cards.json`.
+
+---
+
 ## Features
 
 ### The ten apps
 
 | App | What it trains | Offline | Needs |
 |---|---|---|---|
-| [flashcard-drill](flashcard-drill/) | Recall — 550 SRS flashcards in 14 categories (Paulis, gate unitaries, theorems, QEC, Qiskit API, …) | Fully | — |
-| [exam-sim](exam-sim/) | Exam conditions — 110-question C1000-179 bank; 68 Q / 90 min mocks scored against the 47/68 bar, 10-minute section sprints, missed-question review, score-trend history | Fully | — |
-| [qiskit-dojo](qiskit-dojo/) | Writing real Qiskit 2.x code — 36 katas in 10 sections (incl. debugging and API-modernization drills), executed in a subprocess and graded by assertions | Fully (Claude style review optional) | Qiskit |
+| [flashcard-drill](flashcard-drill/) | Recall — 550 flashcards in 14 categories (Paulis, gate unitaries, theorems, QEC, Qiskit API, …) on a real **SM-2 scheduler**: every rating sets an ease factor, interval and due date, and the setup screen opens on "N cards due today" with a *Due today* session mode | Fully | — |
+| [exam-sim](exam-sim/) | Exam conditions — 300-question C1000-179 bank with every section held to its published exam weight; 68 Q / 90 min mocks scored against the 47/68 bar, 10-minute section sprints, missed-question review, score-trend history | Fully | — |
+| [qiskit-dojo](qiskit-dojo/) | Writing real Qiskit 2.x code — 72 katas in 10 sections, balanced to the exam blueprint (8 exam sections plus 8 debugging and 8 API-modernization drills), executed in a subprocess and graded by assertions | Fully (Claude style review optional) | Qiskit |
 | [qec-trainer](qec-trainer/) | Error correction — 178 problems in 6 categories (170 auto-graded MC, 8 free-form) plus a syndrome-decoder game up to the distance-3 surface code | MC + decoder game | Key for 8 free-form |
 | [vqa-trainer](vqa-trainer/) | Variational algorithms — 179 problems in 7 categories (153 MC, 7 exact-numeric, 19 free-form): VQE, parameter shift, QAOA, ansätze, barren plateaus, mitigation, optimal control | MC + numeric | Key for 19 free-form |
 | [circuit-trainer](circuit-trainer/) | Circuit arithmetic — problems generated with Qiskit (`quantum_info` Statevector/Operator) in 12 categories (state output, measurement probabilities, identities, unitaries, entanglement, noise, …) with rendered circuits; sprint mode (10 rapid-fire questions, 60-second countdown each) | Everything except free-form explanations | Qiskit; key for explanations |
@@ -47,7 +86,7 @@ missed exam questions reach the review queue automatically via `exam_missed.json
 | Pack | Contents |
 |---|---|
 | [docs/](docs/) | 58 chapter files in 8 chapters — the learning ladder from linear algebra to QSVT. Every file closes with the same five sections — Key Formulas, a Worked Example, a Summary, Exercises with collapsible solutions, and Further Reading. Chapter 1 now includes six extended-mathematics files (groups and abstract algebra, representation theory, probability and statistics, number theory and Fourier analysis, analysis for QM, topology and geometry). |
-| [lesson-plans/](lesson-plans/) | 12 structured curricula — linear algebra through transpiling, plus the C1000-179 certification track (5-week schedule) and the paper-reading ladder. Qiskit snippets verified on Qiskit 2.5.2. |
+| [lesson-plans/](lesson-plans/) | 12 structured curricula — linear algebra through transpiling, plus the C1000-179 certification track (5-week schedule) and the paper-reading ladder. Every exercise now carries a worked solution in a collapsible block. Qiskit snippets verified on Qiskit 2.5.2. |
 | [notebooks/](notebooks/) | 9 executable companions — one per docs chapter reproducing its worked examples with assertions, plus an Aer noise-model lab (T₁, Ramsey, randomized benchmarking). |
 | [labs/](labs/) | 5-lab IBM Quantum runtime track — first job, Sessions vs Batch, reading calibration data, error suppression, a full hardware VQE workflow. |
 | [projects/](projects/) | 5 capstone specs with milestones — VQE for H₂, a custom transpiler pass, a Steane-code simulator, BB84 with an eavesdropper, Grover on 3-SAT. |
@@ -56,8 +95,10 @@ missed exam questions reach the review queue automatically via `exam_missed.json
 
 | Tool | Purpose |
 |---|---|
-| `python coach.py` | Daily prescription from cross-app history: weakest categories, due reviews, a kata, a sprint. `--diagnostic` (placement quiz), `--review` (unified review queue: flags + missed exam questions + low scores), `--badges` (IBM Quantum Learning tracker). |
-| `python dashboard.py` | Raw mastery report per app, weakest topics, recent activity, streak. |
+| `python coach.py` | Daily prescription from cross-app history: weakest categories, due reviews, a kata, a sprint. `--diagnostic` (placement quiz), `--review` (unified review queue: flags + missed exam questions + low scores), `--badges` (IBM Quantum Learning tracker), `--readiness` (C1000-179 score projection with a confidence band, per-section evidence, and an honest "not scoreable yet" when the data is thin), `--calibrate` (measured flashcard recall vs the SM-2 intervals — says whether your schedule runs too long or too short). |
+| `python dashboard.py` | Raw mastery report per app, weakest topics, recent activity, streak — plus a retention view: a weekly review table and a fitted forgetting curve (`--retention` / `--no-retention` show one half only). |
+| `python tools/export_cards.py` | Exports the flashcards to `cards.json`, an Anki `.apkg` and the self-contained web deck (see [Study away from the desk](#study-away-from-the-desk)). |
+| `tools/daily_nudge.sh` | Delivers today's `coach.py` plan as a desktop notification and on stdout (`--dry-run` prints only). `tools/install_nudge.sh` schedules it daily — a systemd `--user` timer when one answers, a marked crontab block otherwise (`--time HH:MM`, `--status`, `--uninstall`). |
 | `python tools/verify_docs.py` | Regression gate for the corpus: structure, lint, cross-references, README file maps, lesson-plan snippet execution. |
 
 <details>
@@ -97,7 +138,24 @@ cd quantum-computing-study-suite
 ```
 
 `./setup.sh --dev` additionally installs `requirements-dev.txt` (pytest, Jupyter kernel
-and notebook execution deps) for contributors.
+and notebook execution deps, and `genanki` for the Anki export) for contributors.
+
+A [`Makefile`](Makefile) wraps the same scripts, so the two can never drift — `make` on
+its own lists the targets:
+
+| Target | Runs |
+|---|---|
+| `make setup` / `make dev` | `setup.sh` / `setup.sh --dev` |
+| `make test` | `tools/run_tests.sh` — every suite, one process per app |
+| `make docs` | `tools/verify_docs.py --all` |
+| `make export` | `tools/export_cards.py --all` → `exports/` |
+| `make launch` | `launch.py` (`make launch ARGS=--list` for the CLI) |
+| `make lint` / `make coverage` | mypy / the root suite under coverage, both configured in `pyproject.toml` |
+| `make notebooks` | executes every notebook with nbclient, outputs not written back |
+| `make clean` | deletes caches, `exports/` and build artefacts — nothing tracked |
+
+Every target takes `ARGS="…"` (`make test ARGS="-x -vv"`, `make docs ARGS=--no-snippets`)
+and `PYTHON=…` to pick an interpreter; the default is the repo `.venv`.
 
 ### 2. Launch
 
@@ -126,6 +184,13 @@ echo "sk-ant-..." > ~/.config/quantum-study/api_key.txt
 
 Every app launches without a key; only generation, grading and review buttons need it,
 and they report a clear error rather than crashing.
+
+### 4. (Optional) Have the daily plan delivered
+
+```bash
+tools/daily_nudge.sh --dry-run        # print today's coach.py plan, no notification
+tools/install_nudge.sh --time 08:00   # notify every morning; --status to inspect, --uninstall to remove
+```
 
 ### Manual per-app fallback
 
@@ -179,6 +244,8 @@ Production-skill track (alongside the above):
    notebooks/ labs/ projects/   Executable examples, hardware labs, capstones
 
 Daily driver:  python coach.py   — prescribes today's session from your history
+               (tools/install_nudge.sh delivers it as a morning notification)
+Away from the desk:  the web deck on GitHub Pages, or the Anki export
 ```
 
 The docs ladder in [docs/README.md](docs/README.md) (Rung 1 → 8) gives the reading order
@@ -191,7 +258,8 @@ thing into a day-1 routine and a certification track.
 
 ```bash
 source .venv/bin/activate          # after ./setup.sh --dev
-bash tools/run_tests.sh            # every suite: root console tools + each app, in its own pytest process
+make test                          # == bash tools/run_tests.sh: every suite, one pytest process per app
+make docs                          # == python tools/verify_docs.py --all
 ```
 
 Individually:
@@ -199,9 +267,11 @@ Individually:
 ```bash
 pytest                                   # root suite: coach.py, dashboard.py, launch.py, tools/verify_docs.py
 (cd qec-trainer && python -m pytest)     # one app; each app has tests/ and its own pytest.ini
-(cd qiskit-dojo && python -m pytest -m slow tests/test_sweep.py)  # opt-in: run all 36 kata solutions
+(cd qiskit-dojo && python -m pytest -m slow tests/test_sweep.py)  # opt-in: run all 72 kata solutions
 python tools/verify_docs.py --all        # docs/lesson-plan regression gate (--no-snippets without the venv)
 for nb in notebooks/*.ipynb; do MPLBACKEND=Agg jupyter execute "$nb"; done   # notebooks, executed in memory as CI does (--inplace would rewrite them with outputs)
+make lint                                # mypy over coach.py, dashboard.py, launch.py, tools/ — advisory, baseline not yet clean
+make coverage                            # root suite under coverage.py; both configured in pyproject.toml
 ```
 
 Apps must run in separate pytest processes because several share top-level package names
@@ -213,10 +283,17 @@ study history.
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same sequence on
 Python 3.12 and 3.14 — byte-compile, an import smoke test of every app with no API key,
-`python tools/verify_docs.py --all`, then `bash tools/run_tests.sh`. A second workflow
-([`notebooks.yml`](.github/workflows/notebooks.yml)) executes every notebook on every push
-and pull request to `main`, weekly, and on manual dispatch, which doubles as a regression
-check on the numbers printed in `docs/`.
+`python tools/verify_docs.py --all`, then `bash tools/run_tests.sh`. The 3.14 leg adds two
+steps the 3.12 leg skips: coverage of the root suite (uploaded as `coverage.xml`; no
+`--fail-under` yet) and mypy, which is advisory — it annotates the job but cannot fail it
+until its baseline is clean. Three more workflows round it out:
+[`notebooks.yml`](.github/workflows/notebooks.yml) executes every notebook on every push
+and pull request to `main`, weekly, and on manual dispatch — a regression check on the
+numbers printed in `docs/`; [`pages.yml`](.github/workflows/pages.yml) rebuilds and
+deploys the web deck; and [`release.yml`](.github/workflows/release.yml) re-runs the whole
+gate on a version tag, checking the tag against `[project].version`, before it builds and
+publishes. Dependabot keeps the Actions and pip pins current, and the repository carries
+issue forms for bugs and content errors plus a PR template.
 
 ---
 
@@ -224,14 +301,13 @@ check on the numbers printed in `docs/`.
 
 All apps that record history write to `~/.local/share/quantum-study/`. Files are plain JSON
 and are never deleted automatically. The `QUANTUM_STUDY_DATA_DIR` environment variable
-redirects that directory for `coach.py`, `launch.py`, flashcard-drill, qiskit-dojo,
-math-quiz and quantum-quiz; circuit-trainer, exam-sim, paper-drill, problem-trainer,
-qec-trainer, vqa-trainer and `dashboard.py` do not read it yet and always use the default
-path, so do not rely on the variable to sandbox a whole session.
+redirects that directory for `coach.py`, `dashboard.py`, `launch.py` and eight of the ten
+apps; qec-trainer and vqa-trainer do not read it yet and always use the default path, so do
+not rely on the variable to sandbox those two.
 
 | File | Written by |
 |---|---|
-| `flashcard_history.json`, `flagged_cards.json` | flashcard-drill |
+| `flashcard_history.json`, `flagged_cards.json`, `flashcard_schedule.json` | flashcard-drill |
 | `qec_history.json`, `qec_flagged.json` | qec-trainer |
 | `vqa_history.json`, `vqa_flagged.json` | vqa-trainer |
 | `paper_history.json`, `paper_library.json`, `paper_flagged.json` | paper-drill |
@@ -242,6 +318,12 @@ path, so do not rely on the variable to sandbox a whole session.
 | `exam_history.json`, `exam_missed.json` | exam-sim |
 | `problems_history.json`, `problems_flagged.json` | problem-trainer |
 | `coach_state.json` | coach.py |
+
+`flashcard_schedule.json` is the SM-2 scheduler's own state — `{card_id: {n, ef,
+interval_days, due_iso, last_seen_iso, lapses}}` — written only by flashcard-drill and
+read by `coach.py --calibrate`, which works fine when it is absent. It is a new file
+rather than a change to `flashcard_history.json`, whose schema `coach.py` and
+`dashboard.py` both parse.
 
 The `*_flagged.json` files share one contract — a JSON list of
 `{"id", "label", "category", "app", "timestamp"}` entries (only `id` required). Three

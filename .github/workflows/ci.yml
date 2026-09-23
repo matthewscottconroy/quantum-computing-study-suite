@@ -6,6 +6,14 @@
 #   required-files check -> APPS list check -> byte-compile
 #   -> import smoke test (offscreen Qt) -> docs corpus checks
 #   -> every pytest suite via tools/run_tests.sh
+#
+# The 3.14 leg then adds two steps that the 3.12 leg skips, because running
+# them twice would say nothing new: coverage of the root suite (reported,
+# uploaded as coverage.xml) and mypy, which is ADVISORY -- continue-on-error,
+# so it annotates the job but cannot fail it, until its baseline is clean.
+# Both read their configuration from [tool.coverage.*] / [tool.mypy] in
+# pyproject.toml; see the comments on the steps for the one flag that is not
+# taken from there and why.
 name: CI
 
 on:
@@ -168,3 +176,115 @@ jobs:
 
       - name: Run all test suites
         run: bash tools/run_tests.sh
+
+      # ---- Coverage and type checking (3.14 leg only) ----------------------
+      # Neither tool is imported by any repo code, so they stay out of
+      # requirements.txt / requirements-dev.txt and out of pyproject's [dev]
+      # extra; they are installed here, on the one leg that uses them.  If they
+      # are ever added to requirements-dev.txt, delete this step -- the
+      # dependency install above will already have provided them.
+      # Their *configuration* is not inline: [tool.coverage.*] and [tool.mypy]
+      # in pyproject.toml own it, and the two steps below read it from there.
+      - name: Install coverage and mypy
+        if: matrix.python-version == '3.14'
+        run: |
+          if [ ! -f pyproject.toml ]; then
+            echo "::warning title=Tool config missing::pyproject.toml is not in the checkout;" \
+                 "coverage and mypy will fall back to their own defaults plus the flags passed here"
+          fi
+          python -m pip install "coverage>=7.5" "mypy>=1.10"
+
+      # Only the ROOT suite is measured, and deliberately so: tools/run_tests.sh
+      # runs each app's suite in its own pytest process with that app as the
+      # working directory (several apps define the same top-level module names
+      # -- core/, ui/, config.py -- and cannot share a sys.path), so app data
+      # could not be combined into one coherent report without per-app config.
+      # The root suite is exactly the code this report is about: coach.py,
+      # dashboard.py, launch.py and tools/.  It is a second, ~3 s run of a suite
+      # `Run all test suites` has already run, so a failure here is a coverage
+      # tooling problem, not a new test failure.
+      #
+      # Everything but `source` comes from [tool.coverage.*] in pyproject.toml
+      # (branch coverage, the omit list, parallel data files, report options).
+      # `source` is overridden because the table lists file paths --
+      # source = ["coach.py", "dashboard.py", "launch.py", "tools"] -- and
+      # coverage 7 reads a non-directory entry as a *module* name: "coach.py"
+      # matches no module, so the three root scripts drop out of the report with
+      # a "Module coach.py was never imported" warning and only tools/ is
+      # measured (reproduced on coverage 7.16).  Module names measure all four.
+      # Drop --source once pyproject.toml uses names (or source_pkgs).
+      #
+      # No --fail-under yet.  When this step was added the root suite measured a
+      # little under 70% branch coverage: launch.py was the strongest file at
+      # ~92%, coach.py and dashboard.py sat in the 65-85% band, and
+      # tools/export_cards.py had no tests at all and scored 0%, which on its own
+      # costs the total more than ten points.  Deliberately no exact figures
+      # here -- they move with every root-level change and a stale number in a
+      # comment is worse than none; read the real one off this step's output or
+      # the job summary.  Add a floor once it has been stable across a few
+      # releases, and start by giving tools/export_cards.py a suite.
+      - name: Coverage (root suite)
+        if: matrix.python-version == '3.14'
+        run: |
+          coverage run --source=coach,dashboard,launch,tools -m pytest
+          # parallel = true in [tool.coverage.run] means the run wrote
+          # .coverage.<host>.<pid>.<n> rather than .coverage, so the report needs
+          # a combine first.  Guarded on the files actually existing: `coverage
+          # combine` with nothing to combine is an error, which would break this
+          # step if that setting were ever turned off.
+          if compgen -G '.coverage.*' > /dev/null; then
+            coverage combine
+          fi
+          coverage report
+          coverage xml -o coverage.xml
+          {
+            echo "### Coverage — root suite (Python ${{ matrix.python-version }})"
+            echo
+            coverage report --format=markdown
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage XML
+        if: matrix.python-version == '3.14'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-py${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: error
+          retention-days: 14
+
+      # ADVISORY, NOT A GATE.  continue-on-error keeps a type error from failing
+      # the job.  When this step was added the baseline was a couple of dozen
+      # errors across all five checked files, and the great majority were one
+      # shape: `union-attr` on PyQt6 accessors that are typed as returning
+      # Optional (statusBar(), a QProcess handle) but never return None in
+      # practice -- a narrowing assert or a local variable fixes each one.  The
+      # rest are dict reads that come back as `object`.  None are silenced with a
+      # `type: ignore`.  The exact count is not repeated here because it moves;
+      # the step's last line lands in the job summary, so every run states it.
+      # WHEN THE BASELINE REACHES ZERO: delete `continue-on-error` and this
+      # paragraph, and mypy becomes a real gate.
+      #
+      # No paths and no --python-version on the command line: [tool.mypy] in
+      # pyproject.toml sets `files` (coach.py, dashboard.py, launch.py, tools)
+      # and deliberately leaves python_version unset so mypy targets the
+      # interpreter it runs under -- pinning it to the 3.11 floor makes mypy
+      # parse the *installed* numpy stubs (PEP 695 `type` statements) under 3.11
+      # rules and abort before checking any repo code.  --no-pretty gives one
+      # line per error, which reads better in a log than the source-echoing
+      # format pyproject turns on for humans.
+      - name: Type check (mypy, advisory)
+        if: matrix.python-version == '3.14'
+        continue-on-error: true
+        run: |
+          set +e
+          mypy --no-pretty 2>&1 | tee mypy.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "### mypy — advisory, not a gate (Python ${{ matrix.python-version }})"
+            echo
+            echo '```'
+            tail -n 1 mypy.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"

@@ -14,9 +14,12 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 ```bash
 git clone https://github.com/matthewscottconroy/quantum-computing-study-suite.git
 cd quantum-computing-study-suite
-./setup.sh --dev              # .venv + requirements.txt + requirements-dev.txt (pytest, Jupyter)
+./setup.sh --dev              # .venv + requirements.txt + requirements-dev.txt (pytest, Jupyter, genanki)
 source .venv/bin/activate
 ```
+
+`make dev` is the same command. The `Makefile` only ever shells out to the repository's
+own scripts, so every `make` target below has a plain-command twin you can run instead.
 
 Python 3.12+ recommended (developed on 3.14; CI runs 3.12 and 3.14 — `setup.sh` accepts
 3.11 as its minimum, but nothing tests it). The suite targets Qiskit 2.x —
@@ -26,14 +29,23 @@ code that uses retired APIs (`execute()`, `bind_parameters`, V1 primitives, the
 ## Running the checks
 
 ```bash
-bash tools/run_tests.sh                  # everything: root suite + every app suite (extra args are forwarded, e.g. -x -vv)
+make test                                # == bash tools/run_tests.sh: root suite + every app suite (make test ARGS="-x -vv" forwards flags)
 pytest                                   # root suite only: coach.py, dashboard.py, launch.py, tools/verify_docs.py
 (cd qec-trainer && python -m pytest)     # one app — each app has tests/ + pytest.ini
-(cd qiskit-dojo && python -m pytest -m slow tests/test_sweep.py)   # runs all 36 kata solutions (~30 s)
-python tools/verify_docs.py --all        # docs + lesson-plans regression gate
+(cd qiskit-dojo && python -m pytest -m slow tests/test_sweep.py)   # runs all 72 solutions and 72 starters (a few minutes)
+make docs                                # == python tools/verify_docs.py --all: docs + lesson-plans regression gate
 python tools/verify_docs.py --no-snippets   # static checks only (no venv needed)
-for nb in notebooks/*.ipynb; do MPLBACKEND=Agg jupyter execute "$nb"; done   # in memory, as CI does; --inplace would rewrite the tracked notebooks
+make notebooks                           # executes every notebook with nbclient, outputs not written back (CI: jupyter execute)
+make lint                                # mypy over coach.py, dashboard.py, launch.py, tools/ — advisory; the baseline is not clean yet
+make coverage                            # root suite under coverage.py; [tool.coverage] and [tool.mypy] live in pyproject.toml
+make export                              # tools/export_cards.py --all -> exports/ (cards.json, quantum-study.apkg, index.html)
 ```
+
+`make help` lists every target. CI runs `tools/run_tests.sh` and `verify_docs.py --all`
+on Python 3.12 and 3.14 (the slow sweep is opt-in everywhere; notebooks have their own
+workflow); `lint` and `coverage` run on the 3.14 leg only, and `lint` cannot fail the build
+until its baseline reaches zero — do not add new mypy errors, but you are not expected to
+clear the old ones in an unrelated PR.
 
 Rules the harness relies on:
 
@@ -58,11 +70,15 @@ Rules the harness relies on:
   persistence.py       history + *_flagged.json read/write (flashcard-drill: persistence/storage.py)
   tests/               pytest suite, pytest.ini
 docs/                  58 chapter files in 8 numbered chapters + README.md (the ladder)
-lesson-plans/          12 curricula; python blocks in 06/07/10 are executed by verify_docs
+lesson-plans/          12 curricula, every exercise with a <details> solution; python blocks in 06/07/10 are executed by verify_docs
 notebooks/ labs/ projects/   executable companions, IBM runtime labs, capstone specs
 coach.py dashboard.py  console tools; tests in tests/ (with launch.py and verify_docs)
 tools/verify_docs.py   corpus regression checker
+tools/export_cards.py  flashcards -> cards.json / Anki .apkg / web deck (templates in tools/webdeck/)
+tools/daily_nudge.sh tools/install_nudge.sh   coach.py plan as a desktop notification, and its timer/cron installer
 launch.py setup.sh     launcher and bootstrap
+Makefile pyproject.toml   task runner (wraps the scripts above); packaging, mypy and coverage config
+.github/               ci.yml, notebooks.yml, pages.yml (web deck), release.yml, dependabot.yml, issue forms, PR template
 ```
 
 ## Conventions every app follows
@@ -75,9 +91,12 @@ launch.py setup.sh     launcher and bootstrap
   New code resolves it as `Path(os.environ.get("QUANTUM_STUDY_DATA_DIR") or
   Path.home() / ".local/share/quantum-study")`, as `flashcard-drill/config.py`,
   `qiskit-dojo/config.py`, `math-quiz/persistence.py`, `quantum-quiz/persistence.py`,
-  `coach.py` and `launch.py` already do. circuit-trainer, exam-sim, paper-drill,
-  problem-trainer, qec-trainer, vqa-trainer and `dashboard.py` still hard-code the default
-  path — a known gap, not a convention to copy.
+  `coach.py`, `dashboard.py` and every app except two already do. qec-trainer and
+  vqa-trainer still hard-code the default path — a known gap, not a convention to copy.
+- **History schemas are frozen.** `coach.py` and `dashboard.py` parse every
+  `*_history.json`; never change an existing file's shape — add a new file instead, as
+  flashcard-drill did with `flashcard_schedule.json` (SM-2 state) rather than touching
+  `flashcard_history.json`.
 - Review flags follow one contract: `<prefix>_flagged.json` (prefix = the app's history
   prefix: `qec_`, `quiz_`, `math_`, `trainer_`, `paper_`, `dojo_`, `problems_`, `vqa_`;
   flashcard-drill's legacy file is `flagged_cards.json`) holding a JSON list of
@@ -112,8 +131,11 @@ whose natural id ends in `_test` gets a longer file name (`alg_swap_test_circuit
 saved history still matches; they are the only exceptions).
 
 Each bank test also pins the total (`EXPECTED_CARD_COUNT = 550`, `EXPECTED_COUNT = 178`,
-…). When you add an item, bump that constant in the same PR and update the count in the
-app's README; that is intentional — it makes accidental deletions fail loudly.
+exam-sim's `BANK_TOTAL = 300`, …). When you add an item, bump that constant in the same PR
+and update the count in the app's README; that is intentional — it makes accidental
+deletions fail loudly. qiskit-dojo is the one bank that asserts *floors* instead
+(`MIN_KATA_COUNT = 72` and a per-section table), so adding a kata needs no test edit — but
+still update its README's section table.
 
 ### Flashcard — `flashcard-drill/cards/<category_dir>/<id>.py`
 
@@ -227,12 +249,28 @@ the prompt asks for. Outcomes (`RunResult.phase`): an exception in the learner's
 `user_error`; an `AssertionError` *or any other exception* raised inside the tests →
 `test_failed` (the latter is printed under "Error while running tests"); exceeding the
 time limit → `timeout`; any other exit code, or a failure to launch the interpreter →
-`crash`. Every assertion message should tell the learner *what* was wrong. `hints` must be
-non-empty (2–3 progressive hints by convention). A new section needs an entry in
-`SECTION_ORDER`. Tests: `tests/test_katas.py` (`EXPECTED_KATA_COUNT`; ids match file
-stems; all three code fields must compile) and the slow sweep `tests/test_sweep.py`, which
-requires that **every `solution_code` passes and no `starter_code` already passes** — run
-it: `python -m pytest -m slow tests/test_sweep.py`.
+`crash`. Every assertion message should tell the learner *what* was wrong.
+
+What `tests/test_katas.py` enforces on every kata (all fast, run them first):
+
+- the file lives in `katas/<section_dir>/` where `section_dir` is the section name
+  lower-cased with spaces as underscores (`Results analysis` → `results_analysis/`), and
+  the file stem equals `id`;
+- `section` is in `katas/__init__.py::SECTION_ORDER` (a new section needs an entry there
+  *and* a floor in the test's `SECTION_TARGETS` table — the bank is held at or above
+  10/9/8/7/7/6/6/3 katas across the eight exam sections plus 8 Debugging and 8
+  Modernization, `MIN_KATA_COUNT = 72`, so adding katas never turns the suite red but
+  losing one does);
+- **2–3 distinct hints**, progressive; a unique `title`; in the Debugging and
+  Modernization sections the title starts with `Fix it:` / `Modernize:` because the
+  starter is deliberately broken;
+- `test_code` contains at least one `assert`, `solution_code` differs from
+  `starter_code`, and all three code fields compile.
+
+Then the slow sweep `tests/test_sweep.py` requires that **every `solution_code` passes and
+no `starter_code` already passes** — run it: `python -m pytest -m slow tests/test_sweep.py`
+(145 subprocess runs; a few minutes). Pick the section by exam blueprint weight: the sections with
+the fewest katas relative to their weight are where a new kata is most useful.
 
 ### Exam question — `exam-sim/bank/<section_dir>/<id>.py`
 
@@ -245,21 +283,40 @@ QUESTION = Question(
     section='Create circuits',         # one of the 8 keys of config.SECTIONS
     question='What does this print?\n\n```python\n...\n```',   # fenced code blocks render
     options=[ 'A ...', 'B ...', 'C ...', 'D ...' ],             # exactly 4, distinct
-    correct_index=0,
+    correct_index=0,                   # index into options — vary it across new questions (see below)
     explanation='assign_parameters() returns a new bound circuit by default ...',
     difficulty='medium',               # 'easy' | 'medium' | 'hard'
 )
 ```
 
-Exams are drawn **proportionally to `config.SECTIONS`** (section → count in the bank,
-mirroring the exam weights; `BANK_SIZE = sum(SECTIONS.values())`), and
-`tests/test_bank.py` pins those per-section counts in `DOCUMENTED_SECTIONS` plus the
-literal total (110), so adding a question means bumping the section's number in
-`config.SECTIONS` and in `DOCUMENTED_SECTIONS`, and the pinned total in the same test
-file. Questions must be **original** study material — never
-reproduce real exam content — and every code snippet must have been executed on
-Qiskit 2.x with the printed output confirmed. Write distractors that encode real
-misconceptions (bit ordering, retired APIs, ISA requirements).
+Step by step:
+
+1. Pick the section, then the id: a lowercase slug starting with the section's two-letter
+   prefix — `cc_` Create circuits, `qo_` Quantum operations, `rc_` Run circuits, `sa_`
+   Sampler, `es_` Estimator, `vz_` Visualization, `ra_` Results analysis, `oq_` OpenQASM.
+2. Save it as `bank/<section_dir>/<id>.py` (`section_dir` = section name lower-cased,
+   spaces to underscores); the file stem must equal `id`.
+3. Run the snippet on Qiskit 2.x and paste the *printed* output — a question goes into the
+   bank only after its code has been executed and the output confirmed. Say so, with the
+   Qiskit version, in the PR.
+4. Bump `BANK_TOTAL` in `tests/test_bank.py` (the one exact count) and the section row in
+   `exam-sim/README.md`, then `cd exam-sim && python -m pytest`.
+
+`config.SECTIONS` holds the exam **weights** (20/18/16/13/13/12/11/7), not bank counts: it
+drives how a 68-question mock is allocated across sections and does not change when the
+bank grows. The rest of `tests/test_bank.py` checks the bank's *shape* rather than
+per-section totals: every section present and at least sprint-sized (10), each section's
+share of the bank within 2 percentage points of its exam weight (so a batch that lands
+entirely in one section fails — spread additions to keep the proportions), ids unique and
+matching file name, directory and prefix, exactly four distinct options, `correct_index`
+in range, an explanation of at least 40 characters, balanced ``` fences, and no two
+questions with identical text or the same code snippet with the same answer. The loader
+silently skips a file that fails to import; `test_every_question_file_loads` reports the
+real exception. One test is currently `xfail`: most of the bank stores the correct answer
+at index 0 and the UI shows options in stored order — so put the correct option somewhere
+other than `A` in anything new. Questions must be **original** study material — never
+reproduce real exam content — and distractors should encode real misconceptions (bit
+ordering, retired APIs, ISA requirements).
 
 ### Problem-trainer problem — `problem-trainer/problems/<topic_dir>/<id>.py`
 
@@ -331,7 +388,8 @@ The corpus is meant to be *trusted*. Rules:
    start with them. `verify_docs.py --structure` enforces only Exercises and Further
    Reading; the other three, and the order, are convention and reviewers will ask for them.
 3. **Exercise / solution block format** — 3–5 exercises, each with a fully worked solution
-   in a collapsible block:
+   in a collapsible block (lesson-plan exercises use the identical block, one per
+   exercise, so a lesson without solutions is now a bug):
 
    ````markdown
    **Exercise 2**: Expand `A = [[1,2],[2,-1]]` in the Pauli basis.
@@ -374,8 +432,9 @@ Run `python tools/verify_docs.py --all` before opening the PR; it must exit 0.
 - [ ] `tools/run_tests.sh` passes locally (or the affected app's suite plus the root suite).
 - [ ] `python tools/verify_docs.py --all` exits 0 if you touched `docs/` or `lesson-plans/`.
 - [ ] New bank items: file stem == `id`; count constant bumped in the bank test; README
-      count updated; for exam-sim, `config.SECTIONS` and `DOCUMENTED_SECTIONS` updated;
-      for dojo, the slow sweep passes.
+      count updated; for exam-sim, `BANK_TOTAL` in `tests/test_bank.py` bumped and the
+      section proportions still within tolerance; for dojo, the slow sweep passes and the
+      README section table is updated.
 - [ ] Every number you added or changed was checked by a script — say how in the description.
 - [ ] Qiskit code is 2.x-current and was executed (state the version).
 - [ ] No API key, no personal data, nothing from `~/.local/share/quantum-study/`, and no
@@ -390,6 +449,8 @@ before the work.
 
 ## Reporting problems
 
-Use [GitHub issues](https://github.com/matthewscottconroy/quantum-computing-study-suite/issues).
-For a wrong answer or a technical error in the content, quote the file path and the exact
-claim, and if you can, the calculation that contradicts it — that turns a report into a fix.
+Use [GitHub issues](https://github.com/matthewscottconroy/quantum-computing-study-suite/issues);
+there are forms for a bug and for a content error (`.github/ISSUE_TEMPLATE/`), and the PR
+template repeats the checklist above. For a wrong answer or a technical error in the
+content, quote the file path and the exact claim, and if you can, the calculation that
+contradicts it — that turns a report into a fix.

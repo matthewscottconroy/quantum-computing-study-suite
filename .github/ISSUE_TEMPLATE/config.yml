@@ -1,0 +1,14 @@
+# Blank issues stay enabled: a design discussion ("should there be an eleventh
+# app?") fits neither form, and CONTRIBUTING.md asks for exactly that kind of
+# issue before any large change.
+blank_issues_enabled: true
+contact_links:
+  - name: Contributing guide
+    url: https://github.com/matthewscottconroy/quantum-computing-study-suite/blob/main/CONTRIBUTING.md
+    about: Dev setup, the checks to run, bank-item formats and the docs style rules.
+  - name: Getting started
+    url: https://github.com/matthewscottconroy/quantum-computing-study-suite/blob/main/GETTING_STARTED.md
+    about: Installing the suite and running the apps — read this before filing an installation bug.
+  - name: Code of conduct
+    url: https://github.com/matthewscottconroy/quantum-computing-study-suite/blob/main/CODE_OF_CONDUCT.md
+    about: How to report conduct concerns (do not open a public issue for those).

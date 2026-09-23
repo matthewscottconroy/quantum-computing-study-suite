@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<!--
+  Quantum Study — web flashcard deck.
+
+  GENERATED FILE.  Do not edit this copy; edit tools/webdeck/{index.html,deck.css,deck.js}
+  in the quantum-computing-study-suite repo and re-run `python3 tools/export_cards.py --html`.
+
+  Self-contained by design: the cards, the stylesheet and the script are all
+  inlined below, so the page works with no network at all.  Save it to a phone,
+  a USB stick or a plane-mode laptop and it still runs.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d1117">
+<meta name="description" content="{{CARD_COUNT}} quantum-computing flashcards across {{CATEGORY_COUNT}} categories — offline, mobile-friendly spaced repetition.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Quantum Study">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d1117'/%3E%3Cellipse cx='16' cy='16' rx='13' ry='5.5' fill='none' stroke='%2358a6ff' stroke-width='2'/%3E%3Cellipse cx='16' cy='16' rx='5.5' ry='13' fill='none' stroke='%2358a6ff' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%233fb950'/%3E%3C/svg%3E">
+<title>Quantum Study — {{CARD_COUNT}} Flashcards</title>
+<style>
+/*{{DECK_CSS}}*/
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <button class="icon-btn" id="btn-filters" type="button" aria-label="Categories and settings" title="Categories (f)">&#9776;</button>
+  <div class="title">
+    <strong>Quantum Study</strong>
+    <span id="deck-sub">{{CARD_COUNT}} cards</span>
+  </div>
+  <button class="icon-btn" id="btn-help" type="button" aria-label="Keyboard shortcuts and about" title="Help (?)">?</button>
+</header>
+
+<div class="progress"><div id="progress-bar"></div></div>
+<div class="counters" id="counters"></div>
+
+<main class="stage" id="stage">
+
+  <section class="contents" id="card-view">
+    <div class="card" id="card" role="button" tabindex="0" aria-expanded="false" aria-label="Flashcard — activate to reveal the answer">
+      <span class="cat-chip" id="card-cat"></span>
+      <div class="face front" id="card-front"></div>
+      <div id="card-reveal" hidden>
+        <hr class="rule">
+        <div class="face back" id="card-back"></div>
+      </div>
+      <div class="card-foot">
+        <div class="hint" id="card-hint">Tap to reveal<span class="kb-only"> &mdash; or press <kbd>space</kbd></span></div>
+        <div class="card-id" id="card-id"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="done-view" hidden>
+    <div class="big">&#9737;</div>
+    <h2>Session complete</h2>
+    <p id="done-line"></p>
+    <div class="grid">
+      <div class="stat again"><b id="done-again">0</b><span>Again</span></div>
+      <div class="stat good"><b id="done-good">0</b><span>Good</span></div>
+      <div class="stat easy"><b id="done-easy">0</b><span>Easy</span></div>
+    </div>
+    <p id="done-next"></p>
+    <button class="mini" id="btn-restart" type="button">Start another session<kbd class="kb-only">r</kbd></button>
+  </section>
+
+  <section class="panel" id="empty-view" hidden>
+    <div class="big">&#9788;</div>
+    <h2>No categories selected</h2>
+    <p>Open the menu and pick at least one category to drill.</p>
+  </section>
+
+</main>
+
+<footer class="actions">
+  <button class="btn primary" id="act-reveal" type="button">Show answer<kbd class="kb-only">space</kbd></button>
+  <div class="rate-row" id="act-rate" hidden>
+    <button class="rate" data-rate="again" type="button">Again<small class="kb-only">1</small></button>
+    <button class="rate" data-rate="good"  type="button">Good<small class="kb-only">2</small></button>
+    <button class="rate" data-rate="easy"  type="button">Easy<small class="kb-only">3</small></button>
+  </div>
+</footer>
+
+<div class="scrim" id="scrim" hidden></div>
+
+<aside class="sheet" id="sheet-filters" role="dialog" aria-modal="true" aria-label="Categories and settings" hidden>
+  <header>
+    <h2>Categories</h2>
+    <button class="icon-btn" data-close type="button" aria-label="Close">&#10005;</button>
+  </header>
+  <div class="body">
+    <p class="note flush" id="filter-summary"></p>
+    <div class="mini-actions">
+      <button class="mini" id="btn-all" type="button">Select all</button>
+      <button class="mini" id="btn-none" type="button">Clear</button>
+      <button class="mini" id="btn-shuffle-now" type="button">Shuffle now<kbd class="kb-only">s</kbd></button>
+    </div>
+    <label class="cat-row boxed">
+      <input type="checkbox" id="opt-shuffle">
+      <span class="name">Shuffle each new session</span>
+    </label>
+    <div class="cat-list" id="cat-list"></div>
+    <div class="mini-actions spaced">
+      <button class="mini danger" id="btn-reset" type="button">Reset progress on this device</button>
+    </div>
+    <p class="note">
+      Progress lives in this browser&rsquo;s local storage only. It is never uploaded,
+      and it is separate from the desktop app&rsquo;s history.
+    </p>
+  </div>
+</aside>
+
+<aside class="sheet" id="sheet-help" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts and about" hidden>
+  <header>
+    <h2>Shortcuts &amp; about</h2>
+    <button class="icon-btn" data-close type="button" aria-label="Close">&#10005;</button>
+  </header>
+  <div class="body">
+    <table class="kv">
+      <tr><td><kbd>space</kbd></td><td>Reveal the answer; press again to rate it <em>Good</em></td></tr>
+      <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Again / Good / Easy</td></tr>
+      <tr><td><kbd>u</kbd></td><td>Undo the last rating</td></tr>
+      <tr><td><kbd>s</kbd></td><td>Shuffle the rest of the session</td></tr>
+      <tr><td><kbd>r</kbd></td><td>Rebuild the session queue</td></tr>
+      <tr><td><kbd>f</kbd></td><td>Categories and settings</td></tr>
+      <tr><td><kbd>?</kbd></td><td>This panel &mdash; <kbd>esc</kbd> closes it</td></tr>
+    </table>
+    <p class="note">
+      <b>Scheduling.</b> Leitner boxes: <em>Again</em> sends a card back to box&nbsp;0 (due today),
+      <em>Good</em> advances one box, <em>Easy</em> two. Box intervals run
+      0, 1, 2, 4, 8, 16, 32, 64, 128 days.
+    </p>
+    <p class="note">
+      <b>Offline.</b> This is a single self-contained file &mdash; {{CARD_COUNT}} cards across
+      {{CATEGORY_COUNT}} categories, no network requests. Use your browser&rsquo;s
+      &ldquo;Add to Home Screen&rdquo; / &ldquo;Save page&rdquo; and it keeps working in airplane mode.
+    </p>
+    <p class="note">
+      Generated by <code>tools/export_cards.py</code> from the
+      <a href="https://github.com/matthewscottconroy/quantum-computing-study-suite">Quantum Computing Study Suite</a>.
+      The same deck exports to Anki as <code>quantum-study.apkg</code>.
+    </p>
+  </div>
+</aside>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<noscript>
+  <div style="padding:24px;max-width:640px;margin:0 auto">
+    <h2>JavaScript required</h2>
+    <p>This deck needs JavaScript to shuffle, reveal and schedule cards. The card
+    text itself is embedded in this file as JSON if you would rather read it raw.</p>
+  </div>
+</noscript>
+
+<script type="application/json" id="deck-data">{{DECK_DATA}}</script>
+<script>
+/*{{DECK_JS}}*/
+</script>
+</body>
+</html>

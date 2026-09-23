@@ -1,5 +1,22 @@
 # Training Roadmap — Skills-Gap Analysis and Proposed Features
 
+> **Status (2026-09-16): round 2 — all four tiers implemented.** Tier 1 (friction) →
+> `tools/export_cards.py` + `.github/workflows/pages.yml` (Anki `.apkg`, `cards.json`
+> and the self-contained web deck published to
+> <https://matthewscottconroy.github.io/quantum-computing-study-suite/>), a real SM-2
+> scheduler in flashcard-drill (`core/scheduler.py`, `flashcard_schedule.json`, "N due
+> today" sessions), and `tools/daily_nudge.sh` + `tools/install_nudge.sh` (desktop
+> notification on a systemd `--user` timer or cron). Tier 2 (content depth) → a worked
+> solution for every exercise in all 12 lesson plans, the exam-sim bank 110 → 300
+> questions held to the published section weights, the dojo 36 → 72 katas rebalanced to
+> the exam blueprint. Tier 3 (project hygiene) → `pyproject.toml` + `Makefile`
+> (`setup/dev/test/docs/lint/coverage/notebooks/export/launch/clean`), CI coverage and
+> advisory mypy steps, `release.yml`, Dependabot, issue forms and a PR template. Tier 4
+> (analytics) → `coach.py --readiness` (exam projection with a confidence band),
+> `coach.py --calibrate` (SM-2 intervals vs measured recall) and the `dashboard.py`
+> retention view (weekly accuracy, fitted forgetting curve). The tier analysis is
+> recorded at the end of this file.
+
 > **Status (2026-08-27): all ten gaps implemented.** Gap 1 → `qiskit-dojo/` (36 katas
 > incl. debugging + modernization) and `notebooks/` (9 executable notebooks). Gap 2 →
 > `exam-sim/` (110-question bank, full + sprint modes). Gap 3 → `problem-trainer/`
@@ -102,3 +119,60 @@ difficulty ratings and reading order.
 4. **Coach / unified SRS** — multiplies the value of everything else.
 5. **Runtime + noise labs** — schedule just before certification registration.
 6. Decoder game, teach-back, capstones, reading ladder — ongoing enrichment.
+
+---
+
+# Round 2 — Retention, Friction and Measurability
+
+*Drafted 2026-09-16, after two weeks of using the round-1 suite. Premise: the suite now
+covers every skill it was built to train, so the remaining risk is not a missing feature
+but the habit failing — studying only happens at the one desktop that has the software,
+the flashcard "SRS" only re-weights a session rather than scheduling anything, the daily
+plan exists but nothing surfaces it, and nothing yet says whether the studying is
+working. Four tiers, in the order they pay back.*
+
+## Tier 1 — Friction *(highest priority)*
+
+Every day the deck is not opened is a day the schedule slips. Remove the reasons.
+
+| Feature | Description |
+|---|---|
+| **Phone deck** | Export the 550 flashcards through flashcard-drill's own loader (never a copy of the card text) as a single self-contained HTML file — no CDN, no network — with reveal / Again–Good–Easy / Leitner boxes in `localStorage`; publish it from `main` to GitHub Pages so "Add to Home Screen" is the whole install. Also an Anki `.apkg` (one subdeck per category, stable GUIDs so a re-import updates in place) and a plain `cards.json`. |
+| **Real SM-2 in flashcard-drill** | Per-card ease factor, interval and due date in a new `flashcard_schedule.json` (never a change to `flashcard_history.json`, which `coach.py` and `dashboard.py` parse); a *Due today* session that draws exactly the due queue, oldest first, topped up with new cards; the setup screen opens on "N cards due today"; the schedule is reconstructed from existing history on first run. |
+| **Daily nudge** | `coach.py`'s plan delivered as a desktop notification each morning — a systemd `--user` timer with a cron fallback, idempotent install / status / uninstall, degrading to stdout when there is no session bus. |
+
+## Tier 2 — Content depth
+
+| Feature | Description |
+|---|---|
+| **Lesson-plan solutions** | Every exercise in all 12 lesson plans gets a fully worked solution in the same collapsible `<details><summary>Solution</summary>` block the docs use (every printed number checked by a script, as the docs rules require). |
+| **Exam bank 110 → 300** | Enough that a 68-question mock never repeats a question and every section can fill a 10-question sprint several times over; each section's share of the bank held within 1.5 pp of its published exam weight; every code snippet executed on Qiskit 2.x. |
+| **Katas 36 → 72** | Rebalance the dojo to the exam blueprint (per-section floors: 10/9/8/7/7/6/6/3 across the eight exam sections, plus 8 debugging and 8 modernization drills); every solution must pass and no starter may. |
+
+## Tier 3 — Project hygiene
+
+- `pyproject.toml` (PEP 621 metadata, console-script entry points for the three root
+  tools, mypy and coverage configuration) and a `Makefile` that only shells out to the
+  existing scripts (`setup`, `dev`, `test`, `docs`, `lint`, `coverage`, `notebooks`,
+  `export`, `launch`, `clean`) so the documented commands cannot drift.
+- CI: a coverage run of the root suite and an advisory mypy pass on the 3.14 leg; a
+  `release.yml` that re-runs the whole gate on a `v*` tag before attaching an sdist and
+  wheel; Dependabot for pip and GitHub Actions; issue forms (bug, content error) and a
+  PR template that repeats the CONTRIBUTING checklist.
+
+## Tier 4 — Measurability
+
+| Feature | Description |
+|---|---|
+| **`coach.py --readiness`** | A projected C1000-179 score with a 95 % band from exam-sim and dojo history, weighted by the published section weights and decayed by evidence age; refuses to print a number until ~40 observations cover 60 % of the exam weight, and says per section what would earn one. |
+| **`coach.py --calibrate`** | Compare the SM-2 intervals in `flashcard_schedule.json` with measured recall from `flashcard_history.json` (same card seen twice) and say whether the schedule runs long or short; needs 20 repeat reviews before it judges. |
+| **Dashboard retention view** | Weekly accuracy per category with the observation count behind every cell, and a forgetting curve `R(t) = exp(−t/τ)` fitted to repeat sightings of the same item — never fitted to fewer than 20 observations over 2 interval buckets, never reported below `R² = 0.5`. |
+
+## Build order
+
+1. **Phone deck + Pages** — the single largest friction; ships in a day.
+2. **SM-2 + due-today** — makes the daily drill a queue instead of a choice.
+3. **Nudge** — closes the loop between the plan and the person.
+4. **Solutions, exam bank, katas** — content work that parallelises across contributors.
+5. **Hygiene** — cheap, and it protects everything above from regressing.
+6. **Readiness / calibration / retention** — only meaningful once 1–3 have generated data.

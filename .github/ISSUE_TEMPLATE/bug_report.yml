@@ -1,0 +1,96 @@
+name: Bug report
+description: Something in an app, console tool, notebook or script does not work.
+title: "[bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a wrong answer, a wrong number or a technical error in the written
+        material, use **Content error** instead — it asks for the file and the
+        quoted claim, which is what turns a report into a fix.
+
+        Never paste an API key, anything from `~/.local/share/quantum-study/`,
+        or real exam content into an issue.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Where does it happen?
+      options:
+        - circuit-trainer
+        - exam-sim
+        - flashcard-drill
+        - math-quiz
+        - paper-drill
+        - problem-trainer
+        - qec-trainer
+        - qiskit-dojo
+        - quantum-quiz
+        - vqa-trainer
+        - launch.py (the launcher)
+        - coach.py (study plan)
+        - dashboard.py (progress)
+        - tools/verify_docs.py
+        - setup.sh / installation
+        - notebooks/ or labs/
+        - CI / packaging
+        - something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands, starting from the repository root.
+      placeholder: |
+        1. cd quantum-quiz
+        2. QT_QPA_PLATFORM=offscreen python main.py
+        3. Open "Bloch sphere" and click Check
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Full traceback or error output
+      description: Paste it verbatim — no screenshots of text, please.
+      render: text
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Paste the output of:
+
+        ```
+        python -VV
+        python -c "import PyQt6.QtCore as c, qiskit; print('Qt', c.QT_VERSION_STR, '| qiskit', qiskit.__version__)"
+        uname -sr
+        ```
+      render: text
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before filing
+      options:
+        - label: I am on the latest `main` and reinstalled dependencies (`./setup.sh` or `pip install -r requirements.txt`).
+          required: true
+        - label: I searched the open and closed issues for this.
+          required: true
+        - label: The report contains no API key, no personal study data and no real exam content.
+          required: true

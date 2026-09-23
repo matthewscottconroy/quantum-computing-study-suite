@@ -1,0 +1,285 @@
+# Cuts a GitHub Release from a version tag.
+#
+#   git tag -a v0.3.0 -m "0.3.0" && git push github v0.3.0
+#
+# Two jobs, in order:
+#   gate     the full repository gate on BOTH supported Python versions --
+#            tools/run_tests.sh (root suite + all ten app suites) and
+#            tools/verify_docs.py --all -- plus the offscreen import smoke test
+#            and a check that the tag agrees with [project].version.  This is
+#            the same work ci.yml does; it is repeated here because a tag can be
+#            pushed to a commit CI never ran on, and a release must never be the
+#            first time the gate is run.
+#   release  needs: gate.  Builds the sdist and the wheel with `python -m build`,
+#            inspects both, uploads them as a workflow artefact, and creates the
+#            GitHub Release with generated notes and the two files attached.
+#
+# contents: write is granted to the release job only; the gate job reads.
+# Nothing is published to PyPI here -- see the note in pyproject.toml: the three
+# console scripts resolve the apps and the docs corpus relative to their own
+# file, so this project is meant to be installed editable from a checkout.  The
+# sdist and wheel are attached to the release as reproducible archives of the
+# tagged tree, not as an index upload.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# One release at a time per tag, and never cancelled: a half-finished release
+# job could leave a release created with no artefacts attached.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Gate — Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+    defaults:
+      run:
+        shell: bash
+    env:
+      MPLBACKEND: Agg
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      APPS: circuit-trainer exam-sim flashcard-drill math-quiz paper-drill problem-trainer qec-trainer qiskit-dojo quantum-quiz vqa-trainer
+      ROOT_PATHS: tools tests coach.py dashboard.py launch.py
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      # Same list as ci.yml plus pyproject.toml, which the release job builds
+      # from and the version check below reads.
+      - name: Check required files are in the checkout
+        run: |
+          missing=()
+          for p in pyproject.toml requirements.txt requirements-dev.txt pytest.ini \
+                   tools/run_tests.sh tools/verify_docs.py $ROOT_PATHS; do
+            [ -e "$p" ] || missing+=("$p")
+          done
+          for app in $APPS; do
+            for p in "$app/main.py" "$app/pytest.ini" "$app/tests"; do
+              [ -e "$p" ] || missing+=("$p")
+            done
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Required files missing::not in the checkout: ${missing[*]}"
+            exit 1
+          fi
+          echo "all required files present"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      # The tag is the release's identity and [project].version is what ends up
+      # inside the wheel filename and its metadata; a mismatch ships a v0.3.0
+      # release containing a 0.2.0 wheel.  Checked before the multi-minute
+      # dependency install so the mistake is reported in seconds.
+      - name: Check the tag matches [project].version
+        run: |
+          version="$(python -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error title=Tag/version mismatch::tag is $GITHUB_REF_NAME but pyproject.toml has version $version (expected tag v$version)"
+            exit 1
+          fi
+          echo "tag $GITHUB_REF_NAME matches pyproject.toml version $version"
+
+      # Identical to ci.yml (see the readelf derivation of this package list
+      # there); keep the two lists in step.
+      - name: Install Qt offscreen runtime libraries
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update -qq \
+            || { sleep 15; sudo apt-get -o Acquire::Retries=3 update -qq; }
+          sudo apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 \
+            libglib2.0-0 libx11-6 libfreetype6
+
+      - name: Create .venv and install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
+          echo "QUANTUM_STUDY_DATA_DIR=$RUNNER_TEMP/quantum-study" >> "$GITHUB_ENV"
+
+      - name: Show environment
+        run: |
+          which python
+          python --version
+          python -m pip list
+
+      - name: Import smoke test (offscreen Qt, no API key)
+        run: |
+          for app in $APPS; do
+            ( cd "$app" && python -c "import main" ) \
+              || { echo "::error title=Import smoke test::'import main' failed in $app/"; exit 1; }
+            echo "$app: import main OK"
+          done
+
+      - name: Verify docs corpus
+        run: python tools/verify_docs.py --all
+
+      - name: Run all test suites
+        run: bash tools/run_tests.sh
+
+  release:
+    name: Build and publish
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The only job in either workflow that writes: it creates the release and
+    # uploads the two archives to it.
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      # `python -m build` only runs setuptools over pyproject.toml -- it never
+      # imports the project -- so this job needs no Qt libraries and none of
+      # requirements.txt.  One version is enough: both artefacts are pure
+      # Python and version-independent (requires-python >= 3.11).
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install the build frontend
+        run: python -m pip install "build>=1.2"
+
+      # Default isolated build: the backend named in [build-system].requires
+      # (setuptools >= 77) is fetched into a throwaway environment, so the
+      # runner's own setuptools version cannot change the output.
+      - name: Build the sdist and wheel
+        run: |
+          python -m build
+          ls -l dist/
+
+      # A build that "succeeded" but produced the wrong version, the wrong file
+      # count, or a wheel with no console scripts would otherwise be discovered
+      # by whoever downloads the release.
+      - name: Inspect the artefacts
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import glob
+          import os
+          import pathlib
+          import sys
+          import tarfile
+          import tomllib
+          import zipfile
+
+          version = tomllib.loads(
+              pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+          )["project"]["version"]
+          tag = os.environ["TAG"]
+          problems = []
+
+          wheels = sorted(glob.glob("dist/*.whl"))
+          sdists = sorted(glob.glob("dist/*.tar.gz"))
+          if len(wheels) != 1:
+              problems.append(f"expected exactly 1 wheel, got {wheels}")
+          if len(sdists) != 1:
+              problems.append(f"expected exactly 1 sdist, got {sdists}")
+          if tag != f"v{version}":
+              problems.append(f"tag {tag} does not match version {version}")
+
+          if wheels:
+              names = zipfile.ZipFile(wheels[0]).namelist()
+              print(f"{wheels[0]}: {len(names)} entries")
+              for module in ("launch.py", "coach.py", "dashboard.py"):
+                  if module not in names:
+                      problems.append(f"{wheels[0]} is missing {module}")
+              entry_points = [n for n in names if n.endswith("entry_points.txt")]
+              if not entry_points:
+                  problems.append(f"{wheels[0]} has no entry_points.txt")
+              else:
+                  text = zipfile.ZipFile(wheels[0]).read(entry_points[0]).decode()
+                  print(text)
+                  for script in ("quantum-study", "quantum-coach", "quantum-dashboard"):
+                      if script not in text:
+                          problems.append(f"{wheels[0]} declares no {script} script")
+              if version not in pathlib.Path(wheels[0]).name:
+                  problems.append(f"{wheels[0]} does not carry version {version}")
+
+          if sdists:
+              members = tarfile.open(sdists[0]).getnames()
+              print(f"{sdists[0]}: {len(members)} entries")
+              for wanted in ("pyproject.toml", "README.md", "LICENSE"):
+                  if not any(m.endswith("/" + wanted) for m in members):
+                      problems.append(f"{sdists[0]} is missing {wanted}")
+              if version not in pathlib.Path(sdists[0]).name:
+                  problems.append(f"{sdists[0]} does not carry version {version}")
+
+          if problems:
+              for p in problems:
+                  print(f"::error title=Artefact check::{p}")
+              sys.exit(1)
+          print(f"sdist and wheel look correct for {tag} (version {version})")
+          PY
+
+      # Uploaded before the release is created, so the archives are still
+      # retrievable from the run if the release API call fails.
+      - name: Upload the distributions as a workflow artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ github.ref_name }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+      # --generate-notes asks GitHub to write the notes from the commits and
+      # merged PRs since the previous release.  --verify-tag refuses to invent a
+      # tag that is not already on the remote.  Re-running the workflow on a tag
+      # whose release exists re-uploads the artefacts instead of failing.
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          flags=(--verify-tag --generate-notes --title "$TAG")
+          # Anything that is not exactly vMAJOR.MINOR.PATCH -- v0.3.0rc1,
+          # v0.3.0-beta.1, v0.3.0.dev3 -- is published as a pre-release.
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            flags+=(--prerelease)
+            echo "$TAG is not a plain vX.Y.Z tag: marking the release as a pre-release"
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists; replacing its attached artefacts"
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* "${flags[@]}"
+          fi
+          {
+            echo "### Release $TAG"
+            echo
+            gh release view "$TAG" --json url --jq '.url'
+          } >> "$GITHUB_STEP_SUMMARY"

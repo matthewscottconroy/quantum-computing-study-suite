@@ -1,8 +1,9 @@
 # Flashcard Drill
 
 A spaced-repetition flashcard app for quantum computing — the only app in the suite that
-requires no API key and no Qiskit. 550 cards across 14 categories, with SRS weighting,
-optional per-card countdown timer, flag-for-review, an in-app Reference browser for the
+requires no API key and no Qiskit. 550 cards across 14 categories, with a real **SM-2
+scheduler** (due dates and a daily pull — "23 cards due today"), SRS-weighted free drills,
+an optional per-card countdown timer, flag-for-review, an in-app Reference browser for the
 shared docs corpus, and full session history.
 
 ---
@@ -13,7 +14,10 @@ shared docs corpus, and full session history.
   complexity, theorems, quantum information, algorithms, quantum circuits, error
   correction, states and measurement, quantum hardware, quantum optics,
   many-body physics, and the Qiskit API (exam C1000-179 aligned)
-- **Spaced repetition** — cards you missed recently appear with higher frequency
+- **SM-2 spaced repetition** — every rating gives the card an ease factor, an interval and
+  a due date; the setup screen opens with "N cards due today" and a *Due today* session
+  mode that draws exactly that queue (oldest due first, topped up with new cards)
+- **Free drill** — the original weighted mix: cards you missed recently appear more often
 - **Optional countdown timer** — configurable per session; timer turns red at 5 s
 - **Three-way rating** — Got it / Unsure / Missed after each reveal
 - **Flag for review** — mark any card after revealing it; drill only flagged cards, and
@@ -56,13 +60,30 @@ source file (never from a hard-coded path), so the working directory does not ma
 
 ### Setup Screen
 
-1. **Select categories** — all 14 checked by default; each row shows a mastery bar
-   derived from your history
-2. **Card count** — how many cards to draw this session (default 20)
-3. **Time limit per card** — No timer / 10 / 20 / 30 / 60 s
-4. **Show Flagged Only** — drill just the cards you have flagged (ignores categories);
-   *Start Drill* stays disabled until at least one card is flagged
-5. Click **Start Drill**
+At the top sits **today's pull**: `23 cards due today`, with the breakdown underneath
+(`4 overdue · 120 scheduled · 430 new · 550 in scope`) and a **Review Due Cards** button
+that starts the queue in one click. With nothing due it reads `Nothing due today` plus
+the next review date; before your first rating it reads `No review schedule yet`.
+
+1. **Session mode**
+   - *Due today — spaced repetition*: draws the cards SM-2 says are due (oldest due
+     first), then fills the rest of the session with cards you have never seen
+   - *Free drill — weighted mix*: the original sampler (unchanged) — recently missed
+     cards come up more often. Ratings still update the SM-2 schedule.
+
+   The mode is preselected for you — *Due today* when something is due, *Free drill*
+   otherwise, including on a fresh install — and once you pick one by hand it is left
+   alone.
+2. **Select categories** — all 14 checked by default; each row shows a mastery bar
+   derived from your history. The due counts follow the selection.
+3. **Card count** — how many cards to draw this session (default 20)
+4. **Time limit per card** — No timer / 10 / 20 / 30 / 60 s
+5. **Show Flagged Only** — drill just the cards you have flagged (ignores categories and
+   the schedule); *Start Drill* stays disabled until at least one card is flagged
+6. Click **Start Drill**
+
+In *Due today* mode with nothing due and no new cards left, *Start Drill* is disabled and
+its tooltip says when to come back.
 
 Once you have rated a few cards, an "≈ N min" estimate under the card count uses your
 median seconds-per-card from past sessions.
@@ -87,6 +108,9 @@ Repeat until all cards are done; the session summary appears automatically.
 ### Summary Screen
 
 - % Known headline plus Got it / Unsure / Missed counts
+- **Schedule line** — how the session moved the deck:
+  `8 graduated to a longer interval · 2 lapsed back to 1 day · longest interval now
+  15 days · next review tomorrow (14 cards)`
 - Per-category mini-cards and a detail table
 - **Review Missed** re-drills only the cards you missed (shown when there were any)
 - **Drill Again** with the same configuration, or **Back to Setup**
@@ -146,10 +170,71 @@ block quote when the formula is part of one).
 
 ---
 
-## Spaced Repetition Algorithm
+## Spaced Repetition
+
+Two independent mechanisms, both fed by the same three ratings:
+
+| | Scheduler (SM-2) | Free-drill weighting |
+|---|---|---|
+| Question it answers | *when* should this card come back? | *which* cards should this session sample? |
+| State | `flashcard_schedule.json` (per card: `n`, `EF`, interval, due date) | derived on the fly from `flashcard_history.json` |
+| Used by | *Due today* mode, the due counts on the setup screen | *Free drill* mode |
+
+Every rating updates the schedule, whichever mode you drilled in.
+
+---
+
+## SM-2 Scheduler (`core/scheduler.py`)
+
+Pure functions over an immutable `CardState` (`card_id`, `n`, `ef`, `interval_days`,
+`due`, `last_seen`, `lapses`) — no Qt, no file I/O, so the maths is unit-testable on its
+own. The app's three ratings map onto three SM-2 grades:
+
+| Rating | Grade | Effect |
+|---|---|---|
+| **Missed** | `again` | lapse: `n → 0`, `I → 1` day, `EF −= 0.20`, `lapses += 1` |
+| **Unsure** | `hard` | `n += 1`, `EF −= 0.15`, `I → max(1, round(I × 1.2))` |
+| **Got it** | `good` | `n += 1`; `I → 1` (n=1), `6` (n=2), else `round(I × EF)`; then `EF += 0.10` |
+
+```
+EF  clamped to [1.3, 2.5]        (2.5 is both the start and the ceiling)
+I   clamped to [1, 365] days
+due = review date + I
+```
+
+The interval for a *good* review uses the ease factor **before** the `+0.10` bonus, and
+ties round toward zero (`37.5 → 37`), so a card answered "Got it" five times walks the
+classic SM-2 ladder:
+
+```
+rep   1     2     3      4      5
+I     1d    6d    15d    37d    92d        (6×2.5, 15×2.5, 37×2.5)
+```
+
+Because the ceiling equals the starting ease, the `+0.10` bonus only ever *repays* ease
+lost to Unsure/Missed — a perfect card never inflates past the textbook ladder, while a
+card that lapsed three times (`EF = 1.9`) climbs `1, 6, 13, …` instead. `EF` can never
+fall below `1.3`, so no card becomes unschedulable. A miss on a card you had never
+learned resets the interval and the ease but is not counted as a lapse.
+
+### The daily pull
+
+`select_due_ids(states, candidate_ids, limit)` returns the session queue: every card whose
+`due` date is today or earlier, **oldest due first**, then never-seen cards in the caller's
+order until `limit` is reached. Cards scheduled for a later day are never drawn.
+`summarise(...)` produces the counts behind the banner (due / overdue / scheduled / new /
+next review date).
+
+Simulated over 90 days with 200 cards and a fixed seed (see
+`tests/test_schedule_simulation.py`), the backlog stays bounded — it never exceeds twice a
+day's workload — and every card is introduced instead of starving behind reviews.
+
+---
+
+## Free-Drill Weighting
 
 Session history is read from `flashcard_history.json` (see Data Persistence) every time
-a deck is built. Each past session is weighted by an exponential decay with a 14-day half-life,
+a free-drill deck is built. Each past session is weighted by an exponential decay with a 14-day half-life,
 and the weight for each card is computed as:
 
 ```
@@ -173,10 +258,12 @@ excluded.
 ### Deck Building
 
 `build_deck(config)` in `core/deck.py`:
-1. Pool = flagged cards (if *Show Flagged Only*) or all cards in the chosen categories
-2. Draw `k` cards with replacement using `random.choices(pool, weights=weights, k=k)`
-3. Deduplicate while preserving the weighted order
-4. If fewer unique cards were drawn than requested, fill from a uniform shuffle of the
+1. *Due today* (`config.due_only`) hands off to `build_due_deck()` → the SM-2 queue above
+2. Otherwise pool = flagged cards (if *Show Flagged Only*) or all cards in the chosen
+   categories
+3. Draw `k` cards with replacement using `random.choices(pool, weights=weights, k=k)`
+4. Deduplicate while preserving the weighted order
+5. If fewer unique cards were drawn than requested, fill from a uniform shuffle of the
    remaining unselected cards
 
 ---
@@ -186,10 +273,11 @@ excluded.
 ```
 flashcard-drill/
 ├── main.py
-├── config.py                    APP_NAME, DATA_DIR, HISTORY_FILE, defaults
+├── config.py                    APP_NAME, DATA_DIR, HISTORY_FILE, SCHEDULE_FILE, defaults
 ├── core/
 │   ├── models.py                Flashcard, DrillConfig, Rating, CardResult, SessionStats
-│   └── deck.py                  build_deck(config) — SRS-weighted sampling
+│   ├── scheduler.py             SM-2: CardState, review(), select_due_ids(), summarise()
+│   └── deck.py                  build_deck(config) — due-today queue or weighted sampling
 ├── cards/
 │   ├── __init__.py              all_cards(): auto-discovers one card file per card
 │   ├── pauli_matrices/          48 cards
@@ -207,16 +295,19 @@ flashcard-drill/
 │   ├── quantum_optics/          21 cards
 │   └── many_body_physics/       21 cards
 ├── persistence/
-│   └── storage.py               save_session(), card_weights(), lifetime_stats(),
-│                                load_flagged() / save_flagged() / toggle_flag()
+│   ├── storage.py               save_session(), card_weights(), lifetime_stats(),
+│   │                            load_flagged() / save_flagged() / toggle_flag()
+│   └── schedule_store.py        flashcard_schedule.json: load/save, record_rating(),
+│                                ensure_states() (migration from history)
 └── ui/
     ├── theme.py                  Shared dark palette + QSS
     ├── main_window.py            QStackedWidget controller (setup, cards, summary,
     │                             history, browse, reference)
     ├── screens/
-    │   ├── setup_screen.py       Category selection, card count, timer, flagged-only
+    │   ├── setup_screen.py       Daily pull banner, session mode, categories, count,
+    │   │                         timer, flagged-only
     │   ├── card_screen.py        Card display, reveal, rating buttons, timer, flag toggle
-    │   ├── summary_screen.py     Session stats, review-missed
+    │   ├── summary_screen.py     Session stats, SM-2 outcome line, review-missed
     │   ├── history_screen.py     Lifetime stats, trend chart, flagged-card list / unflag
     │   ├── browse_screen.py      Read-only card browser by category
     │   └── reference_screen.py   Docs browser for <repo>/docs/**/*.md
@@ -249,7 +340,9 @@ card of a run), so the call is wrapped in `try/except (TypeError, RuntimeError)`
 |---|---|---|
 | `DEFAULT_CARD_COUNT` | 20 | Pre-filled card count on setup screen |
 | `DEFAULT_TIMER_SECS` | 0 | Pre-filled timer (0 = no timer) |
-| `DATA_DIR` | `~/.local/share/quantum-study` | History / flag storage directory |
+| `DATA_DIR` | `~/.local/share/quantum-study` | History / flag / schedule storage directory |
+| `HISTORY_FILE` | `DATA_DIR/flashcard_history.json` | Session history (shared with the suite) |
+| `SCHEDULE_FILE` | `DATA_DIR/flashcard_schedule.json` | SM-2 schedule (this app only) |
 
 Set the `QUANTUM_STUDY_DATA_DIR` environment variable to point `DATA_DIR` somewhere else
 (the same override `coach.py` honours) — handy for tests and experiments that must not
@@ -259,7 +352,8 @@ touch your real history.
 
 ## Data Persistence
 
-Both files live in `DATA_DIR` and are shared with `dashboard.py` / `coach.py`:
+Three files live in `DATA_DIR`; the first two are shared with `dashboard.py` / `coach.py`
+and their schemas are frozen:
 
 - **`flashcard_history.json`** — a JSON list; one entry per completed session with
   `total`, `got_it`, `unsure`, `missed`, `timestamp` (epoch seconds) and `results`, a
@@ -273,6 +367,34 @@ Both files live in `DATA_DIR` and are shared with `dashboard.py` / `coach.py`:
   id strings are still read and are upgraded on the next write. The Card screen writes it
   after a reveal, the History screen's *Unflag* buttons remove entries, and *Show Flagged
   Only* on the Setup screen reads it.
+
+- **`flashcard_schedule.json`** — the SM-2 schedule, written only by this app:
+
+  ```json
+  {
+    "alg_grover_iterations": {
+      "n": 3,
+      "ef": 2.5,
+      "interval_days": 15,
+      "due_iso": "2026-10-01",
+      "last_seen_iso": "2026-09-16",
+      "lapses": 1
+    }
+  }
+  ```
+
+  One entry per card that has ever been rated; cards with no entry are "new". It is
+  written after **every** rating (atomically, via a temp file plus `os.replace`), so an
+  abandoned session still keeps the reviews you did. A missing, unreadable or corrupt
+  entry degrades to "this card is new" instead of raising — scheduling never interrupts a
+  drill.
+
+**Migration.** The first run that has history but no schedule replays
+`flashcard_history.json` through the scheduler in timestamp order, at the dates the
+sessions actually happened: a card answered "Got it" twice a month ago comes back with
+`n = 2`, a 6-day interval, and a due date that has already passed (so it is due now).
+History is only read, never rewritten, and the derived schedule is saved once. With no
+history at all, nothing is written and the setup screen keeps *Free drill* as the default.
 
 History is never automatically deleted.
 
@@ -298,3 +420,22 @@ CARD = Flashcard(
 The SRS system will automatically include the new cards in future sessions. If you
 rename a card's `id`, any old ID left in `flagged_cards.json` shows up on the History
 screen as "card no longer exists" so it can be unflagged.
+
+---
+
+## Tests
+
+```bash
+cd flashcard-drill && python -m pytest
+```
+
+Offscreen Qt (`QT_QPA_PLATFORM=offscreen`) and a throwaway `QUANTUM_STUDY_DATA_DIR` are
+set by `tests/conftest.py`, so the suite never touches your real history.
+
+| File | Covers |
+|---|---|
+| `test_scheduler.py` | the SM-2 maths: the `1, 6, 15, 37, 92` ladder, lapses, the `EF` floor/ceiling, the 365-day cap, rating → grade mapping, the due queue, corrupt-value coercion |
+| `test_schedule_simulation.py` | 200 cards over 90 simulated days (fixed seed): bounded backlog, every card eventually scheduled |
+| `test_schedule_store.py` | `flashcard_schedule.json` round-trips, migration from history, corrupt / unwritable files |
+| `test_due_session.py` | the UI end to end offscreen: due counts, mode defaulting, a *Due today* session, the summary line |
+| `test_deck.py`, `test_card_flow.py`, `test_persistence.py`, … | pre-existing deck, flow and persistence coverage |
