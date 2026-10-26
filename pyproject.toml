@@ -92,7 +92,7 @@ dependencies = [
     # Desktop UI (all ten apps)
     "PyQt6>=6.6",
     # Claude API — validated on the 1.x SDK; a future 2.x is untested
-    "anthropic>=1.0,<2",
+    "anthropic>=1.0,<3",
     # Qiskit stack (quantum-quiz, circuit-trainer, qiskit-dojo, notebooks, labs)
     "qiskit>=2.0,<3",
     "qiskit-aer>=0.17",
