@@ -589,11 +589,12 @@ from PyQt6.QtCore import QCoreApplication, QEvent, QProcess  # noqa: E402
 
 
 @pytest.fixture(scope="module")
-def qapp():
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    app.setStyleSheet(launch.QSS)
-    return app
+def qapp(qapp):
+    """The session-wide QApplication (tests/conftest.py), with the launcher's
+    stylesheet applied for the duration of this module."""
+    qapp.setStyleSheet(launch.QSS)
+    yield qapp
+    qapp.setStyleSheet("")
 
 
 @pytest.fixture
@@ -601,8 +602,12 @@ def window(qapp):
     win = launch.build_window()
     win.show()
     yield win
+    # close() only hides the window.  Deliver the close and focus events while
+    # it still exists, then ask for its destruction; conftest's settle_qt()
+    # runs right after this fixture and carries the deletion out.
     win.close()
     qapp.processEvents()
+    win.deleteLater()
 
 
 def _wait_for_tool(win, qapp, timeout=30.0):

@@ -305,11 +305,7 @@ def test_hiding_solutions_across_the_real_corpus():
 # The widget itself (offscreen)
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="module")
-def qapp():
-    from PyQt6.QtWidgets import QApplication
-    app = QApplication.instance() or QApplication([])
-    yield app
+# ``qapp`` is the session-wide QApplication from tests/conftest.py.
 
 
 def test_the_screen_builds_and_loads_the_corpus(qapp, corpus):

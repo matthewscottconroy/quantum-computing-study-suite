@@ -26,10 +26,9 @@ from common.ui import theme, widgets                # noqa: E402
 APPS = sorted(p.parent.name for p in ROOT.glob("*/main.py"))
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    from PyQt6.QtWidgets import QApplication
-    yield QApplication.instance() or QApplication([])
+# ``qapp`` is the session-wide QApplication from tests/conftest.py.  Do not
+# redefine it here with module scope: that destroys the application when this
+# module finishes and makes the next one build another.
 
 
 @pytest.fixture

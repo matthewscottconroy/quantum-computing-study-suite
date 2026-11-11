@@ -10,6 +10,7 @@ problems/, core/, ui/).
 from __future__ import annotations
 
 import atexit
+import gc
 import json
 import os
 import shutil
@@ -40,6 +41,63 @@ os.environ["QUANTUM_STUDY_DATA_DIR"] = str(_SAFE_DATA_DIR)
 atexit.register(shutil.rmtree, _SAFE_DATA_DIR, ignore_errors=True)
 
 DAY = 86400.0
+
+
+# ---------------------------------------------------------------------------
+# Qt: one QApplication for the whole process, and nothing left half-destroyed
+# ---------------------------------------------------------------------------
+# Three modules in this suite build widgets (test_common_reference,
+# test_common_ui, test_launch).  Each used to have its own module-scoped
+# ``qapp`` fixture, and nothing else held the QApplication, so it was destroyed
+# when a module finished and a new one was created for the next: three
+# QApplications in one process, with the earlier modules' widgets still waiting
+# to be deleted (``deleteLater()`` is not acted on by a bare
+# ``processEvents()`` outside an event loop, so they lived until Python's
+# garbage collector got to them, whenever that was).  CI segfaulted inside
+# Qt's window-activation delivery in test_launch.py's teardown, starting with
+# the commit that added the two test_common_* widget modules.  Both halves are
+# fixed here: the application is created once and kept, and whatever a Qt test
+# leaves behind is destroyed immediately after it, at a point where Qt is not
+# in the middle of delivering an event.
+_QAPP = None
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """The one offscreen QApplication for the whole test process."""
+    global _QAPP
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    QtWidgets = pytest.importorskip("PyQt6.QtWidgets", reason="PyQt6 not installed")
+    if _QAPP is None:
+        _QAPP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    return _QAPP
+
+
+def settle_qt() -> None:
+    """Destroy every widget that is no longer wanted, now.
+
+    Delivers pending events, acts on every ``deleteLater()``, then collects
+    Python garbage so a wrapper stuck in a reference cycle takes its C++
+    object with it here rather than inside some later test's event handler.
+    """
+    if _QAPP is None:
+        return
+    from PyQt6.QtCore import QCoreApplication, QEvent
+
+    _QAPP.processEvents()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    gc.collect()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    _QAPP.processEvents()
+
+
+@pytest.fixture(autouse=True)
+def _settle_qt_after_each_qt_test(request):
+    """Autouse, so it is set up first and torn down last - after the test's own
+    fixtures have closed their windows."""
+    yield
+    if "qapp" in request.fixturenames:
+        settle_qt()
 
 
 def today_local() -> str:

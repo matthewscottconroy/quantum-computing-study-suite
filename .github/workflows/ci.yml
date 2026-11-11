@@ -200,19 +200,17 @@ jobs:
       # -- core/, ui/, config.py -- and cannot share a sys.path), so app data
       # could not be combined into one coherent report without per-app config.
       # The root suite is exactly the code this report is about: coach.py,
-      # dashboard.py, launch.py and tools/.  It is a second, ~3 s run of a suite
+      # dashboard.py, launch.py, tools/ and common/.  It is a second run of a suite
       # `Run all test suites` has already run, so a failure here is a coverage
       # tooling problem, not a new test failure.
       #
-      # Everything but `source` comes from [tool.coverage.*] in pyproject.toml
-      # (branch coverage, the omit list, parallel data files, report options).
-      # `source` is overridden because the table lists file paths --
-      # source = ["coach.py", "dashboard.py", "launch.py", "tools"] -- and
-      # coverage 7 reads a non-directory entry as a *module* name: "coach.py"
-      # matches no module, so the three root scripts drop out of the report with
-      # a "Module coach.py was never imported" warning and only tools/ is
-      # measured (reproduced on coverage 7.16).  Module names measure all four.
-      # Drop --source once pyproject.toml uses names (or source_pkgs).
+      # Everything comes from [tool.coverage.*] in pyproject.toml: `source`
+      # (module names: coach, dashboard, launch, tools, common), branch
+      # coverage, the omit list, parallel data files and the report options.
+      # There is deliberately no --source on the command line.  One used to be
+      # needed while pyproject listed file paths; once it listed module names
+      # the override was stale, and it silently left `common` -- the package
+      # all ten apps import -- out of the report.
       #
       # No --fail-under yet.  When this step was added the root suite measured a
       # little under 70% branch coverage: launch.py was the strongest file at
@@ -226,7 +224,7 @@ jobs:
       - name: Coverage (root suite)
         if: matrix.python-version == '3.14'
         run: |
-          coverage run --source=coach,dashboard,launch,tools -m pytest
+          coverage run -m pytest
           # parallel = true in [tool.coverage.run] means the run wrote
           # .coverage.<host>.<pid>.<n> rather than .coverage, so the report needs
           # a combine first.  Guarded on the files actually existing: `coverage
