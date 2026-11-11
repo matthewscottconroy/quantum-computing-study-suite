@@ -1,96 +1,29 @@
-# `common/` — the code the ten apps share
+# `quantum_study.common` — the code the ten apps share
 
-Before this package, each of the ten PyQt6 apps carried its own near-identical
-copy of the data-directory resolver, the mistake/confidence journal, the
-flag-for-review store, the theme palette, four small widgets and an ~900-line
-docs Reference screen. Roughly ten thousand duplicated lines, in which every
-cross-cutting fix was a ten-way edit — the data-loss race in the journal had to
-be fixed ten times — and any one app could silently drift.
+One implementation of everything that is the same in every app: where the study
+data lives, the mistake and confidence journals and the lock that guards them,
+the flag-for-review store, schema versions and backups, errata links, the
+shuffled display order for multiple-choice options, the Claude model id, and
+the Qt pieces under `ui/` — theme, widgets and the docs Reference screen.
 
-This document is the contract. **Migration agents follow it verbatim.**
+```python
+from quantum_study.common import datadir, journal
+from quantum_study.common.ui import theme
+```
+
+Nothing outside `common.ui` imports PyQt6, so `coach.py`, `dashboard.py` and
+`tools/` use the package headlessly. Each app keeps its own `config.py`,
+`persistence.py` and `ui/theme.py` as thin adapters over what is here, so an
+app's vocabulary (its categories, its colours, its history file) stays its own.
+
+Two small modules have no section below because they are one name each:
+`llm.MODEL` is the Claude model id for every app, and `testing` holds what the
+repository's root `conftest.py` turns into fixtures (`isolate_data_dir`,
+`qapplication`, `settle_qt`).
 
 ---
 
-## 1. The import shim — copy this, exactly
-
-The apps are not packages: each is run as `cd <app> && python main.py`, and
-several define the same top-level module names (`config`, `core`, `ui`,
-`persistence`), so no two can share a `sys.path` and the repository root is not
-importable from inside an app.
-
-**Step 1.** Copy `common/app_shim.py` to `<app>/common_path.py`, unedited:
-
-```bash
-cp common/app_shim.py <app>/common_path.py
-```
-
-**Step 2.** In **every** module of that app that imports from `common`, put
-this line above the `common` imports:
-
-```python
-import common_path  # noqa: F401  (puts the repo root on sys.path)
-
-from common import journal
-from common.ui import theme
-```
-
-Every module — not just `main.py`. `persistence.py` is imported directly by
-`tests/test_journal_concurrency.py` with no `main` and no `conftest` in the
-way, and a screen module is imported directly by that app's UI tests. A module
-that assumes something else ran the shim first works right up until the day
-something imports it first.
-
-### Why it works in all three cases
-
-| Situation | What happens |
-|---|---|
-| `cd <app> && python main.py` | `sys.path[0]` is the app dir, so `import common_path` resolves; the shim appends `<repo>`, so `import common` resolves. |
-| `cd <app> && python -m pytest` | pytest puts the rootdir (the app dir, which holds its `pytest.ini`) on `sys.path` — the same reason `import persistence` already works there. Same two steps follow. |
-| An installed wheel | `common` is an installed package; `import common` works without the shim. The shim finds no checkout, appends nothing, and is a no-op. |
-
-### Why it **appends** rather than `insert(0, …)`
-
-The repository root holds `coach.py`, `dashboard.py`, `launch.py`, `tools/` and
-`tests/`. Putting it *before* the app directory would let a root module shadow
-an app module of the same name — `import tests` inside an app suite is the
-obvious landmine. Appending guarantees the app's own modules always win.
-
-### The shim in full
-
-```python
-from __future__ import annotations
-
-import sys
-from pathlib import Path
-
-
-def repo_root() -> Path | None:
-    for parent in Path(__file__).resolve().parents:
-        pkg = parent / "common"
-        if (pkg / "__init__.py").is_file() and (pkg / "journal.py").is_file():
-            return parent
-    return None
-
-
-def install() -> Path | None:
-    root = repo_root()
-    if root is None:
-        return None
-    text = str(root)
-    if text not in sys.path:
-        sys.path.append(text)
-    return root
-
-
-ROOT = install()
-```
-
-(Two files are checked, not one, so a directory called `common` belonging to
-some other project higher up the tree is not mistaken for ours.)
-
----
-
-## 2. API surface
+## API surface
 
 Nothing outside `common.ui` imports PyQt6, so `coach.py`, `dashboard.py` and
 `tools/` can use this package headlessly.
@@ -283,7 +216,7 @@ lock(path, timeout=5.0, create=False)          # context manager, yields bool
 lock_path_for(path) -> Path                    # <path>.lock
 ```
 
-`lock` is the extracted `journal_sync.lock`: bounded, always released,
+`lock` is bounded, always released,
 re-entrant, and it *degrades* (yields False) rather than raising on a
 filesystem that cannot lock.
 
@@ -308,9 +241,8 @@ Keep the app's **own vocabulary** (`CATEGORY_COLORS`, `DIFFICULTY_COLORS`,
 app's `ui/theme.py`, which becomes a dozen lines:
 
 ```python
-import common_path  # noqa: F401
-from common.ui.theme import *          # noqa: F403
-from common.ui.theme import apply as _apply, extend
+from quantum_study.common.ui.theme import *          # noqa: F403
+from quantum_study.common.ui.theme import apply as _apply, extend
 
 CATEGORY_COLORS = {...}                # this app's vocabulary
 _EXTRA = "QLabel#myThing { ... }"
@@ -384,55 +316,12 @@ ErrataButton(parent=None, *, app, item_id="", item_text="", repo=REPO,
 
 ---
 
-## 3. Divergences reconciled, and what was chosen
+## Tests
 
-Recorded here because "which copy was right?" is the question a migration keeps
-asking.
-
-| Divergence | Chosen | Why |
-|---|---|---|
-| Journal growth cap trimmed the newest *N* rows of the **whole file** (8 apps) vs only the app's own rows (paper-drill) | **Own rows only** (`trim_own`) | The other eight sorted the merged list by timestamp and kept the newest *N* — silently deleting **other apps' rows** during a write to a file they do not own. A data-loss bug. |
-| `log_mistake` merged a repeat into the open row (qec-trainer) vs appended (8 apps) | **Append** | `dashboard.load_mistakes` says it outright: "a genuine second miss of the same item keeps its own entry, because repetition is exactly the signal". Merging destroys the count `coach --mistakes` reports. |
-| `set_mistake_cause(note="")` always overwrote the note (paper-drill) vs left it alone when None (qec, vqa) | **`note=None` keeps it, `note=""` clears it** | paper-drill's signature wiped a note whenever a cause was picked after the note had been typed. |
-| Unknown cause raised `ValueError` (math-quiz, exam-sim) vs stored `None` (6 apps) vs lower-cased first (vqa) | **Never raise; strip + lower-case, then `None` if unknown** | A stray cause value must not cost the mistake itself. vqa's normalisation makes `"Misread"` match. |
-| `calibration_summary` buckets `{"n", "correct"}` (qec) vs `{"total", "correct"}` (qiskit-dojo, math-quiz) | **`{"total", "correct"}`** | `n` is not self-describing next to `correct`. |
-| `log_confidence` clamped a bad rating into 1..4 (vqa) vs rejected it (qec, paper-drill) | **Reject** (the pure builder still clamps) | Clamping invents a rating the learner never gave and then reports on it. `None` means "the strip was skipped". |
-| Text clipping truncated hard (qec, vqa) vs collapsed whitespace and added `…` (paper-drill, quantum-quiz) | **Collapse + `…` for one-line fields; the note keeps its line breaks** | A question with a newline breaks a one-line list row; a note is prose the user typed and reflowing it destroys deliberate structure. |
-| `CAUSE_LABELS["didnt_know"]` — ASCII `"Didn't know"` (7 apps), typographic `"Didn’t know"` (vqa), `"Knew it, slipped"` &c. (exam-sim) | **The ASCII seven** | exam-sim's rewordings were a local edit, not a considered change. |
-| Data dir: `.strip()` on the override (2 of 10), `.expanduser()` (3 of 10) | **Both** | Without `strip`, `QUANTUM_STUDY_DATA_DIR=" "` gave eight apps a directory literally named `" "`. Without `expanduser`, an unexpanded `~/scratch` made a directory called `~` in the cwd. |
-| Flag file rewritten from the *filtered* list (5 apps) vs the raw list (quantum-quiz) | **Raw list** | Rewriting from the filtered list deletes rows the app did not understand. |
-| Flag file written with `write_text` (4 apps) vs atomically (6 apps) | **Atomic** | `write_text` truncates first: a crash mid-write lost every flag. |
-| `LoadingOverlay` plain (5 apps) vs animated with a sub-label (3 apps) | **Animated** | A strict superset, and a static "Grading…" over a frozen window is indistinguishable from a hang. The plain family also resized against `self.parent()` (the *QObject* parent, which may have no `size()`); `parentWidget()` is correct. Five copies had no `hide_overlay()` and left the timer running. |
-| Focus-visible stylesheet rules (qec, vqa only) and `QPushButton#pill` rules (5 apps) | **In the base stylesheet for everyone** | Keyboard focus visibility is an accessibility requirement, and every app now has confidence/cause pills. |
-| `_atomic_write_json` temp name: fixed `.tmp` (several) vs pid-qualified (several) | **pid + counter** | With a fixed name, two processes writing at once truncate each other's temp file and one `os.replace`s a partial file into place. |
-
----
-
-## 4. What deliberately did **not** move
-
-- **Per-app colour vocabulary** (`CATEGORY_COLORS`, `SECTION_COLORS`, …) — not
-  shared style, just this app's words.
-- **Per-app file names and history schemas.** `<prefix>_history.json` is parsed
-  by `coach.py` and `dashboard.py`; those schemas are load-bearing and are
-  untouched. `common.datadir.APP_FILES` records the names, nothing more.
-- **`ui/main_window.py`, the setup/summary/history screens, the graders.** They
-  look similar and are not: each encodes its own app's session model.
-- **`journal_sync.py`.** The ten byte-identical copies stay until their apps
-  migrate; `common.locking` is the extraction, and
-  `tests/test_journal_concurrency.py` still asserts the ten copies match each
-  other. Delete an app's copy in the same commit that switches it to
-  `common.journal`.
-
----
-
-## 5. Tests
-
-`tests/test_common_*.py` live in the **root** suite (`tests/`), which imports no
-app and is therefore safe to run in one process:
+`tests/test_common_*.py`, in the root suite:
 
 | File | Covers |
 |---|---|
-| `test_common_shim.py` | the shim from a simulated app dir, running a script and running pytest |
 | `test_common_datadir.py` | override, blank override, `~`, call-time resolution, `app_file` |
 | `test_common_journal.py` | pure helpers, foreign-row preservation, caps, multi-process concurrency (and the same test failing against a deliberately unlocked variant) |
 | `test_common_flags.py` | toggle, legacy bare-id upgrade, unknown-row preservation, atomicity |
@@ -440,6 +329,8 @@ app and is therefore safe to run in one process:
 | `test_common_errata.py` | URL shape, field ids, escaping, truncation |
 | `test_common_choices.py` | permutation, uniformity, seeded reproducibility, fallback to bank order, position-dependent option detection |
 | `test_common_reference.py` | docs discovery, titles, labels, `$$`/`<details>` rewriting, slugs, cross-reference resolution |
+| `test_common_ui.py` | theme, widgets and the errata dialog, offscreen |
+| `test_journal_concurrency.py` | ten apps (and three windows of one app) appending at once lose no rows |
+| `test_qt_fixture.py` | one `QApplication` for the whole run; `settle_qt` really destroys what a test left behind |
 
-Run them with `bash tools/run_tests.sh` (all eleven suites) or
-`.venv/bin/python -m pytest tests/ -k common` for these alone.
+Run them with `pytest tests -k "common or journal or qt_fixture"`.

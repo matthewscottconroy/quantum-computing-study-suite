@@ -65,16 +65,16 @@ has the formats, the web-deck keyboard shortcuts and the Anki re-import rules.
 
 | App | What it trains | Offline | Needs |
 |---|---|---|---|
-| [flashcard-drill](flashcard-drill/) | Recall — 856 flashcards in 15 categories (Paulis, gate unitaries, theorems, QEC, Qiskit API, …): 550 hand-written plus a 306-card **Cloze** deck generated from the corpus's Key Formulas, all on a real **SM-2 scheduler**: every rating sets an ease factor, interval and due date, and the setup screen opens on "N cards due today" with a *Due today* session mode | Fully | — |
-| [exam-sim](exam-sim/) | Exam conditions — 300-question C1000-179 bank with every section held to its published exam weight; 68 Q / 90 min mocks scored against the 47/68 bar, 10-minute section sprints, missed-question review, score-trend history | Fully | — |
-| [qiskit-dojo](qiskit-dojo/) | Writing real Qiskit 2.x code — 72 katas in 10 sections, balanced to the exam blueprint (8 exam sections plus 8 debugging and 8 API-modernization drills), executed in a subprocess and graded by assertions | Fully (Claude style review optional) | Qiskit |
-| [qec-trainer](qec-trainer/) | Error correction — 178 problems in 6 categories (170 auto-graded MC, 8 free-form) plus a syndrome-decoder game up to the distance-3 surface code | MC + decoder game | Key for 8 free-form |
-| [vqa-trainer](vqa-trainer/) | Variational algorithms — 179 problems in 7 categories (153 MC, 7 exact-numeric, 19 free-form): VQE, parameter shift, QAOA, ansätze, barren plateaus, mitigation, optimal control | MC + numeric | Key for 19 free-form |
-| [circuit-trainer](circuit-trainer/) | Circuit arithmetic — problems generated with Qiskit (`quantum_info` Statevector/Operator) in 12 categories (state output, measurement probabilities, identities, unitaries, entanglement, noise, …) with rendered circuits; sprint mode (10 rapid-fire questions, 60-second countdown each) | Everything except free-form explanations | Qiskit; key for explanations |
-| [problem-trainer](problem-trainer/) | Long-form problem solving — 16 multi-part textbook problems graded against rubrics, plus 7 Socratic guided derivations (QPE, Grover count, CHSH, no-cloning, teleportation, parameter shift, threshold) | Model solutions and steps | Key for grading |
-| [quantum-quiz](quantum-quiz/) | Open-ended QC theory — Claude-generated questions across 11 subjects / 124 topics with Qiskit-rendered context, 7 question types incl. teach-back (Feynman) and viva follow-ups | Reference + history | Key, Qiskit |
-| [math-quiz](math-quiz/) | The mathematics underneath — 13 subjects / 197 topics from linear algebra to topology, generated and graded by Claude with hints | Reference + history | Key |
-| [paper-drill](paper-drill/) | Active reading — paste any paper; Claude writes factual / conceptual / derivation questions and grades your answers; saved-paper library | Library + history | Key |
+| [flashcard-drill](quantum_study/flashcard_drill/) | Recall — 856 flashcards in 15 categories (Paulis, gate unitaries, theorems, QEC, Qiskit API, …): 550 hand-written plus a 306-card **Cloze** deck generated from the corpus's Key Formulas, all on a real **SM-2 scheduler**: every rating sets an ease factor, interval and due date, and the setup screen opens on "N cards due today" with a *Due today* session mode | Fully | — |
+| [exam-sim](quantum_study/exam_sim/) | Exam conditions — 300-question C1000-179 bank with every section held to its published exam weight; 68 Q / 90 min mocks scored against the 47/68 bar, 10-minute section sprints, missed-question review, score-trend history | Fully | — |
+| [qiskit-dojo](quantum_study/qiskit_dojo/) | Writing real Qiskit 2.x code — 72 katas in 10 sections, balanced to the exam blueprint (8 exam sections plus 8 debugging and 8 API-modernization drills), executed in a subprocess and graded by assertions | Fully (Claude style review optional) | Qiskit |
+| [qec-trainer](quantum_study/qec_trainer/) | Error correction — 178 problems in 6 categories (170 auto-graded MC, 8 free-form) plus a syndrome-decoder game up to the distance-3 surface code | MC + decoder game | Key for 8 free-form |
+| [vqa-trainer](quantum_study/vqa_trainer/) | Variational algorithms — 179 problems in 7 categories (153 MC, 7 exact-numeric, 19 free-form): VQE, parameter shift, QAOA, ansätze, barren plateaus, mitigation, optimal control | MC + numeric | Key for 19 free-form |
+| [circuit-trainer](quantum_study/circuit_trainer/) | Circuit arithmetic — problems generated with Qiskit (`quantum_info` Statevector/Operator) in 12 categories (state output, measurement probabilities, identities, unitaries, entanglement, noise, …) with rendered circuits; sprint mode (10 rapid-fire questions, 60-second countdown each) | Everything except free-form explanations | Qiskit; key for explanations |
+| [problem-trainer](quantum_study/problem_trainer/) | Long-form problem solving — 16 multi-part textbook problems graded against rubrics, plus 7 Socratic guided derivations (QPE, Grover count, CHSH, no-cloning, teleportation, parameter shift, threshold) | Model solutions and steps | Key for grading |
+| [quantum-quiz](quantum_study/quantum_quiz/) | Open-ended QC theory — Claude-generated questions across 11 subjects / 124 topics with Qiskit-rendered context, 7 question types incl. teach-back (Feynman) and viva follow-ups | Reference + history | Key, Qiskit |
+| [math-quiz](quantum_study/math_quiz/) | The mathematics underneath — 13 subjects / 197 topics from linear algebra to topology, generated and graded by Claude with hints | Reference + history | Key |
+| [paper-drill](quantum_study/paper_drill/) | Active reading — paste any paper; Claude writes factual / conceptual / derivation questions and grades your answers; saved-paper library | Library + history | Key |
 
 Every app has an in-app **Reference** button that renders the whole `docs/` corpus, and
 every trainer has a **⚑ Flag for review** toggle whose flags feed the suite-wide review
@@ -187,7 +187,7 @@ they are missing. Everything else is a Python package that the setup script inst
 ```bash
 git clone https://github.com/matthewscottconroy/quantum-computing-study-suite.git
 cd quantum-computing-study-suite
-./setup.sh            # creates .venv, installs requirements.txt, checks core imports, imports every app headless
+./setup.sh            # creates .venv, installs the requirements and the suite itself, imports every app headless
 ```
 
 `./setup.sh --dev` additionally installs `requirements-dev.txt` (pytest, Jupyter kernel
@@ -199,11 +199,11 @@ its own lists the targets:
 | Target | Runs |
 |---|---|
 | `make setup` / `make dev` | `setup.sh` / `setup.sh --dev` |
-| `make test` | `tools/run_tests.sh` — every suite, one process per app |
+| `make test` | `pytest` — every test in one run (`make test ARGS=quantum_study/exam_sim` for one app) |
 | `make docs` | `tools/verify_docs.py --all` |
 | `make export` | `tools/export_cards.py --all` → `exports/` |
 | `make launch` | `launch.py` (`make launch ARGS=--list` for the CLI) |
-| `make lint` / `make coverage` | mypy / the root suite under coverage, both configured in `pyproject.toml` |
+| `make lint` / `make coverage` | mypy / every test under coverage, both configured in `pyproject.toml` |
 | `make notebooks` | executes every notebook with nbclient, outputs not written back |
 | `make clean` | deletes caches, `exports/` and build artefacts — nothing tracked |
 
@@ -215,7 +215,7 @@ and `PYTHON=…` to pick an interpreter; the default is the repo `.venv`.
 ```bash
 source .venv/bin/activate
 python launch.py                  # graphical launcher — pick an app
-python launch.py flashcard-drill  # or start one app directly by directory name ...
+python launch.py flashcard-drill  # or start one app directly by name ...
 python launch.py dojo             # ... or by alias / unique prefix
 python launch.py --list           # the app table: names, aliases, which apps use a key for their full feature set
 ```
@@ -245,26 +245,18 @@ tools/daily_nudge.sh --dry-run        # print today's coach.py plan, no notifica
 tools/install_nudge.sh --time 08:00   # notify every morning; --status to inspect, --uninstall to remove
 ```
 
-### Manual per-app fallback
+### Without the launcher
 
-Each app is a standalone Python package and can be run on its own. From the repo root:
+The suite is one Python package, `quantum_study`, and every app is a module in it:
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt   # or one app's: pip install -r quantum-quiz/requirements.txt
-cd quantum-quiz && python main.py
+python -m quantum_study.quantum_quiz     # any app: python -m quantum_study.<app_with_underscores>
+quantum-study quiz                       # the launcher as an installed command
+quantum-coach --review                   # likewise quantum-coach and quantum-dashboard
 ```
 
-Minimum dependency tiers if you install by hand: `PyQt6` for every app (plus `matplotlib`
-for all but problem-trainer); `anthropic` for the Claude features; `qiskit` + `pylatexenc`
-for quantum-quiz, circuit-trainer and the qiskit-dojo execution harness (plus
-`qiskit-qasm3-import` for the dojo's OpenQASM kata, which calls `qiskit.qasm3.loads`);
-`qiskit-aer` for the Aer katas in qiskit-dojo, the notebooks and the labs;
-`qiskit-ibm-runtime` only for the hardware labs — the lesson-plan snippets that import it
-are skipped automatically by `verify_docs.py`, so the docs gate does not need it.
-`qiskit-dojo` finds the interpreter for its sandbox automatically (the active venv →
-`../.venv/bin/python` → `qiskit-dojo/.venv/bin/python` → `sys.executable`), so keep the
-shared `.venv` if you use it.
+`./setup.sh` installs the package in editable mode, which is what makes those commands
+exist. By hand: `pip install -r requirements.txt && pip install -e .`
 
 ---
 
@@ -317,40 +309,37 @@ certification track.
 
 ```bash
 source .venv/bin/activate          # after ./setup.sh --dev
-make test                          # == bash tools/run_tests.sh: every suite, one pytest process per app
+make test                          # == pytest: every test, one run
 make docs                          # == python tools/verify_docs.py --all
 ```
 
-Individually:
+More selectively:
 
 ```bash
-pytest                                   # root suite: coach.py, dashboard.py, launch.py, tools/verify_docs.py
-(cd qec-trainer && python -m pytest)     # one app; each app has tests/ and its own pytest.ini
-(cd qiskit-dojo && python -m pytest -m slow tests/test_sweep.py)  # opt-in: run all 72 kata solutions
+pytest tests                             # the root suite: coach, dashboard, launcher, shared package, tools
+pytest quantum_study/qec_trainer         # one app; its tests live beside it in quantum_study/<app>/tests/
+pytest -m slow quantum_study/qiskit_dojo/tests/test_sweep.py   # opt-in: run all 72 kata solutions
 python tools/verify_docs.py --all        # docs/lesson-plan regression gate (--no-snippets without the venv)
-for nb in notebooks/*.ipynb; do MPLBACKEND=Agg jupyter execute "$nb"; done   # notebooks, executed in memory as CI does (--inplace would rewrite them with outputs)
-make lint                                # mypy over coach.py, dashboard.py, launch.py, tools/ — advisory, baseline not yet clean
-make coverage                            # root suite under coverage.py; both configured in pyproject.toml
+for nb in notebooks/*.ipynb; do MPLBACKEND=Agg jupyter execute "$nb"; done   # notebooks, executed in memory as CI does
+make lint                                # mypy over the package and tools/ — advisory, baseline not yet clean
+make coverage                            # every test under coverage.py; both configured in pyproject.toml
 ```
 
-Apps must run in separate pytest processes because several share top-level package names
-(`core/`, `problems/`, `ui/`); `tools/run_tests.sh` handles that. Tests marked `slow` (more
-than ~30 s) are deselected by default. Headless runs set `QT_QPA_PLATFORM=offscreen`, and
-every test suite points `QUANTUM_STUDY_DATA_DIR` at a temporary directory *and*
-monkeypatches the modules' path constants — the variable is read at import time, so a test
-that has already imported `config` needs both — so nothing touches your real study history.
+Tests marked `slow` (more than ~30 s) are deselected by default. The root
+[`conftest.py`](conftest.py) makes every run headless and points `QUANTUM_STUDY_DATA_DIR`
+at a temporary directory before anything is imported, so no test can touch your real study
+history; it also provides the one Qt application all the suites share.
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same sequence on
-Python 3.12 and 3.14 — byte-compile, an import smoke test of every app with no API key,
-`python tools/verify_docs.py --all`, then `bash tools/run_tests.sh`. The 3.14 leg adds two
-steps the 3.12 leg skips: coverage of the root suite (uploaded as `coverage.xml`; no
-`--fail-under` yet) and mypy, which is advisory — it annotates the job but cannot fail it
+Python 3.12 and 3.14 — byte-compile, `python tools/verify_docs.py --all`, then every test in
+one `pytest` run. The 3.14 leg runs the tests under coverage (uploaded as `coverage.xml`; no
+`--fail-under` yet) and adds mypy, which is advisory — it annotates the job but cannot fail it
 until its baseline is clean. Three more workflows round it out:
 [`notebooks.yml`](.github/workflows/notebooks.yml) executes every notebook on every push
 and pull request to `main`, weekly, and on manual dispatch — a regression check on the
 numbers printed in `docs/`; [`pages.yml`](.github/workflows/pages.yml) rebuilds and
 deploys the web deck; and [`release.yml`](.github/workflows/release.yml) re-runs the whole
-gate on a version tag, checking the tag against `[project].version`, before it builds and
+gate on a version tag, checking the tag against `quantum_study.__version__`, before it builds and
 publishes. Dependabot keeps the Actions and pip pins current, and the repository carries
 issue forms for bugs and content errors plus a PR template.
 
@@ -403,7 +392,7 @@ reader tolerates a missing, empty or corrupt journal by reporting "no data".
 Because all ten apps append to the same two files and several apps can be open at once,
 each journal is guarded by an empty sidecar — `mistakes.json.lock` and
 `confidence.json.lock`. An app takes an exclusive `fcntl.flock` on the sidecar for the
-whole read-modify-write (identical `journal_sync.py` in every app tree), so the list it
+whole read-modify-write (`quantum_study.common.locking`, one implementation for all ten), so the list it
 rewrites can never be a stale copy that silently drops rows another app just appended;
 a rewrite also puts rows belonging to other apps back exactly as it read them. The
 sidecars hold no data, are safe to delete when nothing is running, and readers
@@ -421,31 +410,46 @@ app joins the review queue just by writing `<prefix>_flagged.json`.
 
 ## Architecture Notes
 
-All apps follow the same structural pattern (typical layout — the two API-free apps,
-flashcard-drill and exam-sim, have no `workers/`; exam-sim has no `ui/widgets/`; and
-flashcard-drill keeps persistence in a `persistence/storage.py` package):
+The repository is one Python package plus the material it teaches from:
 
 ```
-<app>/
+quantum_study/            the package
+├── common/               what the apps share: data directory, journals, locking, schema
+│                         versions, theme, widgets, the Reference screen, the Claude model id
+├── <app>/                ten of these, one per app (flashcard_drill, exam_sim, ...)
+├── launch.py             the launcher            (python launch.py / quantum-study)
+├── coach.py              the daily coach         (python coach.py / quantum-coach)
+└── dashboard.py          the mastery dashboard   (python dashboard.py / quantum-dashboard)
+docs/  lesson-plans/  labs/  notebooks/  projects/     the teaching corpus
+tools/                    maintenance scripts (verify_docs, export_cards, gen_cloze, ...)
+tests/                    tests for the console tools, the shared package and tools/
+```
+
+Every app has the same shape (the two API-free apps, flashcard-drill and exam-sim, have no
+`workers/`; exam-sim has no `ui/widgets/`; and flashcard-drill keeps persistence in a
+`persistence/` sub-package):
+
+```
+quantum_study/<app>/
+├── __main__.py           python -m quantum_study.<app>
 ├── main.py               Entry point — creates QApplication and MainWindow
-├── config.py             App-wide constants (model, paths, thresholds)
+├── config.py             App-wide constants (paths, thresholds)
 ├── core/
-│   └── models.py         Dataclasses shared across all modules
+│   └── models.py         Dataclasses shared across the app
 ├── ui/
 │   ├── main_window.py    QMainWindow + QStackedWidget screen controller
 │   ├── screens/          One file per screen (setup, problem, feedback, summary, history, reference)
-│   ├── widgets/          Reusable widgets (LoadingOverlay, CollapsiblePanel, ScoreBar, etc.)
-│   └── theme.py          Colour palette and style constants
+│   ├── widgets/          Reusable widgets
+│   └── theme.py          The shared palette plus this app's own colours
 ├── workers/              QThread subclasses for non-blocking API calls
-├── persistence.py        JSON read/write for session history and review flags
-├── tests/                pytest suite (+ pytest.ini)
-└── requirements.txt
+├── persistence.py        Session history, review flags and the app's side of the shared journals
+└── tests/                This app's tests (pytest quantum_study/<app>)
 ```
 
 Apps with static banks add a one-file-per-item directory that is auto-discovered at start-up:
-`flashcard-drill/cards/` (whose `cloze/` subdirectory is generated by
-`tools/gen_cloze.py`, not hand-written), `qec-trainer/problems/`, `vqa-trainer/problems/`,
-`qiskit-dojo/katas/`, `exam-sim/bank/`, `problem-trainer/problems/` and `derivations/`.
+`quantum_study/flashcard_drill/cards/` (whose `cloze/` subdirectory is generated by
+`tools/gen_cloze.py`, not hand-written), `quantum_study/qec_trainer/problems/`, `quantum_study/vqa_trainer/problems/`,
+`quantum_study/qiskit_dojo/katas/`, `quantum_study/exam_sim/bank/`, `quantum_study/problem_trainer/problems/` and `derivations/`.
 Where the Claude code lives differs by app family: qec-trainer, vqa-trainer and
 circuit-trainer keep `auto_grader.py` beside `claude_grader.py` in `grading/`, and
 qiskit-dojo keeps `claude_review.py` there; paper-drill and problem-trainer keep everything
@@ -460,8 +464,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the object shape of each bank item.
 
 ## Claude Model
 
-All API apps use `claude-sonnet-4-6`. The model ID is set in each app's `config.py`
-and can be changed there without touching any other code.
+All API apps use `claude-sonnet-4-6`. The model id is set once, in
+[`quantum_study/common/llm.py`](quantum_study/common/llm.py), which also says what else has to
+change with it.
 
 ---
 

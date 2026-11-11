@@ -5,7 +5,15 @@ generated on-demand by Claude (`claude-sonnet-4-6`) with optional Qiskit context
 diagrams, statevectors, Hamiltonians) embedded in the prompt. Open-ended answers are graded
 by Claude with per-point feedback and a model answer.
 
----
+## Run
+
+```bash
+python launch.py quiz                 # from the repository root (or: quantum-study quiz)
+python -m quantum_study.quantum_quiz
+```
+
+Needs a Claude API key (`ANTHROPIC_API_KEY`, or `~/.config/quantum-study/api_key.txt`): the questions and the grading come from Claude. Without one, only the Reference browser and the history screen work.
+Setup is covered in [GETTING_STARTED.md](../../GETTING_STARTED.md).
 
 ## Features
 
@@ -45,50 +53,6 @@ by Claude with per-point feedback and a model answer.
 - **Score bar** — animated 0–10 progress bar colour-coded by verdict
 - **Versioned, backed-up data** — every file the app writes carries a schema sidecar, is
   written atomically under a lock, and keeps three generations of rotating backup
-
----
-
-## Requirements
-
-```
-anthropic>=0.93.0
-qiskit>=2.0.0
-PyQt6>=6.6.0
-matplotlib>=3.8.0
-numpy>=1.26.0
-pylatexenc>=2.10
-```
-
-Install:
-```bash
-pip install -r requirements.txt
-```
-
-Qiskit is the heaviest dependency. If you only want the quiz without circuit rendering,
-you can remove it — questions for Qiskit/QASM subjects will still be generated but
-without embedded circuit images.
-
----
-
-## API Key
-
-Set `ANTHROPIC_API_KEY` in your environment, or write the key to
-`~/.config/quantum-study/api_key.txt`. The app **launches without a key** (the History and
-Reference screens work offline); the first question generation then shows a descriptive
-error dialog with **Retry** / **Cancel** — Cancel returns you to the Setup screen.
-
----
-
-## Running
-
-```bash
-python main.py
-```
-
-Window opens to the **Setup screen**. No internet connection is needed beyond the
-Anthropic API call per question.
-
----
 
 ## Usage
 
@@ -180,7 +144,7 @@ Opened with the **Reference** button on the setup screen. It is the in-app docs 
 shared across the study suite:
 
 - Lists every Markdown file under the repository `docs/` folder, grouped by chapter and
-  numbered `chapter.section` in ladder order. The corpus is found beside the `common/`
+  numbered `chapter.section` in ladder order. The corpus is found beside the `quantum_study/common/`
   package, then upwards from the working directory; `QUANTUM_STUDY_DOCS_DIR` overrides it.
   The tree is re-scanned when files change while the app is running
 - **Chapter filter** and **search** in the top bar — the search reads document *bodies*, not
@@ -199,8 +163,6 @@ shared across the study suite:
 - The screen itself is `common.ui.reference.ReferenceScreen`, shared with the other nine
   apps. What quantum-quiz adds is `SUBJECT_CHAPTER` and `show_subject()`, which deep-link a
   curriculum subject to the chapter that covers it
-
----
 
 ## Study Modes
 
@@ -236,8 +198,6 @@ weakest point or probing one level deeper. The follow-up:
 
 With Viva mode off, the app behaves exactly as before.
 
----
-
 ## Subject and Topic Inventory
 
 | Subject | Topics |
@@ -254,139 +214,6 @@ With Viva mode off, the app behaves exactly as before.
 | Transpiling | 10+ — basis gate translation, coupling map routing, SWAP insertion, optimization passes, noise-aware compilation, custom pass managers |
 | Qiskit Certification (C1000-179) | 10 — exam-style Qiskit v2.x API drills: SamplerV2/EstimatorV2 PUBs and result access, generate_preset_pass_manager and ISA circuits, execution modes, visualization function selection, OpenQASM 2/3, little-endian ordering, quantum_info operators |
 
----
-
-## Accessibility
-
-- Every control the quiz adds is reachable with **Tab** and shows a **visible focus ring**
-  in the dark palette; the answer box uses `tabChangesFocus`, so Tab now moves out of it to
-  the confidence strip and the buttons below instead of inserting a tab character
-- Every new control has an **accessible name** (screen readers announce e.g. "Confidence 3
-  of 4: fairly sure", "Cause of mistake: knew but slipped", "Report a problem with this
-  question")
-- Nothing new is modal or blocking: the mistake journal row, the confidence strip and the
-  errata button are all skippable, a failed write is reported inline rather than as a
-  dialog, and the errata form is only ever opened by an explicit click
-- **No meaning is carried by colour alone**: a selected chip gains a ✓ glyph as well as the
-  accent fill, journal status lines start with ✓ or ✗ and say what happened in words, and
-  the "confidently wrong" line is labelled as well as coloured
-- All new text meets **WCAG AA** (≥ 4.5:1) against the surfaces it sits on — asserted in
-  `tests/test_journal_ui.py`
-
----
-
-## Architecture
-
-```
-quantum-quiz/
-├── main.py
-├── config.py                    Constants: model, token limits, score thresholds, UI
-├── core/
-│   ├── models.py                QuizConfig, Question, Evaluation, QuestionRecord, SessionStats
-│   ├── topics.py                TOPICS dict — all subjects and topic strings
-│   ├── session.py               QuizSession: topic sequencing, dedup window
-│   └── qiskit_bridge.py         build_context() — dispatches to qiskit_contexts/
-├── qiskit_contexts/
-│   ├── circuit_contexts.py      Circuit-based context generators (CNOT, QPE, Grover, etc.)
-│   ├── statevector_contexts.py  Statevector printouts
-│   └── hamiltonian_contexts.py  SparsePauliOp Hamiltonian strings
-├── ai/
-│   ├── prompt_builder.py        Assembles generation, evaluation, and viva-probe prompts
-│   └── response_parser.py       Strips JSON fences, validates response fields
-├── workers/
-│   ├── question_worker.py       QThread: build context → prompt → Claude → emit Question
-│   ├── evaluation_worker.py     QThread: grade answer → emit Evaluation
-│   └── viva_worker.py           QThread: viva follow-up probe from the user's answer
-├── ui/
-│   ├── theme.py                 This app's subject/difficulty colours + chip, list,
-│   │                            table, splitter and tooltip rules, over common.ui.theme
-│   ├── main_window.py           Screen controller (QStackedWidget, 6 pages)
-│   ├── screens/
-│   │   ├── setup_screen.py      Subject/type/difficulty/count configuration
-│   │   ├── question_screen.py   Question display, hint button, answer text box
-│   │   ├── feedback_screen.py   Score bar, verdict, collapsible model answer, flag
-│   │   │                        toggle, mistake journal row, errata button
-│   │   ├── summary_screen.py    Session statistics + matplotlib chart + export
-│   │   ├── history_screen.py    Lifetime stats/charts + flagged-for-review list
-│   │   └── reference_screen.py  SUBJECT_CHAPTER + show_subject() over the shared
-│   │                            docs browser (common.ui.reference)
-│   └── widgets/
-│       ├── circuit_viewer.py    Displays circuit PNG from Qiskit render
-│       └── pill_badge.py        make_subject_pill / make_difficulty_pill over the
-│                                shared PillBadge
-├── common_path.py               The import shim (verbatim copy of common/app_shim.py)
-├── journal_sync.py              DEAD — superseded by common.locking; still shipped only
-│                                because tests/test_journal_concurrency.py asserts the ten
-│                                copies are byte-identical.  Delete it (and that assertion)
-│                                once every app has migrated.  Nothing here imports it
-└── persistence.py               Session history, draft and settings (this app's own
-                                 files, written through common.schema) + thin adapters
-                                 onto common.journal and common.flags
-```
-
-### What comes from `common/`
-
-This app owns its curriculum, its prompts, its session model and its screens. Everything
-that was the *same* in all ten apps of the suite now lives in the repository-root
-`common/` package, and this app imports it:
-
-| From `common/` | Used for |
-|---|---|
-| `common.datadir` | where every data file lives; `QUANTUM_STUDY_DATA_DIR`, resolved at call time |
-| `common.journal` | `mistakes.json` / `confidence.json` — locked, atomic, other apps' rows preserved |
-| `common.flags` | `quiz_flagged.json` — locked, atomic, legacy shapes read |
-| `common.schema` | version sidecars, forward migration, rotating backups |
-| `common.errata` | the prefilled GitHub issue URL (pure; opens nothing) |
-| `common.ui.theme` | the twelve palette constants, the base stylesheet, focus rings |
-| `common.ui.widgets` | `LoadingOverlay`, `CollapsiblePanel`, `PillBadge`, `ScoreBar` |
-| `common.ui.reference` | the whole docs browser |
-| `common.ui.errata_dialog` | the "report a problem" button and form |
-
-The apps are not packages and several define the same top-level module names, so the
-repository root is not importable from inside an app directory. `common_path.py` — a
-verbatim copy of `common/app_shim.py` — **appends** the repository root to `sys.path`
-(appends, so an app module can never be shadowed by a root one), and every module here
-that imports from `common` imports it first:
-
-```python
-import common_path  # noqa: F401  (puts the repo root on sys.path)
-
-from common import journal
-from common.ui import theme
-```
-
-That works identically for `cd quantum-quiz && python main.py`, for
-`cd quantum-quiz && python -m pytest`, and from an installed wheel (where the shim finds
-no checkout and is a no-op).
-
-### Threading note (Qiskit on the main thread)
-
-`core/qiskit_bridge.py` imports the three `qiskit_contexts` modules **eagerly**, so Qiskit's
-Rust extension is initialised on the main thread when `ui.main_window` is imported. Each
-question's context is then built in a fresh `QuestionWorker` thread. With Python 3.14 and
-Qiskit 2.x, first-initialising Qiskit inside a worker thread makes every later fresh thread's
-Qiskit call segfault (the app used to die at question 2). Keep the imports eager;
-`tests/test_qiskit_thread_safety.py` guards this in a subprocess.
-
----
-
-## Configuration (`config.py`)
-
-| Constant | Default | Effect |
-|---|---|---|
-| `CLAUDE_MODEL` | `claude-sonnet-4-6` | Model used for generation and evaluation |
-| `GENERATION_MAX_TOKENS` | 900 | Max tokens for question generation response |
-| `EVALUATION_MAX_TOKENS` | 1300 | Max tokens for grading response |
-| `DEFAULT_QUESTION_COUNT` | 10 | Pre-filled question count on setup screen |
-| `MAX_HINT_COUNT` | 3 | Maximum hints displayed per question |
-| `PREVIOUS_QUESTION_DEDUP_WINDOW` | 8 | Number of recent question texts sent to Claude |
-| `SCORE_CORRECT_THRESHOLD` | 7 | Score ≥ this → "Correct" verdict |
-| `SCORE_PARTIAL_THRESHOLD` | 4 | Score ≥ this → "Partially correct" verdict |
-| `CIRCUIT_RENDER_DPI` | 120 | DPI for Qiskit circuit PNG rendering |
-| `CIRCUIT_MAX_QUBITS` | 6 | Maximum qubit count in rendered circuits |
-
----
-
 ## Grading Rubric
 
 Scores 0–10 are returned by Claude. The verdict mapping is:
@@ -400,161 +227,22 @@ Scores 0–10 are returned by Claude. The verdict mapping is:
 Claude is prompted to return a JSON object with `score`, `feedback`, `model_answer`,
 `key_points_missed` (list), and `follow_up` fields.
 
----
+## Data files
 
-## Data Persistence
+Written under `~/.local/share/quantum-study/`, or `$QUANTUM_STUDY_DATA_DIR` if set:
 
-All files live in `~/.local/share/quantum-study/` (the shared suite location read by
-`dashboard.py` and `coach.py`). Set `QUANTUM_STUDY_DATA_DIR` to redirect all six of them
-(history, draft, flagged, mistakes, confidence, settings) to another directory — useful for
-tests; the variable is read **at call time**, so setting it is all a test or a wrapper
-script has to do. Every file tolerates being missing or corrupt: the app starts fresh
-rather than crashing.
+| File | Holds |
+|---|---|
+| `quiz_history.json` | every finished session; read by `coach.py` and `dashboard.py` |
+| `quiz_flagged.json` | items you flagged for review (the coach's review queue) |
+| `quiz_draft.json` | an unsent answer, restored on the next start |
+| `quiz_settings.json` | preferences |
+| `mistakes.json`, `confidence.json` | the mistake journal and the confidence ratings, shared by all ten apps |
 
-**Every** file this app writes now goes through `common.schema`, which means:
+## Code and tests
 
-- **Atomic.** A temp file in the same directory followed by `os.replace`, so an
-  interrupted write cannot truncate months of study.
-- **Locked.** The two shared journals and the flag file are rewritten under an advisory
-  `flock` on a `<file>.lock` sidecar, re-reading inside the lock — so a second app, or a
-  second window of this one, cannot clobber rows that were just appended.
-- **Versioned.** Each file gains a sidecar `<name>.schema.json` holding
-  `{"file", "kind", "schema", "written_by", "updated"}`. An older file is migrated
-  forward *in memory* on read, and stamped on the next write; a file written by a **newer**
-  build of the suite is *refused* rather than overwritten with this build's narrower view
-  of it. The marker is a sidecar and **not** a key inside the data because
-  `coach.py` and `dashboard.py` require the top level of these files to be a plain JSON
-  list — wrapping them would make the journal read as empty everywhere.
-- **Backed up.** Before the first write of each run, the previous contents are copied to
-  `<name>.bak`, ageing `<name>.bak` → `.bak.1` → `.bak.2`. Three generations, one backup
-  per run, best-effort.
+The app is the package `quantum_study/quantum_quiz/`. What it shares with the other nine (the data directory, the journals, the theme, the Reference screen) is in [`quantum_study/common/`](../common/README.md).
 
-The data files themselves are **unchanged**: `quiz_history.json` is still the same array
-of sessions it always was, and `coach.py` / `dashboard.py` parse it exactly as before.
-
-### Session history — `quiz_history.json`
-
-Completed sessions are appended as a JSON array. Each entry records `date`, `timestamp`
-(UTC ISO-8601), `answered`, `average_score`, and per-question `records`, each with
-`question_id` (`subject::topic`), `subject`, `topic`, `score`, `elapsed_seconds` and
-`timestamp`. Question text, answers and feedback are **not** kept in history — use
-**Export JSON/Markdown** on the summary screen for a full transcript.
-
-The SRS weighting reads this file on session start. Every past record is weighted by
-age with a **14-day half-life**:
-
+```bash
+pytest quantum_study/quantum_quiz        # this app's tests
 ```
-weight    = exp(-days_ago * ln 2 / 14)
-avg_score = Σ weight·score / Σ weight        (per subject, and per subject::topic)
-sampling  = max(0.5, 2.0 - avg_score * 0.15)  (unseen → 1.25)
-```
-
-so a session from two weeks ago counts half as much as one from today, and subjects or
-topics where you scored poorly recently receive proportionally more questions.
-
-### Interrupted session — `quiz_draft.json`
-
-After every graded answer the in-progress session (including question text, your answer
-and the feedback) is written here; it is deleted when the session is saved. If the app
-starts and finds a draft, it offers to export it as JSON before discarding it.
-
-### Flagged questions — `quiz_flagged.json`
-
-Flagging writes a JSON array following the suite-wide flagging contract, one object per
-flagged question:
-
-```json
-{
-  "id": "Quantum Mechanics::the Bloch sphere representation of a qubit::9f1c2b7a3e",
-  "label": "Derive the Bloch-sphere coordinates of the state (|0> - |1>)/sqrt(2) and …",
-  "category": "Quantum Mechanics",
-  "app": "quantum-quiz",
-  "timestamp": 1757400000.0
-}
-```
-
-`id` is `subject::topic::<first 10 hex digits of sha1(question text)>` — question-specific,
-so two different questions on the same topic keep separate flags; `label` is the question
-text collapsed to one line and truncated to 80 characters (the suite-wide
-`common.flags.LABEL_MAX`; it was 100 before the store was shared); `category` is the
-subject. Flagging is a toggle: flagging an already-flagged `id` removes it. The store is
-`common.flags`: the rewrite is atomic and under the lock, and every row that carries an
-identity — including the bare-id list form three other apps still write — is normalised
-to the shape above and kept. `coach.py --review` merges this file into its review queue.
-
-### Mistake journal — `mistakes.json`
-
-Suite-wide contract; a wrong answer becomes *analysis*, not just another bookmark:
-
-```json
-{
-  "id": "856754730871b9bc",
-  "app": "quantum-quiz",
-  "category": "Qiskit",
-  "question": "Which qubit is the most significant bit in Qiskit's ordering?",
-  "your_answer": "qubit 0 is the leftmost bit",
-  "correct_answer": "Qiskit is little-endian: qubit 0 is the rightmost bit.",
-  "cause": "knew_but_slipped",
-  "note": "read the register right-to-left again",
-  "timestamp": 1790169575.876,
-  "resolved": false
-}
-```
-
-- `id` — 16 hex digits of `sha1(subject + whitespace-normalised question text)`, so the same
-  question generated again in a later session maps to the same entry
-- `category` — the subject; `question` / `your_answer` / `correct_answer` are whitespace-
-  collapsed and truncated to 200 characters. The **note keeps its line breaks** (it is
-  prose you typed; reflowing it would destroy deliberate structure) and is capped at 500
-- `cause` — `misread` | `didnt_know` | `knew_but_slipped` | `confused` | `out_of_time` |
-  `other`, or `null` for "logged but not categorised yet". The counts per cause are the
-  point of the file: *nine little-endian slips this month* is the signal, not nine bookmarks
-- `resolved` — set to `true` when the same `app` + `id` is next answered at score ≥ 4. The
-  cause and note are kept, so the history of *why* survives the fix
-- A **repeat** miss of the same question is a new row, not an edit of the old one: three
-  slips on one item are three rows, which is exactly the count `coach --mistakes` and the
-  dashboard report. Choosing a cause targets the newest *open* row; answering the item
-  well resolves every open row for it
-- Entries written by other apps (and fields this app does not know) are preserved verbatim
-  whenever the file is rewritten; only rows matching `app: "quantum-quiz"` plus the `id` are
-  touched. Past **2000** of *this app's* entries the oldest of **ours** are dropped — the
-  cap can never trim another app's history out of a file we share
-
-### Confidence calibration — `confidence.json`
-
-```json
-{
-  "id": "856754730871b9bc",
-  "app": "quantum-quiz",
-  "category": "Qiskit",
-  "confidence": 4,
-  "correct": false,
-  "timestamp": 1790169575.875
-}
-```
-
-`confidence` is the 1–4 rating given **before** submitting (1 = guessing, 4 = certain), and
-`correct` is whether the grade reached the *Correct* verdict (score ≥
-`SCORE_CORRECT_THRESHOLD`, i.e. 7) — note the mistake journal uses the *Incorrect* boundary
-(< 4) instead, matching the verdict badge in each case. A row is appended only when a rating
-was actually given — a rating outside 1–4 records nothing rather than being clamped into
-range, because a rating you never gave must not end up in your calibration curve. Past
-**5000** of this app's rows the oldest of ours are dropped. Rating 3–4 paired with
-`correct: false` is what the History screen reports as **confidently wrong**.
-
-### App settings — `quiz_settings.json`
-
-This app's own (not suite-wide) preferences. Currently one key:
-`{"confidence_prompt_enabled": false}` records **Don't ask again** on the confidence strip.
-Delete the key (or the file) to be asked again. The read-modify-write is taken under the
-lock, so two windows of this app cannot each flip one key and lose the other's change.
-
-### Reporting a wrong question
-
-There is no file for this: **⚠ Report a problem with this item** on the feedback screen
-builds a GitHub issue URL (`common.errata`, which is pure and offline) and hands it to the
-system browser. The URL targets the repository's `.github/ISSUE_TEMPLATE/content_error.yml`
-form and prefills its `file`, `quote`, `why_wrong`, `correction` and `severity` fields, so
-the report arrives as a filled-in form rather than a blob of prose. It is capped at 6000
-characters — long fields are trimmed longest-first, so the title and the item id always
-survive. With no browser available the link goes to the clipboard instead.

@@ -5,7 +5,15 @@ categories — from 3-qubit repetition codes through the surface code and fault 
 thresholds. Multiple choice and free-form questions; free-form answers are graded by
 Claude (`claude-sonnet-4-6`).
 
----
+## Run
+
+```bash
+python launch.py qec                 # from the repository root (or: quantum-study qec)
+python -m quantum_study.qec_trainer
+```
+
+Runs offline. A Claude API key (`ANTHROPIC_API_KEY`, or `~/.config/quantum-study/api_key.txt`) adds the Claude-graded parts.
+Setup is covered in [GETTING_STARTED.md](../../GETTING_STARTED.md).
 
 ## Features
 
@@ -41,42 +49,8 @@ Claude (`claude-sonnet-4-6`).
 - **Keyboard and screen-reader friendly** — every control is tab-reachable with a
   visible focus ring and an accessible name, and no state is carried by colour alone
 - **Shared code, not ten copies** — the theme, the docs browser, the journal, the flag
-  store and the data-directory rule come from the repository's [`common/`](../common/README.md)
+  store and the data-directory rule come from the repository's [`quantum_study/common/`](../common/README.md)
   package, so a fix reaches every app in the suite at once
-
----
-
-## Requirements
-
-```
-PyQt6>=6.6
-anthropic>=0.25
-```
-
-Install:
-```bash
-pip install -r requirements.txt
-```
-
-The `anthropic` package is only called for free-form problems. All multiple choice
-problems are graded locally with no API call.
-
----
-
-## API Key
-
-Set `ANTHROPIC_API_KEY` in your environment, or write the key to
-`~/.config/quantum-study/api_key.txt`.
-
----
-
-## Running
-
-```bash
-python main.py
-```
-
----
 
 ## Usage
 
@@ -95,8 +69,7 @@ python main.py
 - **Hint** button — click to reveal the next hint (button shows remaining hint count)
 - **Confidence strip** (optional) — *1 Guessing · 2 Unsure · 3 Fairly sure · 4 Certain*,
   just above Submit. Rate before you submit or ignore it entirely; **Don't ask again**
-  retires it permanently. See
-  [Mistake Journal & Confidence Calibration](#mistake-journal--confidence-calibration).
+  retires it permanently. `python coach.py --calibration` reads the ratings back.
 - **Submit** enables once a selection or non-empty text is entered
 
 ### Result Screen
@@ -111,7 +84,7 @@ After submission:
 - **⚑ Flag for Review** — adds the problem to `qec_flagged.json`, with its question
   text and category, so `python coach.py --review` lists the question rather than a
   bare id
-- **⚠ Report a problem with this item** — see [Errata](#errata--reporting-a-wrong-item)
+- **⚠ Report a problem with this item** — opens a prefilled GitHub issue for the item
 - **Next Problem** or **Finish Session**
 
 ### Summary and History
@@ -167,8 +140,6 @@ Programmatic entry points (for tests and other screens):
 `open_doc("05_quantum_error_correction/06_surface_code.md")`, `show_chapter("05_quantum_error_correction")`,
 `show_category("Surface Code")`.
 
----
-
 ## Decoder Game
 
 Launched with **Play Decoder Game** on the setup screen. 12 rounds of hands-on
@@ -205,134 +176,6 @@ accuracy, best streak, and a per-level breakdown. Each game is saved to
 `qec_history.json` in the standard session schema under the category
 **"Decoder Game"**, so it appears in the history screen and the repo-level
 dashboard alongside the quiz categories.
-
----
-
-## Mistake Journal & Confidence Calibration
-
-Two small, skippable prompts turn a session into data you can act on. Both write to
-suite-wide files shared by every app, so a pattern shows up across the whole suite
-rather than one trainer at a time. Neither ever blocks the flow and neither opens a
-dialog.
-
-### Mistake journal — `mistakes.json`
-
-Whenever an answer scores below 7 (any `Incorrect` or `Partially correct` verdict, and
-any failed Decoder Game round) the mistake is written to
-`~/.local/share/quantum-study/mistakes.json` **immediately**, with `cause: null`. The
-result screen then shows a compact **"What went wrong?"** row — six cause pills plus an
-optional one-line note. Tapping a pill fills in the cause; ignoring the row entirely
-still leaves the mistake recorded, so nothing is lost by skipping.
-
-| Field | Type | Notes |
-|---|---|---|
-| `id` | str | problem id, or `decoder_<level>` for a Decoder Game round (code + round type) |
-| `app` | str | always `qec-trainer` from this app |
-| `category` | str | problem category, or `Decoder Game` |
-| `question` | str | clipped to 200 chars |
-| `your_answer` | str | the letter you chose, your free-form text, or the Pauli you placed |
-| `correct_answer` | str | `C. …` for MC, the model answer for free-form, the true error for a decoder round |
-| `cause` | str \| null | `misread`, `didnt_know`, `knew_but_slipped`, `confused`, `out_of_time`, `other`, or `null` (logged but not yet categorised) |
-| `note` | str | your optional one-liner |
-| `timestamp` | float | epoch seconds |
-| `resolved` | bool | set true when the same `app` + `id` is answered correctly later |
-
-Missing the **same item twice writes two rows**, not one updated row: repetition is
-exactly the signal `coach.py --mistakes` counts, and `dashboard.py` says so in its own
-comments. (This app used to merge a repeat into the open row — the one behaviour the
-move to `common.journal` deliberately changed. Picking a cause still edits a single
-row: the newest open one for that item.)
-
-The payload is the *cause counts*: "nine little-endian slips this month" is the signal,
-not nine flagged items. `persistence.cause_counts()` and `persistence.open_mistakes()`
-return that directly.
-
-### Confidence calibration — `confidence.json`
-
-Above the Submit button (and above **Submit Correction** in the Decoder Game) sits an
-optional strip: **1 Guessing · 2 Unsure · 3 Fairly sure · 4 Certain**. It is asked
-*before* the answer is submitted, so it can never be hindsight, and it locks the moment
-you submit. Once the answer is graded the rating is paired with the outcome:
-
-| Field | Type | Notes |
-|---|---|---|
-| `id` / `app` / `category` | str | as above |
-| `confidence` | int | 1–4 |
-| `correct` | bool | score ≥ 7 |
-| `timestamp` | float | epoch seconds |
-
-`persistence.calibration_summary()` reduces this to
-`{confidence: {"total", "correct"}}` — the confidently-wrong bucket is the one that
-sinks exam scores, and `persistence.confidently_wrong()` lists those rows outright. Skipping the strip
-records nothing. **Don't ask again** hides it for good; the opt-out lives in
-`qec_settings.json` and can be undone with
-`persistence.set_confidence_prompt_enabled(True)`.
-
-### Robustness
-
-Both files honour `QUANTUM_STUDY_DATA_DIR`, tolerate being missing, empty, truncated or
-not-a-list (they read as empty and are repaired on the next write, never crashing the
-app), and are rewritten atomically (temp file + `os.replace`) under an `fcntl` lock held
-across the whole read-modify-write, so a crash or a second app writing at the same time
-cannot leave half a file or drop a row. Records written by other apps in the suite are
-read and rewritten byte for byte, unknown keys included.
-
-Growth is capped at 2,000 mistakes and 5,000 confidence rows by dropping **this app's**
-oldest rows only. That is a bug fix: the previous code sorted the *merged* list by
-timestamp and kept the newest N, which silently deleted the other nine apps' rows during
-a write to a file this app does not own.
-
-### Versioning, migration and backups
-
-Every file this app writes is versioned through
-[`common.schema`](../common/README.md#commonschema--versions-migration-backups):
-
-- **The marker is a sidecar**, `mistakes.json.schema.json` beside `mistakes.json`, not a
-  key inside the data. `coach.py` and `dashboard.py` all do
-  `return data if isinstance(data, list) else []`, so wrapping the payload in
-  `{"schema": 1, "rows": […]}` would make the whole journal read as *empty* in both.
-  The on-disk data files are byte-for-byte the shape they always were.
-- **Reading migrates forward in memory.** An unmarked file — anything written before
-  versioning existed — is a v1 file. Reading never rewrites; the next write does.
-- **A newer file is refused, not overwritten.** A build that does not understand v4 must
-  not write its v1 view over a v4 file. Nothing raises into a drill: the refusal is
-  recorded and `persistence.last_write_error()` reports it.
-- **One rotating backup per session per file** — `…​.bak` → `.bak.1` → `.bak.2`, taken
-  before the first write of the process, restorable with
-  `common.schema.restore_backup(path, generation)`.
-
-### Errata — reporting a wrong item
-
-The problem bank is public and imperfect. The result screen carries
-**⚠ Report a problem with this item**, which opens
-[`common.ui.errata_dialog.ErrataDialog`](../common/README.md#commonuierrata_dialog):
-what is wrong, what it should say, and how bad (wrong / misleading / typo). Accepting it
-builds a URL that prefills the repository's
-`.github/ISSUE_TEMPLATE/content_error.yml` form with the file, the item id, the question
-*exactly as you saw it* (choices, bank answer and explanation included), and your
-comment, then hands the URL to `QDesktopServices`.
-
-- **Offline and non-blocking.** The URL is pure string work — no network call, no file
-  write. The drill stays where it was and **Next** stays live throughout.
-- **Keyboard reachable.** An ordinary tab-stop `QPushButton` with an accessible name and
-  the theme's focus ring; the dialog's "Open the issue on GitHub" button stays disabled
-  until there is a description to read, so an empty report cannot be filed.
-- **Degrades without a browser.** If `QDesktopServices` cannot open anything (or raises),
-  the link goes to the clipboard and is printed, selectable, on the result screen. The
-  report is never silently lost.
-- Nothing is sent anywhere: GitHub shows you the filled-in form and you decide.
-
-### Accessibility
-
-Every new control is a real `QPushButton` or `QLineEdit`: tab-reachable, with an
-accessible name and a focus ring defined in `ui/theme.py` that never shifts the layout.
-Selected state is shown with a `✓` glyph and a text readout as well as the accent fill,
-the result verdict is prefixed with `✓ / ◐ / ✗`, and a fired stabilizer square in the
-Decoder Game now reads `X−` (quiet ones read `X+`) instead of relying on the red fill
-alone — its contrast also went from 3.4:1 to 5.7:1. All new text is ≥ 4.5:1 against the
-dark palette.
-
----
 
 ## Problem Bank
 
@@ -395,8 +238,6 @@ representative sample from each category.
 | ft_cat | Advanced | MC | Cat qubits — bias-preserving operations |
 | ft_syndrome_rep | Advanced | Free-form | Why must syndrome measurements be repeated? |
 
----
-
 ## Grading Details
 
 ### Multiple Choice (local, no API)
@@ -415,164 +256,6 @@ Claude returns:
 - `model_answer` — ideal answer
 
 Verdict mapping: score ≥7 → Correct, ≥4 → Partially correct, <4 → Incorrect.
-
----
-
-## Architecture
-
-```
-qec-trainer/
-├── main.py
-├── common_path.py               the import shim: puts <repo> on sys.path so
-│                                `from common import journal` resolves (a verbatim
-│                                copy of common/app_shim.py — do not edit)
-├── config.py                    MODEL, defaults, and the five file paths —
-│                                resolved at call time from common.datadir
-├── core/
-│   ├── models.py                Problem, TrainerConfig, Attempt, SessionStats,
-│   │                            GradeMode, Verdict enums
-│   └── decoder_game.py          Decoder Game logic: codes, syndromes, GF(2)
-│                                success verification, round generation
-├── problems/
-│   ├── __init__.py              all_problems(): auto-discovers one file per problem
-│   ├── repetition_code/         34 problems
-│   ├── stabilizer_formalism/    34 problems
-│   ├── fault_tolerance/         33 problems
-│   ├── steane_code/             32 problems
-│   ├── surface_code/            30 problems
-│   └── bosonic_codes/           15 problems
-├── grading/
-│   └── auto_grader.py           grade_mc(problem, answer) → Attempt (local)
-├── workers/
-│   └── grading_worker.py        QThread: Claude grading for GradeMode.CLAUDE problems
-├── ui/
-│   ├── main_window.py           Screen controller (setup → problem → result →
-│   │                            summary → history)
-│   ├── screens/
-│   │   ├── setup_screen.py      Category/difficulty/count selection
-│   │   ├── problem_screen.py    Question display, MC radio buttons or free-form box
-│   │   ├── result_screen.py     Verdict, feedback, model answer
-│   │   ├── summary_screen.py    Session stats
-│   │   ├── history_screen.py    Past sessions table
-│   │   ├── reference_screen.py  89 lines: common.ui.reference.ReferenceScreen plus
-│   │   │                        this app's chapter + topic map (was 992 lines)
-│   │   └── decoder_screen.py    Decoder Game rounds, surface-code grid, results
-│   ├── theme.py                 common.ui.theme + this app's topic colours
-│   └── widgets/
-│       ├── confidence_strip.py  Skippable 1–4 "how sure are you?" strip
-│       └── mistake_row.py       Skippable "what went wrong?" cause pills + note
-├── persistence.py               History, flags, mistake journal, confidence,
-│                                settings — all pure, all call-time resolved
-└── journal_sync.py              **dead**: replaced by common.locking. Still on disk
-                                 only because tests/test_journal_concurrency.py
-                                 asserts all ten apps ship a byte-identical copy;
-                                 delete it together with that assertion.
-```
-
-Taken from the repository root:
-
-```
-common/                          the code the ten apps share
-├── datadir.py                   where the data lives (call-time, env-overridable)
-├── journal.py                   mistakes.json / confidence.json
-├── flags.py                     <prefix>_flagged.json
-├── schema.py                    versions, forward migration, rotating backups
-├── errata.py                    prefilled GitHub issue URLs (pure, offline)
-├── locking.py / jsonio.py       the fcntl lock; atomic writes, forgiving reads
-└── ui/
-    ├── theme.py                 the palette and base stylesheet
-    ├── widgets.py               LoadingOverlay, CollapsiblePanel, PillBadge, ScoreBar
-    ├── reference.py             the docs browser
-    └── errata_dialog.py         ErrataDialog / ErrataButton
-```
-
-Migrating this app onto `common/` removed **776 lines of code** (892 of duplicated
-logic, less the shim and the errata feature added back) and a further 129 once
-`journal_sync.py` can go. Nothing was forked: where the shared version needed to differ
-it takes a constructor argument (`ReferenceScreen(default_chapter=…, category_docs=…)`),
-and where this app's call signatures had to survive, `persistence.py` is a thin adapter
-over `common.journal` / `common.flags` rather than a second implementation.
-
----
-
-## Session Flow
-
-```
-SetupScreen
-      │ session_started (TrainerConfig)
-      ▼
-ProblemScreen ─── answer_submitted (problem, answer_str)
-      │
-      ├── GradeMode.AUTO → auto_grader.grade_mc() [immediate]
-      │
-      └── GradeMode.CLAUDE → GradingWorker [async]
-              │
-              ▼
-        ResultScreen ─── next_requested
-              │
-              ▼
-        ProblemScreen (next problem)
-              │ (all done)
-              ▼
-        SummaryScreen ─── back_requested → SetupScreen
-```
-
----
-
-## Configuration (`config.py`)
-
-| Constant | Default | Effect |
-|---|---|---|
-| `MODEL` | `claude-sonnet-4-6` | Claude model for free-form grading |
-| `DEFAULT_PROBLEM_COUNT` | 10 | Pre-filled problem count |
-| `DATA_DIR` | `$QUANTUM_STUDY_DATA_DIR` (stripped, `~` expanded), else `~/.local/share/quantum-study` | Data directory for every file below |
-| `HISTORY_FILE` | `<DATA_DIR>/qec_history.json` | Session history (schema read by `coach.py` / `dashboard.py`) |
-| `FLAGGED_FILE` | `<DATA_DIR>/qec_flagged.json` | Flag-for-review ids |
-| `MISTAKES_FILE` | `<DATA_DIR>/mistakes.json` | Suite-wide mistake journal |
-| `CONFIDENCE_FILE` | `<DATA_DIR>/confidence.json` | Suite-wide confidence calibration |
-| `SETTINGS_FILE` | `<DATA_DIR>/qec_settings.json` | This app's opt-outs |
-
-Every path above is **resolved on each read**, not frozen when `config.py` is imported:
-they are computed by `common.datadir`, so setting `QUANTUM_STUDY_DATA_DIR` at any point
-moves all of them, with nothing to reload and no private constant to monkeypatch. That
-is the whole of this app's test fixture now. `config.data_dir()`, `history_file()`,
-`flagged_file()`, `settings_file()`, `mistakes_file()` and `confidence_file()` are the
-functions behind the constant names.
-
-Set `QUANTUM_STUDY_DATA_DIR` to point the whole app at a throwaway directory — the same
-override `coach.py`, `launch.py` and the other apps honour — so experiments and tests
-never touch the real history. A blank value (`" "`) is treated as no override.
-
----
-
-## Data Persistence
-
-All files live under `DATA_DIR` (`$QUANTUM_STUDY_DATA_DIR`, defaulting to
-`~/.local/share/quantum-study`):
-
-| File | Written by | Shape |
-|---|---|---|
-| `qec_history.json` | every finished session and Decoder Game | list of sessions: problem count, correct count, accuracy, timestamp, and per-attempt detail (problem id, category, difficulty, score, verdict, hints used, elapsed secs) |
-| `qec_flagged.json` | **⚑ Flag for Review** | `[{"id", "label", "category", "app", "timestamp"}]` — the suite's flag contract. A legacy bare-id file (`["p1", "p2"]`) is still read and is upgraded in place on the first write; `coach.py` parses both |
-| `mistakes.json` | every wrong answer / failed decoder round | shared across the suite — see [Mistake Journal](#mistake-journal--confidence-calibration) |
-| `confidence.json` | every confidence rating you give | shared across the suite |
-| `qec_settings.json` | the **Don't ask again** opt-out | `{"confidence_prompt": bool}` |
-
-Each file is accompanied by `<name>.schema.json` (the version marker) and, after the
-first write of a second session, up to three `<name>.bak*` generations. The two shared
-journals also carry an empty `<name>.lock` sidecar, which is what is `flock`ed for the
-length of a read-modify-write.
-
-`qec_history.json`'s schema is load-bearing — `coach.py` and `dashboard.py` parse it —
-and is unchanged. The helpers behind all five are plain functions in `persistence.py`
-(`make_mistake_entry`, `load_mistakes`, `log_mistake`, `set_mistake_cause`,
-`resolve_mistake`, `cause_counts`, `open_mistakes`, `log_confidence`,
-`calibration_summary`, `confidently_wrong`, `flagged_entries`,
-`confidence_prompt_enabled`, `last_write_error`, …) with no Qt dependency, so they can
-be called and tested directly. They are adapters: the storage itself is `common.journal`,
-`common.flags` and `common.schema`.
-
----
 
 ## Adding Problems
 
@@ -597,3 +280,22 @@ PROBLEM = Problem(
 
 `problems/__init__.py` auto-discovers every problem file, so no registration step
 is needed.
+
+## Data files
+
+Written under `~/.local/share/quantum-study/`, or `$QUANTUM_STUDY_DATA_DIR` if set:
+
+| File | Holds |
+|---|---|
+| `qec_history.json` | every finished session; read by `coach.py` and `dashboard.py` |
+| `qec_flagged.json` | items you flagged for review (the coach's review queue) |
+| `qec_settings.json` | preferences |
+| `mistakes.json`, `confidence.json` | the mistake journal and the confidence ratings, shared by all ten apps |
+
+## Code and tests
+
+The app is the package `quantum_study/qec_trainer/`. What it shares with the other nine (the data directory, the journals, the theme, the Reference screen) is in [`quantum_study/common/`](../common/README.md).
+
+```bash
+pytest quantum_study/qec_trainer        # this app's tests
+```

@@ -29,56 +29,64 @@ code that uses retired APIs (`execute()`, `bind_parameters`, V1 primitives, the
 ## Running the checks
 
 ```bash
-make test                                # == bash tools/run_tests.sh: root suite + every app suite (make test ARGS="-x -vv" forwards flags)
-pytest                                   # root suite only: coach.py, dashboard.py, launch.py, tools/verify_docs.py
-(cd qec-trainer && python -m pytest)     # one app — each app has tests/ + pytest.ini
-(cd qiskit-dojo && python -m pytest -m slow tests/test_sweep.py)   # runs all 72 solutions and 72 starters (a few minutes)
+make test                                # == pytest: every test in one run (make test ARGS="-x -vv" forwards flags)
+pytest tests                             # the root suite: coach, dashboard, launcher, shared package, tools
+pytest quantum_study/qec_trainer         # one app; its tests live in quantum_study/<app>/tests/
+pytest -m slow quantum_study/qiskit_dojo/tests/test_sweep.py   # runs all 72 solutions and 72 starters (a few minutes)
 make docs                                # == python tools/verify_docs.py --all: docs + lesson-plans regression gate
 python tools/verify_docs.py --no-snippets   # static checks only (no venv needed)
 make notebooks                           # executes every notebook with nbclient, outputs not written back (CI: jupyter execute)
-make lint                                # mypy over coach.py, dashboard.py, launch.py, tools/ — advisory; the baseline is not clean yet
-make coverage                            # root suite under coverage.py; [tool.coverage] and [tool.mypy] live in pyproject.toml
+make lint                                # mypy over the package and tools/ — advisory; the baseline is not clean yet
+make coverage                            # every test under coverage.py; [tool.coverage] and [tool.mypy] live in pyproject.toml
 make export                              # tools/export_cards.py --all -> exports/ (cards.json, quantum-study.apkg, index.html)
 ```
 
-`make help` lists every target. CI runs `tools/run_tests.sh` and `verify_docs.py --all`
-on Python 3.12 and 3.14 (the slow sweep is opt-in everywhere; notebooks have their own
-workflow); `lint` and `coverage` run on the 3.14 leg only, and `lint` cannot fail the build
-until its baseline reaches zero — do not add new mypy errors, but you are not expected to
-clear the old ones in an unrelated PR.
+`make help` lists every target. CI runs `pytest` and `verify_docs.py --all` on Python 3.12
+and 3.14 (the slow sweep is opt-in everywhere; notebooks have their own workflow); coverage
+and `lint` run on the 3.14 leg only, and `lint` cannot fail the build until its baseline
+reaches zero — do not add new mypy errors, but you are not expected to clear the old ones
+in an unrelated PR.
 
 Rules the harness relies on:
 
-- **One pytest process per app.** Several apps share top-level package names (`core/`,
-  `problems/`, `ui/`), so `pytest` from the repo root deliberately only collects `tests/`
-  (console tools). `tools/run_tests.sh` loops over the apps for you.
-- **Never touch real study data.** Every conftest sets `QUANTUM_STUDY_DATA_DIR` to a temp
-  directory **and** monkeypatches the module's path constants (`DATA_DIR`, `HISTORY_FILE`,
-  `MISTAKES_FILE`, `CONFIDENCE_FILE`, …). Both are needed: every app reads the variable, but
-  it reads it once, when `config.py` / `persistence.py` is imported, so a test that has
-  already imported the module would otherwise still hold the real path. If you write a
-  script or test that reads persistence, do the same. The real directory is
-  `~/.local/share/quantum-study/`, and nothing in a PR may write to it.
-- **Headless Qt.** Set `QT_QPA_PLATFORM=offscreen` when running app tests without a display
-  (CI does; every app conftest defaults it with `os.environ.setdefault`).
+- **One package, one test run.** The ten apps are sub-packages of `quantum_study`, so
+  everything imports by its full name (`from quantum_study.exam_sim.core.models import
+  Question`) and all the suites run in one pytest process. Never add an app directory to
+  `sys.path` or import an app module by a bare name (`import config`); a test in
+  `tests/test_apps_start.py` fails if one becomes importable that way.
+- **Never touch real study data.** The root `conftest.py` points `QUANTUM_STUDY_DATA_DIR`
+  at a temp directory for the whole process before any app is imported, and each app's
+  `data_dir` fixture narrows that to a fresh `tmp_path` per test. A blank or missing
+  variable means the real `~/.local/share/quantum-study/`, so a child process a test starts
+  must be given the variable explicitly. Nothing in a PR may write to the real directory.
+- **One Qt application.** Use the `qapp` fixture from the root `conftest.py`; never build a
+  `QApplication` in a test. After each Qt test the fixture destroys what the test left
+  behind, so a widget must not schedule work that outlives it — a
+  `QTimer.singleShot(ms, self.some_signal.emit)` on a destroyed widget is a segfault; give
+  the widget a child `QTimer` instead.
 - Tests slower than ~30 s carry `@pytest.mark.slow` and are deselected by default.
 
 ## Repository layout in one screen
 
 ```
-<app>/                 one of the 10 PyQt6 apps (see README "Architecture Notes")
-  config.py            model id (MODEL or CLAUDE_MODEL), API_KEY_FILE, and for most apps DATA_DIR
-  core/models.py       dataclasses — the bank item types documented below
-  <bank dir>/          one file per item, auto-discovered (cards/, problems/, katas/, bank/, derivations/)
-  persistence.py       history + *_flagged.json read/write (flashcard-drill: persistence/storage.py)
-  tests/               pytest suite, pytest.ini
+quantum_study/         the package
+  <app>/               one of the 10 PyQt6 apps (see README "Architecture Notes")
+    config.py          API_KEY_FILE, data paths, thresholds
+    core/models.py     dataclasses — the bank item types documented below
+    <bank dir>/        one file per item, auto-discovered (cards/, problems/, katas/, bank/, derivations/)
+    persistence.py     history + *_flagged.json read/write (flashcard_drill: persistence/storage.py)
+    tests/             this app's tests
+  common/              shared by all ten: datadir, journal, locking, schema, flags, errata, choices,
+                       llm (the model id), testing, and ui/ (theme, widgets, Reference screen)
+  coach.py dashboard.py launch.py   the console tools (the root coach.py etc. are two-line entry points)
 docs/                  70 chapter files in 11 numbered chapters + README.md (the ladder, Rung 1 -> 11)
 lesson-plans/          12 curricula, every exercise with a <details> solution; python blocks in 06/07/10 are executed by verify_docs
 notebooks/ labs/ projects/   executable companions, IBM runtime labs, capstone specs
-coach.py dashboard.py  console tools; tests in tests/ (with launch.py and verify_docs)
+tests/                 tests for the console tools, quantum_study/common and tools/
+conftest.py pytest.ini one test configuration for the whole repository
 tools/verify_docs.py   corpus regression checker
 tools/export_cards.py  flashcards -> cards.json / Anki .apkg / web deck (templates in tools/webdeck/)
-tools/gen_cloze.py     generates flashcard-drill/cards/cloze/ from every chapter's Key Formulas
+tools/gen_cloze.py     generates quantum_study/flashcard_drill/cards/cloze/ from every chapter's Key Formulas
 tools/concept_map.py   prerequisite DAG (tools/concept_graph.json) with a mastery overlay
 tools/sync_history.sh  the study-history dir as its own git repo, synced to a private remote
 tools/daily_nudge.sh tools/install_nudge.sh   coach.py plan as a desktop notification, and its timer/cron installer
@@ -89,16 +97,14 @@ Makefile pyproject.toml   task runner (wraps the scripts above); packaging, mypy
 
 ## Conventions every app follows
 
-- Model ID `claude-sonnet-4-6`, set once in each app's `config.py`.
+- Model ID `claude-sonnet-4-6`, set once for all apps in `quantum_study/common/llm.py`.
 - API key lookup: `ANTHROPIC_API_KEY` env var, then `~/.config/quantum-study/api_key.txt`.
 - **Apps must launch with no key.** Offline features (banks, reference browser, history,
   model solutions) work; only generate/grade/review actions may fail, with a clear message.
 - History and flags go to `DATA_DIR` (`~/.local/share/quantum-study/`), as JSON, append-only.
-  Resolve it as `Path(os.environ.get("QUANTUM_STUDY_DATA_DIR") or
-  Path.home() / ".local/share/quantum-study")` — all ten apps, `coach.py`, `dashboard.py`,
-  `launch.py` and `tools/concept_map.py` now do, so there is no longer an app whose
-  behaviour you may copy as an exception. The variable is read at import time; do not cache
-  the resolved path anywhere a test cannot monkeypatch it.
+  Resolve it through `quantum_study.common.datadir` (`data_dir()`, `app_file(app, kind)`),
+  which honours `QUANTUM_STUDY_DATA_DIR`; do not build the path by hand, and do not cache
+  the resolved path anywhere a test cannot redirect it.
 - **History schemas are frozen.** `coach.py` and `dashboard.py` parse every
   `*_history.json`; never change an existing file's shape — add a new file instead, as
   flashcard-drill did with `flashcard_schedule.json` (SM-2 state) rather than touching
@@ -118,8 +124,8 @@ Makefile pyproject.toml   task runner (wraps the scripts above); packaging, mypy
   below. Every app writes `mistakes.json` and `confidence.json`; a new app is expected to,
   and gets `coach.py --mistakes` / `--calibration` and both dashboard panels for free.
 - Every app has a Reference screen (`ui/screens/reference_screen.py`, opened from the
-  setup/home screen, with a Back button) that renders `<repo>/docs/**/*.md`; the docs root
-  is `Path(__file__).resolve().parents[3] / "docs"` — never hard-code a home path.
+  setup/home screen, with a Back button) that renders `<repo>/docs/**/*.md` through
+  `quantum_study.common.ui.reference`, which finds the corpus (or `QUANTUM_STUDY_DOCS_DIR`).
 
 ---
 
@@ -198,7 +204,7 @@ as `mistakes.json`.
   `CONFIDENCE_FILE = DATA_DIR / "confidence.json"` so tests can monkeypatch them.
 - Keep the read/write helpers Qt-free in `persistence.py` (flashcard-drill uses
   `persistence/review_store.py`) so they can be unit tested without a QApplication.
-  `qec-trainer/persistence.py` is the reference implementation; `coach.py` re-exports
+  `quantum_study/qec_trainer/persistence.py` is the reference implementation; `coach.py` re-exports
   `dashboard.py`'s `make_mistake_entry`, `make_confidence_entry`, `normalise_mistake`,
   `normalise_confidence` and `cause_of` if you would rather import the schema than
   restate it.
@@ -206,14 +212,13 @@ as `mistakes.json`.
   open at once, and an atomic write is only half the answer: the *read* in a
   read-modify-write goes stale the moment another app appends, and the rewrite then drops
   that app's new rows (measured: three writers, 60 rows each, 103 of 180 rows survived).
-  Copy `journal_sync.py` from any app tree (the copies are byte-identical, and
-  `tests/test_journal_concurrency.py` asserts that) and wrap the whole read-modify-write
-  in `journal_sync.lock(MISTAKES_FILE, create=True)`, re-reading the file *inside* the
-  lock. It flocks a `<file>.lock` sidecar, waits at most five seconds, always releases
-  (including on a crash) and degrades to the unlocked behaviour where locking is
-  unavailable rather than raising or hanging a GUI.
+  Use `quantum_study.common.journal`, which does this for you, or wrap the whole
+  read-modify-write in `quantum_study.common.locking.lock(MISTAKES_FILE, create=True)`,
+  re-reading the file *inside* the lock. It flocks a `<file>.lock` sidecar, waits at most
+  five seconds, always releases (including on a crash) and degrades to the unlocked
+  behaviour where locking is unavailable rather than raising or hanging a GUI.
 - **Never rewrite another app's rows.** On every write, pass the list through
-  `journal_sync.merge_foreign(rows_on_disk, entries, APP_ID)`: rows whose `app` is not
+  `journal.merge_foreign(rows_on_disk, entries, APP_ID)`: rows whose `app` is not
   yours are written back exactly as they were read, unknown keys included, and rows that
   appeared since you read are kept. Only your own rows go through your schema.
 - **Tolerate everything on read.** A missing, empty, truncated or non-list file must read
@@ -227,7 +232,7 @@ as `mistakes.json`.
 
 ### Regenerating the cloze deck
 
-`flashcard-drill/cards/cloze/` is **generated, not hand-written** — one file per card,
+`quantum_study/flashcard_drill/cards/cloze/` is **generated, not hand-written** — one file per card,
 produced from the `## Key Formulas` section of every chapter under `docs/`. Edit the
 chapter, not the card.
 
@@ -248,7 +253,7 @@ not recognise — an unknown command, a matrix or cases environment, a clause mi
 with `≤`, an ellipsis, an answer long enough to be an essay — is **dropped**. A missing
 card is acceptable; a garbled card is not. If a formula you added produces no card, that is
 the gate working; rewrite the formula in the corpus style rather than loosening the
-generator. `flashcard-drill/tests/test_cards.py` holds the deck to *floors*
+generator. `quantum_study/flashcard_drill/tests/test_cards.py` holds the deck to *floors*
 (`MIN_CARD_COUNT`, `MIN_CURATED_CARDS`, `MIN_CLOZE_CARDS`), so regeneration never turns the
 suite red as long as the deck does not shrink.
 
@@ -263,9 +268,8 @@ keeps the module-level constant it expects (`CARD`, `PROBLEM`, `KATA`, `QUESTION
 item silently vanish — which is why each bank has a test that pins the item count and (in
 every bank except exam-sim) checks one loaded item per file or that the set of file stems
 equals the set of ids. **The file stem must equal the item's `id`.** One caveat: never
-name a bank file `test_*.py` or `*_test.py`. Every `pytest.ini` sets `testpaths = tests`,
-so a bare `pytest` never reaches the bank, but pytest collects such files when it is given
-an explicit path or run from inside the bank directory — so an item
+name a bank file `test_*.py` or `*_test.py`: the banks are inside the package that pytest
+collects, and it would take such a file for a test module — so an item
 whose natural id ends in `_test` gets a longer file name (`alg_swap_test_circuit.py`,
 `alg_hadamard_test_circuit.py`, `cc_if_test_control_flow.py` keep their original ids so
 saved history still matches; they are the only exceptions).
@@ -282,7 +286,7 @@ three floors — `MIN_CARD_COUNT` (whole deck), `MIN_CURATED_CARDS` (hand-writte
 `MIN_CLOZE_CARDS` (generated only) — with the observed count noted beside each. Two floors,
 not one, so a growing generated deck can never mask a shrinking hand-written one.
 
-### Flashcard — `flashcard-drill/cards/<category_dir>/<id>.py`
+### Flashcard — `quantum_study/flashcard_drill/cards/<category_dir>/<id>.py`
 
 ```python
 """Card: pauli_anticommute"""
@@ -308,7 +312,7 @@ only when you want to protect new ground. Keep the front a single recall cue and
 one-line answer; put derivations in the docs, not on the card. Do not hand-write anything
 under `cards/cloze/` — that directory is generated (see *Regenerating the cloze deck*).
 
-### QEC problem — `qec-trainer/problems/<category_dir>/<id>.py`
+### QEC problem — `quantum_study/qec_trainer/problems/<category_dir>/<id>.py`
 
 ```python
 """Problem: bos_binomial_code"""
@@ -349,7 +353,7 @@ above"). The right choice may not be more than 15 characters longer than every d
 across the bank no length rank (shortest … longest) may hold the answer more than 40% of
 the time, so do not always make it the second-longest either.
 
-### VQA problem — `vqa-trainer/problems/<category_dir>/<id>.py`
+### VQA problem — `quantum_study/vqa_trainer/problems/<category_dir>/<id>.py`
 
 Same `Problem` shape as QEC plus a numeric mode:
 
@@ -372,7 +376,7 @@ State the unit and the expected precision in the question. Numeric answers withi
 tolerance earn partial credit, so pick a tolerance that reflects the rounding in your
 explanation. Tests: `tests/test_bank.py` (`EXPECTED_COUNT`, `EXPECTED_CATEGORIES`).
 
-### Dojo kata — `qiskit-dojo/katas/<section_dir>/<id>.py`
+### Dojo kata — `quantum_study/qiskit_dojo/katas/<section_dir>/<id>.py`
 
 ```python
 """Kata: cc_bell_state"""
@@ -430,7 +434,7 @@ no `starter_code` already passes** — run it: `python -m pytest -m slow tests/t
 (145 subprocess runs; a few minutes). Pick the section by exam blueprint weight: the sections with
 the fewest katas relative to their weight are where a new kata is most useful.
 
-### Exam question — `exam-sim/bank/<section_dir>/<id>.py`
+### Exam question — `quantum_study/exam_sim/bank/<section_dir>/<id>.py`
 
 ```python
 """Question: cc_assign_parameters_copy"""
@@ -458,7 +462,7 @@ Step by step:
    bank only after its code has been executed and the output confirmed. Say so, with the
    Qiskit version, in the PR.
 4. Bump `BANK_TOTAL` in `tests/test_bank.py` (the one exact count) and the section row in
-   `exam-sim/README.md`, then `cd exam-sim && python -m pytest`.
+   `quantum_study/exam_sim/README.md`, then `pytest quantum_study/exam_sim`.
 
 `config.SECTIONS` holds the exam **weights** (20/18/16/13/13/12/11/7), not bank counts: it
 drives how a 68-question mock is allocated across sections and does not change when the
@@ -480,7 +484,7 @@ material — never
 reproduce real exam content — and distractors should encode real misconceptions (bit
 ordering, retired APIs, ISA requirements).
 
-### Problem-trainer problem — `problem-trainer/problems/<topic_dir>/<id>.py`
+### Problem-trainer problem — `quantum_study/problem_trainer/problems/<topic_dir>/<id>.py`
 
 ```python
 """Problem: la_pauli_algebra — Pauli algebra and qubit rotations."""
@@ -509,7 +513,7 @@ PROBLEM = Problem(
 )
 ```
 
-Guided derivations live one level up in `problem-trainer/derivations/<id>.py` as a
+Guided derivations live one level up in `quantum_study/problem_trainer/derivations/<id>.py` as a
 `DERIVATION = Derivation(id, title, goal, steps=[Step(step_id, prompt, expected, hint,
 model_step), ...])`; `expected` is what the grader checks against, `model_step` is what
 the learner sees on reveal. Both registries auto-discover (`problems/<dir>/*.py`,
@@ -520,7 +524,7 @@ of the prompt; model solutions are read by learners, so show the algebra.
 ### circuit-trainer, quantum-quiz, math-quiz, paper-drill
 
 These generate problems rather than load them. circuit-trainer categories are generator
-modules (`circuit-trainer/problems/<category>.py` exposing `generate(difficulty) -> Problem`);
+modules (`quantum_study/circuit_trainer/problems/<category>.py` exposing `generate(difficulty) -> Problem`);
 a new category needs a member in `core.models.ProblemCategory` and a branch in the
 `problems/__init__.py::generate` dispatcher. Answers come from `qiskit.quantum_info` — the
 `Statevector` / `Operator` of the generated circuit, via the helpers in `problems/_utils.py`
@@ -591,19 +595,19 @@ Run `python tools/verify_docs.py --all` before opening the PR; it must exit 0.
 ## Pull request checklist
 
 - [ ] Branch from `main`; one topic per PR (a bank addition, a docs fix, an app change).
-- [ ] `tools/run_tests.sh` passes locally (or the affected app's suite plus the root suite).
+- [ ] `pytest` passes locally (or `pytest tests quantum_study/<app>` for a change to one app).
 - [ ] `python tools/verify_docs.py --all` exits 0 if you touched `docs/` or `lesson-plans/`.
 - [ ] New bank items: file stem == `id`; count constant bumped in the bank test; README
       count updated; for exam-sim, `BANK_TOTAL` in `tests/test_bank.py` bumped and the
       section proportions still within tolerance; for dojo, the slow sweep passes and the
       README section table is updated.
 - [ ] Touched a `## Key Formulas` section? `python tools/gen_cloze.py --write` re-run and
-      the regenerated `flashcard-drill/cards/cloze/` files committed.
+      the regenerated `quantum_study/flashcard_drill/cards/cloze/` files committed.
 - [ ] New app or new persistence code: `mistakes.json` and `confidence.json` written in the
       shared schema (no seventh cause, no rating written when the learner skipped it), both
       read tolerantly, and `QUANTUM_STUDY_DATA_DIR` honoured.
-- [ ] Journal writes go through `journal_sync`: the whole read-modify-write inside
-      `journal_sync.lock(...)` (re-reading in the lock) and every rewrite through
+- [ ] Journal writes go through `quantum_study.common.journal`: the whole read-modify-write
+      inside the lock (re-reading in the lock) and every rewrite through
       `merge_foreign(...)`, with `tests/test_journal_concurrency.py` still green.
 - [ ] Added a docs chapter or an app category? `python tools/concept_map.py --check`
       still passes, and the concept that teaches or drills it is in

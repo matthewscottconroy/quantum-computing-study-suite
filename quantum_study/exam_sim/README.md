@@ -8,8 +8,8 @@ Fully offline: a static bank of 300 original multiple-choice questions, no API
 keys, no network access. Part of the quantum-study suite (see `vqa-trainer`,
 `qec-trainer`, etc.): the dark theme, the mistake/confidence journal, the data
 directory, the schema versioning and the Reference browser all come from the
-repository's shared [`common/`](../common/README.md) package rather than from a
-copy kept here — see [Shared code](#shared-code-common) below.
+repository's shared [`quantum_study/common/`](../common/README.md) package rather than from a
+copy kept here.
 
 > **Disclaimer** — The exam logistics (question count, time limit, pass mark,
 > section weights) are third-party-sourced and may change; verify them against
@@ -17,27 +17,15 @@ copy kept here — see [Shared code](#shared-code-common) below.
 > material** written for this app. None of it is real exam content, and using
 > this app is not affiliated with or endorsed by IBM.
 
----
-
-## Requirements
-
-```
-PyQt6>=6.6
-matplotlib>=3.8
-```
+## Run
 
 ```bash
-pip install -r requirements.txt
-python main.py
+python launch.py exam                 # from the repository root (or: quantum-study exam)
+python -m quantum_study.exam_sim
 ```
 
-The app itself only needs PyQt6 plus matplotlib (for the score-trend chart on
-the History screen; every other screen works without it). Qiskit is not
-required to *run* the app — the bank is static — but the code snippets in the
-questions target qiskit 2.x + qiskit-aer and were verified by execution against
-qiskit 2.5.2.
-
----
+Fully offline; it never calls the API.
+Setup is covered in [GETTING_STARTED.md](../../GETTING_STARTED.md).
 
 ## Modes
 
@@ -143,8 +131,6 @@ qiskit 2.5.2.
 - Opened from the **Browse Reference** button on the home screen; **← Back**
   returns
 
----
-
 ## Question bank
 
 300 questions across the exact C1000-179 objective sections. Each section's
@@ -213,28 +199,6 @@ match their file names and section prefixes, four distinct options, a valid
 `correct_index`, a substantive explanation, balanced code fences, and no two
 questions with identical text or with the same snippet and answer.
 
-### Tests
-
-```bash
-cd exam-sim && python -m pytest        # ~12 s bank/allocation + offscreen Qt screens
-```
-
-| file | covers |
-|---|---|
-| `test_bank.py` / `test_allocation.py` | bank shape, ids, weighted draw |
-| `test_config_and_models.py` | exam logistics, the data-dir override |
-| `test_persistence.py` | `exam_history.json` / `exam_missed.json` round-trips |
-| `test_mistake_journal.py` | the journal adapter: Question → row, the session journal, caps, corrupt files, foreign rows |
-| `test_schema_versioning.py` | the sidecar on every file, an unmarked file reading as v1, forward migration, a newer file refused, backup rotation |
-| `test_errata_ui.py` | the report control: what it quotes, the URL fields, browser stubbed and browser absent, where the button is (and is not) |
-| `test_common_package.py` | the shim is verbatim, every module that imports `common` imports it first, nothing imports `journal_sync`, the palette and journal are the shared ones, and `trim_own` no longer eats another app's rows |
-| `test_option_shuffle.py` | options are shuffled per attempt, a click records the bank index, the order survives navigation, and "always pick the first row" fails a full mock |
-| `test_feedback_ui.py` | the widgets offscreen end to end (rate → miss → tag a cause → answer it correctly → `resolved: true`) plus contrast and focus rings |
-| `test_history_screen.py` / `test_reference_screen.py` | the two read-only screens against the live corpus |
-
-The root suite (`tests/test_common_*.py`, run by `tools/run_tests.sh`) owns the
-unit tests for `common/` itself, so they are not repeated here.
-
 `correct_index` is 0 for 261 of the 300 questions, which no longer matters:
 the exam and review screens shuffle the options for every attempt
 (`common.choices`), and `chosen_index` is always recorded as a bank index, so
@@ -243,238 +207,21 @@ the real screens — including an "always pick the first row" run of a full
 mock, which must fail the 47 pass mark — and `test_bank.py` rejects any
 option that refers to another by letter or position.
 
----
+## Data files
 
-## Data persistence
+Written under `~/.local/share/quantum-study/`, or `$QUANTUM_STUDY_DATA_DIR` if set:
 
-Shared directory `~/.local/share/quantum-study/` (a coach app integrates with
-these files — schemas are stable). Set `QUANTUM_STUDY_DATA_DIR` to point the
-whole suite (this app included) at a different directory, e.g. for tests or a
-throwaway experiment. The directory is resolved by `common.datadir` **at call
-time**, so setting the variable takes effect immediately, in this process and
-in any subprocess — nothing is frozen at import.
-
-`exam_history.json` — appended after every full/sprint session (the History
-screen reads this file; nothing else writes it):
-
-```json
-[{"timestamp": 1724000000.0, "mode": "full", "total": 68, "correct": 51,
-  "duration_secs": 4980.2,
-  "sections": {"Create circuits": {"total": 12, "correct": 9}}}]
-```
-
-`exam_missed.json` — one entry per currently-missed question (deduped by id;
-appended on a miss, removed when later answered correctly in Review mode).
-Unchanged by the mistake journal: it still feeds `coach.py --review`, and
-`mistakes.json` is written **in addition to** it, never instead:
-
-```json
-[{"question_id": "cc_depth", "section": "Create circuits",
-  "question": "...", "correct_answer": "3", "chosen": "4",
-  "timestamp": 1724000000.0}]
-```
-
-`mistakes.json` — the suite-wide **mistake journal** (same schema in every
-app). One row per miss occurrence, so repeats are countable; `cause` is `null`
-until you tag it on the results/review screen, and every row for an item flips
-to `resolved: true` once the item is answered correctly:
-
-```json
-[{"id": "cc_depth", "app": "exam-sim", "category": "Create circuits",
-  "question": "How deep is this circuit?", "your_answer": "4",
-  "correct_answer": "3", "cause": "knew_but_slipped",
-  "note": "counted the barrier", "timestamp": 1724000000.0,
-  "resolved": false}]
-```
-
-`cause` is one of `misread`, `didnt_know`, `knew_but_slipped`, `confused`,
-`out_of_time`, `other` — or `null` (logged, not yet categorised; an
-unrecognised value is stored as `null` rather than costing you the mistake).
-`category`, `question`, `your_answer` and `correct_answer` are collapsed to one
-line and clipped to 200 characters; `note` keeps its line breaks and is clipped
-to 500.
-
-`confidence.json` — the suite-wide **confidence-calibration** log: one row per
-graded question you rated, written when the session is submitted (exam) or the
-answer checked (review mode):
-
-```json
-[{"id": "cc_depth", "app": "exam-sim", "category": "Create circuits",
-  "confidence": 4, "correct": false, "timestamp": 1724000000.0}]
-```
-
-`exam_settings.json` — this app's own preferences (currently just
-`{"confidence_prompt": true|false}`). App-local; nothing else reads it.
-
-Every one of these files is written through `common.journal` /
-`common.schema`, which means:
-
-- **Locked and atomic.** The read-modify-write of a shared journal runs inside
-  an advisory lock on a `<name>.lock` sidecar and re-reads the file inside the
-  lock, then writes via a temp file + `os.replace`. Ten apps can be open at
-  once without losing a row.
-- **Other apps' rows are never touched.** A rewrite puts every row this app
-  does not own back exactly as it was read, unknown keys included — and the
-  growth cap (`common.journal.MISTAKES_MAX` 2000, `CONFIDENCE_MAX` 5000) drops
-  only **exam-sim's own** oldest rows. The copy this app used to carry trimmed
-  the merged list, which deleted other apps' history during our write; that bug
-  is gone.
-- **Versioned.** Each file gets a sidecar `<name>.schema.json`
-  (`{"file", "kind", "schema", "written_by", "updated"}`). A *sidecar* and not
-  a key inside the data, because `coach.py` and `dashboard.py` require the top
-  level of these files to be a plain JSON list — a `{"schema": 1, "rows": […]}`
-  wrapper would make the journal read as empty everywhere. A file with no
-  sidecar is a v1 file, so nothing had to be converted.
-- **Refused, not corrupted.** A file written by a *newer* build is left alone
-  instead of being overwritten with this build's narrower view of it;
-  `persistence.last_write_error()` reports the refusal and nothing raises into a
-  running exam.
-- **Backed up.** The first write of each process rotates `<name>.bak` →
-  `.bak.1` → `.bak.2` (three generations, best-effort);
-  `common.schema.restore_backup()` puts one back.
-- **Forgiving.** A missing or corrupt file reads as empty rather than raising.
-
-The app-shaped helpers (`make_mistake_entry`, `mistake_entry_for`,
-`load_mistakes`, `log_mistake`, `update_mistake_cause`, `resolve_mistake`,
-`record_mistakes`, `mistake_summary`, `log_confidence`, `record_confidence`,
-`confidence_enabled`, …) still live in `persistence.py`, are unit-tested
-without Qt, and keep their signatures; the store underneath them is the shared
-one.
-
----
-
-## Shared code (`common/`)
-
-exam-sim used to carry its own copy of the data-directory resolver, the
-mistake/confidence journal, the cross-process lock, the theme palette and a
-615-line docs Reference screen. All five are now the repository's
-[`common/`](../common/README.md) package, one implementation for all ten apps.
-
-| was here | is now |
+| File | Holds |
 |---|---|
-| `ui/theme.py` (139 lines) | `common.ui.theme` + 95 lines of exam-sim's own: `SECTION_COLORS`, the `#nav` navigator buttons, the `#chip` pills, the history tables |
-| `ui/screens/reference_screen.py` (615 lines) | `common.ui.reference.ReferenceScreen` + a 235-line subclass holding `SECTION_DOCS`, the ★ Suggested filter and the "exam sections" annotation |
-| the journal half of `persistence.py` | `common.journal` (locked, atomic, foreign rows preserved, own-rows-only trim) |
-| `DATA_DIR`/`HISTORY_FILE`/… frozen at import | `common.datadir`, resolved at call time |
-| hand-rolled `write_text` for history/missed/settings | `common.schema.save_versioned` (versioned, backed up, atomic) |
-| `journal_sync.py` | `common.locking` |
+| `exam_history.json` | every finished session; read by `coach.py` and `dashboard.py` |
+| `exam_missed.json` | missed questions waiting in Review mode |
+| `exam_settings.json` | preferences |
+| `mistakes.json`, `confidence.json` | the mistake journal and the confidence ratings, shared by all ten apps |
 
-### The import shim
+## Code and tests
 
-The apps are not packages — several define the same top-level module names
-(`config`, `core`, `ui`, `persistence`) — so the repository root is not
-importable from inside one. `common_path.py` is a **verbatim** copy of
-`common/app_shim.py`; it locates the checkout from its own `__file__` and
-**appends** the root to `sys.path` (appends, so a root module such as `tests`
-can never shadow an app module). Every module here that imports `common`
-imports it first:
+The app is the package `quantum_study/exam_sim/`. What it shares with the other nine (the data directory, the journals, the theme, the Reference screen) is in [`quantum_study/common/`](../common/README.md).
 
-```python
-import common_path  # noqa: F401  (puts the repo root on sys.path)
-
-from common import journal
-```
-
-`tests/test_common_package.py` asserts both halves of that rule, because a
-module that assumes something else ran the shim first works right up until the
-day something imports it first.
-
-### Behaviour reconciled with the other nine apps
-
-The shared versions settle a handful of differences the ten copies had drifted
-into (the full table is in `common/README.md` §3). Four of them are visible
-here:
-
-- **Cause labels.** `knew_but_slipped` now reads **"Knew but slipped"** and
-  `confused` reads **"Confused"** — the wording seven of the ten apps used.
-  exam-sim's "Knew it, slipped" / "Confused two things" were a local rewrite.
-  The stored `cause` keys are unchanged, so nothing on disk moved.
-- **An unknown cause no longer raises.** `make_mistake_entry(cause="nonsense")`
-  stores `null` instead of `ValueError`: a stray label must not cost the
-  mistake itself. A recognised cause still survives spacing and case.
-- **A confidence rating outside 1-4 is rejected, not invented.**
-  `log_confidence` records nothing and returns `None` (the pure builder still
-  clamps, so a row that exists is always schema-valid).
-- **Notes are 500 characters and keep their line breaks** (the one-line fields
-  are still collapsed and clipped to 200). The note box in the UI still caps
-  typing at 200.
-
-Two things deliberately did **not** move:
-
-- **`common.flags`.** exam-sim has no persisted flag store — "Flag for review"
-  is an in-session marker on `ExamAttempt`, and misses reach the coach through
-  `exam_missed.json` and `mistakes.json`. There was nothing to de-duplicate.
-- **`ui/feedback.py`, `ui/format.py`, the screens and the graders.** They look
-  like other apps' and are not: each encodes this app's session model.
-
-`journal_sync.py` is still in the tree but is no longer imported by anything
-here; it stays only because `tests/test_journal_concurrency.py` requires all
-ten copies to be present and byte-identical. It should be deleted from all ten
-apps in the commit that updates that test.
-
----
-
-## Accessibility
-
-The confidence strip, the cause chips and the note field are all keyboard
-reachable (strong focus policy, `Tab` order, `1`-`4`/`0` shortcuts inside the
-exam and review screens) and draw a visible focus ring — the theme adds
-`:focus` rules for every button kind, radio buttons and combo boxes, widening
-the border by 1 px while shrinking the padding by 1 px so focusing something
-never shifts the layout.
-
-Nothing new signals meaning by colour alone: a selected chip gains a `✓`
-glyph, correct/incorrect lines are prefixed `✓`/`✗` as well as coloured, the
-"Logged as …" confirmation is text, and a flagged question in the navigator
-gets a **dashed** border alongside its colour (the legend says so). Every new
-control carries an accessible name, and question navigator buttons announce
-their state ("Question 7: answered, flagged, confidence 2 of 4"). The
-**⚑ Report a problem with this item** button follows the same rules — strong
-focus policy, accessible name, the theme's focus ring — and its no-browser
-fallback is shown non-modally so it can never trap keyboard focus.
-
-New text was checked against the dark palette: chip label 12.9:1, selected
-chip 7.5:1, prompts 6.2:1 on the background and 5.6:1 inside a card,
-confirmation line 6.8:1 — all above the 4.5:1 minimum, asserted in
-`tests/test_feedback_ui.py`.
-
----
-
-## Architecture
-
-```
-exam-sim/
-├── main.py
-├── common_path.py             the import shim, verbatim from common/app_shim.py
-├── config.py                  exam logistics, section weights, data paths
-│                              (resolved at call time via common.datadir)
-├── core/
-│   └── models.py              Question, ExamAttempt, ExamResult
-├── bank/
-│   ├── __init__.py            auto-discovery + weighted exam-set builder
-│   ├── create_circuits/       54 questions (one file each, id == file stem)
-│   ├── quantum_operations/    48
-│   ├── run_circuits/          45
-│   ├── sampler/               36
-│   ├── estimator/             36
-│   ├── visualization/         33
-│   ├── results_analysis/      30
-│   └── openqasm/              18
-├── persistence.py             exam_history.json / exam_missed.json + the
-│                              common.journal adapter, all schema-versioned
-├── journal_sync.py            superseded by common.locking; unused here
-├── tests/                     pytest suite: bank shape, allocation, persistence, offscreen screens
-└── ui/
-    ├── theme.py               common.ui.theme + this app's own rules/colours
-    ├── errata.py              "report this item" over common.ui.errata_dialog
-    ├── feedback.py            ConfidenceStrip + CauseRow (shared by 3 screens)
-    ├── format.py              fenced-code → HTML rendering
-    ├── main_window.py         screen controller
-    └── screens/
-        ├── home_screen.py       mode picker, history + journal summary, prompt toggle
-        ├── exam_screen.py       timer, navigator, flag/skip/return, confidence strip
-        ├── results_screen.py    pass bar, section table, review pane + cause rows + report
-        ├── review_screen.py     re-answer missed questions (confidence, causes, report)
-        ├── history_screen.py    attempts table, per-section accuracy, score-trend chart
-        └── reference_screen.py  common.ui.reference + SECTION_DOCS / ★ Suggested
+```bash
+pytest quantum_study/exam_sim        # this app's tests
 ```

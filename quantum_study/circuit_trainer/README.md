@@ -5,7 +5,15 @@ Qiskit — the correct answers are computed by evolving real quantum circuits wi
 `qiskit.quantum_info` (`Statevector` / `Operator`), so there is no ambiguity in
 correctness. Free-form explanation questions are graded by Claude (`claude-sonnet-4-6`).
 
----
+## Run
+
+```bash
+python launch.py circuit                 # from the repository root (or: quantum-study circuit)
+python -m quantum_study.circuit_trainer
+```
+
+Runs offline. A Claude API key (`ANTHROPIC_API_KEY`, or `~/.config/quantum-study/api_key.txt`) adds the Claude-graded parts.
+Setup is covered in [GETTING_STARTED.md](../../GETTING_STARTED.md).
 
 ## Features
 
@@ -42,51 +50,11 @@ correctness. Free-form explanation questions are graded by Claude (`claude-sonne
   the four choices and the keyed answer), so "this problem is wrong" has somewhere to go
 - **Shared suite code** — the journal, the flag store, the data-directory rule, the
   palette, the small widgets and the docs browser all come from the repository-level
-  [`common/`](../common/README.md) package rather than a private copy
+  [`quantum_study/common/`](../common/README.md) package rather than a private copy
 - **Versioned files with backups** — every file this app writes carries a schema version
   in a sidecar, migrates forward on read, is refused rather than corrupted when it was
   written by a newer build, and is backed up (three generations) before each session's
   first write
-
----
-
-## Requirements
-
-```
-anthropic>=0.93.0
-qiskit>=2.0.0
-PyQt6>=6.6.0
-matplotlib>=3.8.0
-numpy>=1.26.0
-pylatexenc>=2.10
-```
-
-Install:
-```bash
-pip install -r requirements.txt
-```
-
-Qiskit is required even for the non-Claude problems — it is used to compute correct
-answers and render circuit images.
-
----
-
-## API Key
-
-Only needed for circuit explanation (free-form) problems. Set `ANTHROPIC_API_KEY` in
-your environment, or write the key to `~/.config/quantum-study/api_key.txt`. If neither
-is set, free-form problems will error at grading time with a descriptive message; all
-other problem types work offline.
-
----
-
-## Running
-
-```bash
-python main.py
-```
-
----
 
 ## Usage
 
@@ -233,7 +201,7 @@ a prefilled GitHub issue against
 
 | Field | Filled with |
 |---|---|
-| `file` | ``circuit-trainer/problems/ — item id `f8bd26a68bcf28a8` `` |
+| `file` | ``quantum_study/circuit_trainer/problems/ — item id `f8bd26a68bcf28a8` `` |
 | `quote` | the question, the state/matrix line, the four choices **and the keyed answer** — a "none of these is right" report is only checkable with all four in front of you |
 | `why_wrong` | what you typed |
 | `correction` | what you typed, if anything |
@@ -241,7 +209,7 @@ a prefilled GitHub issue against
 
 Properties worth knowing:
 
-- **Nothing is sent.** `common/errata.py` builds a URL string; the browser opens it and
+- **Nothing is sent.** `quantum_study/common/errata.py` builds a URL string; the browser opens it and
   *you* press Submit on GitHub. No network call happens inside the app, so the control
   cannot stall a drill.
 - **Keyboard reachable.** It is in the tab order (`StrongFocus`) with a visible focus
@@ -279,7 +247,7 @@ All new text/background pairs clear WCAG AA 4.5:1 against the dark palette
 ### Reference
 
 The **Reference** button on the setup screen opens the shared in-app browser for the
-`docs/` corpus (`common/ui/reference.py`; the root is found from the package, then the
+`docs/` corpus (`quantum_study/common/ui/reference.py`; the root is found from the package, then the
 cwd, then `sys.argv[0]`, and `QUANTUM_STUDY_DOCS_DIR` overrides it). The left pane lists
 every chapter; the right pane renders the Markdown (GitHub dialect — tables, code,
 `$$…$$` display maths and `<details>` blocks rewritten for Qt's renderer).
@@ -328,8 +296,6 @@ history screen and repo-level dashboard read them like any other session.
 Timing constants live in `config.py`: `SPRINT_QUESTION_COUNT` (10),
 `SPRINT_SECONDS` (60), `SPRINT_FLASH_MS` (900).
 
----
-
 ## Problem Categories
 
 | Category | Answer Format | Description |
@@ -346,8 +312,6 @@ Timing constants live in `config.py`: `SPRINT_QUESTION_COUNT` (10),
 | Circuit composition | Multiple choice | Compose two circuits; find the resulting unitary |
 | Noise channel | Multiple choice | Exact bit-flip / phase-flip / depolarizing / amplitude-damping calculations and Kraus identification |
 | Circuit explanation | Free-form | Explain the purpose or operation of a circuit in prose |
-
----
 
 ## Grading Details
 
@@ -367,150 +331,6 @@ component within tolerance with global-phase invariance (`e^{iφ}|ψ⟩` accepte
 The grader sends the problem text, the user's answer, and the worked solution to Claude.
 The prompt requests a JSON response with `score` (0–10), `feedback`, `model_answer`, and
 `follow_up`. The JSON fence is stripped if present.
-
----
-
-## Architecture
-
-```
-circuit-trainer/
-├── main.py
-├── common_path.py               The import shim: puts the repo root on sys.path so
-│                                `from common import journal` resolves. Copied verbatim
-│                                from common/app_shim.py — never edited.
-├── config.py                    Model, DPI, tolerance, session defaults
-├── core/
-│   ├── models.py                Problem, Attempt, TrainerConfig, SessionStats dataclasses
-│   └── session.py               Session state: problem sequencing, attempt accumulation
-├── problems/
-│   ├── __init__.py              generate(category, difficulty) dispatcher (lazy import)
-│   ├── _utils.py                SINGLE_QUBIT_GATES, INPUT_STATES, render_circuit(),
-│   │                            format_statevector(), statevector_for_circuit(), make_distractors()
-│   ├── single_gate.py           X/H/Z/S/T/Rx/Ry/Rz applied to known input states
-│   ├── gate_sequence.py         Fixed sequences with known gate identities (HXH=Z, etc.)
-│   ├── measurement.py           Measurement probability calculation
-│   ├── gate_identity.py         Matrix → gate name matching
-│   ├── circuit_unitary.py       Full unitary computation for small circuits
-│   ├── entanglement.py          Entanglement detection after 2-qubit circuit
-│   ├── multi_qubit.py           CNOT, CZ, SWAP, Toffoli output states
-│   ├── equivalence.py           Circuit equivalence — two circuits, same unitary?
-│   ├── notation.py              Static pool: 10 Dirac/circuit notation questions
-│   ├── composition.py           Compose two circuits
-│   ├── noise.py                 Noise channel identification and Kraus operators
-│   └── circuit_explanation.py  Free-form: explain a circuit's purpose
-├── grading/
-│   ├── auto_grader.py           Local grading for MC, numeric, statevector
-│   └── claude_grader.py         Claude grading for FREE_FORM answers
-├── workers/
-│   ├── problem_worker.py        QThread: generate problem (Qiskit runs here)
-│   └── evaluation_worker.py     QThread: Claude grading
-├── ui/
-│   ├── main_window.py           Screen controller
-│   ├── screens/
-│   │   ├── setup_screen.py      Category/difficulty/count selection + sprint launch
-│   │   ├── problem_screen.py    Problem display, answer input, confidence strip,
-│   │   │                        "What went wrong?" mistake row, errata button
-│   │   ├── sprint_screen.py     Sprint mode: countdown question screen + end screen
-│   │   ├── summary_screen.py    Session results chart
-│   │   ├── history_screen.py    Lifetime stats, flagged-for-review list (unflag),
-│   │   │                        mistake-journal + calibration summary
-│   │   └── reference_screen.py  87 lines: common.ui.reference.ReferenceScreen plus
-│   │                            this app's default chapter and category → doc map
-│   ├── theme.py                 common.ui.theme plus CATEGORY_COLORS/DIFFICULTY_COLORS
-│   │                            and the rules for this app's own widgets
-│   └── widgets/
-│       └── circuit_panel.py     Displays circuit PNG
-├── journal_sync.py              The pre-`common` lock/merge helper. No longer imported
-│                                by anything here — kept only because the root suite's
-│                                test_every_app_ships_the_same_journal_sync still
-│                                requires all ten copies to exist and match. Delete it
-│                                once that test is updated (see below).
-├── tests/
-└── persistence.py               Session history + SRS weighting (this app's), adapting
-                                 common.journal / common.flags / common.schema for
-                                 everything that is shared
-```
-
-Anything above that is *not* in this tree lives in [`common/`](../common/README.md) and
-is shared with the other nine apps.
-
----
-
-## Shared Code (`common/`)
-
-This app used to carry its own copy of the mistake journal, the flag store, the
-data-directory rule, the palette, three small widgets and a 350-line docs browser. All
-of it now comes from the repository-level [`common/`](../common/README.md) package;
-**445 lines of forked logic left this tree** and nothing was reimplemented.
-
-### How the import works
-
-`common_path.py` is `common/app_shim.py` copied verbatim. Importing it walks up from its
-own location until it finds a directory holding `common/__init__.py` *and*
-`common/journal.py`, and **appends** that to `sys.path`:
-
-```python
-import common_path  # noqa: F401  (puts the repo root on sys.path)
-
-from common import journal
-from common.ui import theme
-```
-
-It appends rather than prepending because the repository root also holds `tests/`,
-`tools/`, `coach.py` and `launch.py`, and this app has its own `tests/`, `ui/`, `core/`
-and `config`; putting the root first would let a root module shadow an app module. Every
-module that imports from `common` imports the shim itself — `persistence.py` is loaded
-**by path, with no conftest**, by the root suite's `tests/test_journal_concurrency.py`,
-and the screens are imported directly by this app's UI tests, so "something else will
-have run it" is not a safe assumption. `tests/test_common_integration.py` fails the build
-if a module ever forgets.
-
-Installed as a wheel there is no checkout to find: the shim appends nothing and
-`import common` resolves from site-packages.
-
-### What came from `common`, and what stayed
-
-| Concern | Now | Why |
-|---|---|---|
-| `mistakes.json` / `confidence.json` | `common.journal` | One locked, atomic, foreign-row-preserving implementation for all ten apps — and the growth cap starts holding (see *Data Persistence*) |
-| `trainer_flagged.json` | `common.flags` | Atomic write (the old one truncated first), rewrite from the *raw* list so unknown rows survive, and the legacy bare-id shape is read instead of discarded |
-| Data directory | `common.datadir` | Resolved per call, `.strip()`ped and `~`-expanded |
-| Schema versions, backups | `common.schema` | New capability, see above |
-| Palette + base stylesheet | `common.ui.theme` | The twelve palette constants were byte-identical in all ten apps before the extraction |
-| `LoadingOverlay`, `CollapsiblePanel` | `common.ui.widgets` | Identical but for an animation constant |
-| Docs browser | `common.ui.reference` | Two constructor arguments were all that was ever this app's |
-| **`flag_id_for()`** | **stayed here** | The id is the join key between `trainer_flagged.json`, `mistakes.json`, `confidence.json` and `coach.py`. It is on-disk state: switching to `common.flags.make_id` (sha256) would orphan every flag and every journalled mistake already saved |
-| **SRS weighting, `trainer_history.json`** | **stayed here** | The 14-day-half-life formula and the history schema are this app's, and the schema is load-bearing for `coach.py`/`dashboard.py` |
-| **`CATEGORY_COLORS`, `DIFFICULTY_COLORS`, `CircuitPanel`** | **stayed here** | This app's vocabulary and this app's widget, not shared style |
-
-### Where this app's behaviour differed, and what was done
-
-Two divergences were real behaviour, not drift, so they are kept as **thin adapters over**
-the shared code rather than forks of it. Both are in `persistence.py`:
-
-1. **Strict confidence ratings.** `common.journal.coerce_confidence` accepts `"3"` and
-   `2.7`; this app rejects anything that is not a plain `int` in 1–4 (a `bool`, a string
-   or a float is a caller bug). A rating the learner never gave must never reach the
-   calibration report, so `make_confidence_entry()` still raises `ValueError` and
-   `log_confidence()` still records nothing. It validates, then delegates.
-2. **Note-only journal updates.** `common.journal.set_mistake_cause` always writes a
-   cause, but this app's *What went wrong?* row lets you type a note without picking one.
-   `update_mistake(item_id, note=…)` reads the row's current cause back and re-writes it,
-   with both steps inside **one** lock on `mistakes.json` (`common.locking.lock` is
-   re-entrant), so it is still a single atomic read-modify-write.
-
-Three behaviours *changed* on purpose, all of them the shared version being right:
-
-- A **bare string** in `trainer_flagged.json` is now read as a legacy flag and upgraded
-  to the contract shape on the next write, instead of being silently dropped. `coach.py`
-  has always counted those as flags, so the app was the one out of step.
-- The journal growth cap trims **only this app's rows**, so it actually holds (see
-  *Data Persistence*).
-- A failed `show_doc()` on the Reference screen leaves you on the chapter you were
-  reading. The old fork blanked the browser, which cost the reader their place because a
-  jump target was missing.
-
----
 
 ## How Problems Are Generated
 
@@ -536,8 +356,6 @@ extension must be initialised on the GUI thread first — `workers/problem_worke
 imports `qiskit` at module level for exactly that reason (first-importing it inside a
 worker thread crashed the *next* worker on Python 3.14 / qiskit 2.5). Keep that import.
 
----
-
 ## Problem Content by Category
 
 ### Single-Gate Output
@@ -556,24 +374,6 @@ worker thread crashed the *next* worker on Python 3.14 / qiskit 2.5). Keep that 
 - Topics: ket vectors, inner products, |+⟩, expectation value ⟨ψ|A|ψ⟩, tensor products,
   outer products, spectral decomposition, [[n,k,d]] code notation
 
----
-
-## Configuration (`config.py`)
-
-| Constant | Default | Effect |
-|---|---|---|
-| `CLAUDE_MODEL` | `claude-sonnet-4-6` | Model for free-form grading |
-| `CLAUDE_MAX_TOKENS` | 1400 | Max tokens in grading response |
-| `NUMERIC_TOLERANCE` | 1e-3 | Absolute tolerance for numeric answers |
-| `PHASE_TOLERANCE` | 1e-3 | Global phase threshold for state vector comparison |
-| `DEFAULT_PROBLEM_COUNT` | 12 | Pre-filled problem count |
-| `CIRCUIT_DPI` | 130 | DPI for Qiskit circuit rendering |
-| `SPRINT_QUESTION_COUNT` | 10 | Questions per sprint |
-| `SPRINT_SECONDS` | 60 | Countdown per sprint question (timeout = wrong) |
-| `SPRINT_FLASH_MS` | 900 | Right/wrong flash duration before auto-advance |
-
----
-
 ## Known Limitations
 
 - **Single-gate solution steps** are only written out in full for X, H, and Z gates.
@@ -584,81 +384,21 @@ worker thread crashed the *next* worker on Python 3.14 / qiskit 2.5). Keep that 
 - Free-form explanation problems require an Anthropic API key (`ANTHROPIC_API_KEY` env
   var or `~/.config/quantum-study/api_key.txt`).
 
----
+## Data files
 
-## Data Persistence
+Written under `~/.local/share/quantum-study/`, or `$QUANTUM_STUDY_DATA_DIR` if set:
 
-All of these files live in the shared suite data directory,
-`~/.local/share/quantum-study/` by default. Set `QUANTUM_STUDY_DATA_DIR` to redirect them (the same override `coach.py`
-and the other apps honour) — handy for tests and experiments that must not touch real
-history.
-
-- `trainer_history.json` — sessions (schema unchanged; read by the repo-level
-  `dashboard.py` and `coach.py`; sprint sessions carry `"sprint": true`).
-- `trainer_flagged.json` — flagged problems as a JSON list of
-  `{id, label, category, app, timestamp}` entries (see *Flag for Review* above).
-- `mistakes.json` — the suite-wide mistake journal: a JSON list of
-  `{id, app, category, question, your_answer, correct_answer, cause, note, timestamp,
-  resolved}` entries (see *Mistake Journal* above).
-- `confidence.json` — the suite-wide calibration log: a JSON list of
-  `{id, app, category, confidence, correct, timestamp}` rows.
-- `trainer_prefs.json` — this app's own UI state (currently just
-  `{"confidence_prompt": bool}`). Nothing outside circuit-trainer reads it.
-
-`mistakes.json` and `confidence.json` are shared-contract files written by every study
-app, so entries always carry `"app": "circuit-trainer"`. `common.journal` writes them
-atomically (temp file + `os.replace`) under an `flock` held across the whole
-read-modify-write, treats a missing or corrupt file as empty (and rewrites it valid on
-the next write), puts every row belonging to another app back exactly as it was read
-(unknown keys included), and caps each file at the newest **2000** mistakes /
-**5000** confidence rows — **counting only this app's own rows**.
-
-> That last clause is a real fix, though a smaller one than the `common/` notes suggest.
-> The copy this app used to carry capped the *merged* list (`entries[-2000:]`) and then
-> called `merge_foreign`, which put the foreign rows the truncation had just cut straight
-> back. Measured against the pre-migration code: **no other app's rows were ever lost or
-> reordered** — but the cap did not hold. With a cap of 4 and five rows from another app,
-> the old code left **7** rows on disk and only 2 of ours; the new code leaves 5 and 0.
-> The cap was being spent on rows that came straight back, so the file grew past it and
-> this app's own history was trimmed to pay for it.
-> `tests/test_mistake_journal.py::test_the_cap_only_ever_trims_this_apps_own_rows` pins
-> the new behaviour.
-
-### Schema versions, migration and backups
-
-Every file this app writes now goes through `common.schema`:
-
-- **A version marker beside each file**, not inside it: `mistakes.json` gets
-  `mistakes.json.schema.json` holding `{"file", "kind", "schema", "written_by",
-  "updated"}`. It has to be a sidecar, because `coach._load_list`,
-  `dashboard._read_journal` and `dashboard._load` all do
-  `return data if isinstance(data, list) else []` — a `{"schema": 1, "rows": […]}`
-  wrapper would make the whole journal read as *empty* in the coach and the dashboard.
-- **Unmarked files are v1.** Everything written before versioning existed is read as-is
-  and stamped the next time it is written; nothing has to be converted.
-- **Reading is never destructive.** An older file is migrated forward *in memory*; the
-  file on disk only changes when something writes it.
-- **A newer file is refused, not corrupted.** If a future build writes v2 and you then
-  run this one, the write is skipped rather than overwriting v2 with a v1-shaped view of
-  it. `persistence.last_write_error()` says so; the drill carries on.
-- **Rotating backups.** Before the *first* write of each run, the current contents are
-  copied to `<name>.bak`, ageing `.bak` → `.bak.1` → `.bak.2`. One backup per file per
-  run, best-effort. `persistence.restore_backup(persistence.mistakes_file())` puts the
-  newest one back.
-
-The extra files (`*.lock`, `*.schema.json`, `*.bak*`) are invisible to every existing
-reader: `coach.py` and `dashboard.py` open exact file names, and none of those is one.
-
-`persistence.py` exposes:
-
-| Group | Helpers |
+| File | Holds |
 |---|---|
-| Flags | `flag_id_for()`, `flag_label_for()`, `toggle_flag()`, `unflag()`, `is_flagged()`, `load_flagged()`, `flagged_file()` |
-| Mistakes | `make_mistake_entry()`, `answer_texts_for()`, `log_mistake_for_attempt()`, `append_mistake()`, `update_mistake()`, `resolve_mistake()`, `load_mistakes()`, `mistake_cause_counts()`, `mistakes_file()`, `MISTAKE_CAUSES` |
-| Confidence | `make_confidence_entry()`, `log_confidence()`, `load_confidence()`, `calibration_by_level()`, `confidence_file()`, `CONFIDENCE_LEVELS` |
-| Prefs | `load_prefs()`, `save_prefs()`, `confidence_prompt_enabled()`, `set_confidence_prompt_enabled()`, `prefs_file()` |
-| Paths | `data_dir()`, `history_file()` — resolved **on every call**, so setting `QUANTUM_STUDY_DATA_DIR` at any point is enough and no test has to patch a module constant |
-| Schema | `last_write_error()`, `clear_write_error()`, `restore_backup()` |
+| `trainer_history.json` | every finished session; read by `coach.py` and `dashboard.py` |
+| `trainer_flagged.json` | items you flagged for review (the coach's review queue) |
+| `trainer_prefs.json` | preferences |
+| `mistakes.json`, `confidence.json` | the mistake journal and the confidence ratings, shared by all ten apps |
 
-The entry builders are pure functions (no Qt, no I/O), so they unit-test directly —
-see `tests/test_mistake_journal.py`.
+## Code and tests
+
+The app is the package `quantum_study/circuit_trainer/`. What it shares with the other nine (the data directory, the journals, the theme, the Reference screen) is in [`quantum_study/common/`](../common/README.md).
+
+```bash
+pytest quantum_study/circuit_trainer        # this app's tests
+```

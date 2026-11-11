@@ -1,5 +1,30 @@
 # Training Roadmap — Skills-Gap Analysis and Proposed Features
 
+> **Status (2026-11-11): round 4 — make the numbers mean something, then one package.**
+> No new features; this round fixed what the earlier ones measured with and stood on.
+>
+> **Scores.** The banks keyed the answer first almost everywhere (261 of exam-sim's 300
+> questions, 166 of qec-trainer's 170 multiple-choice problems, all 153 of vqa-trainer's)
+> and the screens showed options in stored order: "always pick A" passed every mock exam.
+> Options are now shuffled each time they are shown (`quantum_study/common/choices.py`),
+> and 325 correct options were rewritten to the length of their distractors, because the
+> right answer was also the longest one in 60–92 % of each bank. Readiness, calibration
+> and item analysis were all reading those scores.
+>
+> **Tests.** A test wrote a fake "probe" mistake into the real study directory on every
+> direct run; every suite is now kept out of it before anything is imported. CI's Qt
+> segfault came from building three `QApplication`s in one process; there is one now.
+>
+> **One package.** The ten apps were ten directories of top-level modules (`config`,
+> `core`, `ui`, `persistence`) that could never share an interpreter, which cost a
+> pytest process per app, an import shim copied into every app, no type checking or
+> coverage of app code, and an install that could not include the apps. They are now
+> sub-packages of `quantum_study`, with the shared code in `quantum_study/common/`, one
+> test run, and `python -m quantum_study.<app>` (or the launcher) to start one.
+> **Paths in the rounds below are as they were when written:** `exam-sim/` is now
+> `quantum_study/exam_sim/`, `common/` is `quantum_study/common/`, and
+> `cd <app> && python main.py` is `python -m quantum_study.<app>`.
+
 > **Status (2026-09-23): round 3 — error analysis, corpus breadth and navigation.**
 > Round 2 made the habit stick and made progress measurable; round 3 asks *why* the
 > wrong answers are wrong, widens the corpus past the core ladder, and stops the
