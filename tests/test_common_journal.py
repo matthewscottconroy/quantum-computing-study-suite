@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:                       # also true in a child
     sys.path.insert(0, str(ROOT))
 
-from common import journal, locking, schema         # noqa: E402
+from quantum_study.common import journal, locking, schema         # noqa: E402
 
 ROWS_PER_WRITER = 25
 WRITERS = 4
@@ -336,7 +336,7 @@ def test_a_refused_write_is_reported_not_raised(data_dir):
 
 
 def test_lock_is_re_exported_for_migrating_apps():
-    from common.locking import lock
+    from quantum_study.common.locking import lock
     assert journal.lock is lock
 
 
@@ -362,7 +362,7 @@ def journal_writer(data_dir: str, app: str, tag: str, rows: int,
         os.environ["QUANTUM_STUDY_DATA_DIR"] = data_dir     # before the import
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
-        from common import journal as jrn
+        from quantum_study.common import journal as jrn
         if not locked:
             jrn.lock = _no_lock                             # the control group
         if barrier is not None:
@@ -431,7 +431,7 @@ def _survivors(data_dir: Path, tags) -> tuple[int, int]:
 @pytest.mark.timeout(300)
 def test_ten_apps_writing_at_once_lose_no_rows(tmp_path):
     """One process per app, all appending to one data directory at once."""
-    from common import datadir
+    from quantum_study.common import datadir
     data_dir = tmp_path / "quantum-study"
     _seed(data_dir)
     apps = list(datadir.APPS)
@@ -521,7 +521,7 @@ def _die_holding_the_lock(target: str) -> None:
     """Child: take the lock, then die without unwinding (kernel must free it)."""
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
-    from common import locking
+    from quantum_study.common import locking
     with locking.lock(target, create=True):
         os._exit(0)
 

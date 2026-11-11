@@ -33,7 +33,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import launch  # noqa: E402
+from quantum_study import launch  # noqa: E402
 
 CANONICAL = {
     "dojo": "qiskit-dojo",
@@ -112,7 +112,8 @@ def _sandbox_env(tmp_path: Path) -> dict:
 def test_registry_matches_directories():
     # Both directions: every registry entry has a main.py, and every <dir>/main.py
     # in the repo is in the registry (a new or renamed app cannot be silently omitted).
-    on_disk = {p.parent.name for p in ROOT.glob("*/main.py")}
+    on_disk = {p.parent.name.replace("_", "-")
+               for p in (ROOT / "quantum_study").glob("*/main.py")}
     assert {a.dir for a in launch.APPS} == on_disk
     assert len(launch.APPS) == 10
 
@@ -164,8 +165,13 @@ def test_api_key_classification_matches_readme_table():
 
 
 def test_tool_paths_exist():
-    assert launch.COACH_PY.is_file()
-    assert launch.DASHBOARD_PY.is_file()
+    assert launch.PACKAGE_DIR == ROOT / "quantum_study" and launch.ROOT == ROOT
+    assert launch.COACH_CMD == [sys.executable, "-m", "quantum_study.coach"]
+    assert launch.DASHBOARD_CMD == [sys.executable, "-m", "quantum_study.dashboard"]
+    assert (launch.PACKAGE_DIR / "coach.py").is_file()
+    assert (launch.PACKAGE_DIR / "dashboard.py").is_file()
+    for stub in ("launch.py", "coach.py", "dashboard.py"):      # `python coach.py` still works
+        assert (ROOT / stub).is_file(), stub
     assert launch.DOCS_README.is_file()
 
 
@@ -200,8 +206,8 @@ def test_resolve_canonical_aliases(query, expected):
     ("  vqa  ", "vqa-trainer"),          # surrounding whitespace
     ("qiskit-dojo/", "qiskit-dojo"),     # shell tab-completion forms ...
     ("./qiskit-dojo", "qiskit-dojo"),
-    ("qiskit-dojo/main.py", "qiskit-dojo"),
-    (str(ROOT / "exam-sim"), "exam-sim"),
+    ("quantum_study/qiskit_dojo/main.py", "qiskit-dojo"),
+    (str(ROOT / "quantum_study" / "exam_sim"), "exam-sim"),
     ("./qiskit-dojo/", "qiskit-dojo"),
 ])
 def test_resolve_prefixes_and_forms(query, expected):
@@ -295,8 +301,8 @@ def test_cli_launch_uses_detached_popen(capsys, fake_popen, isolated_env):
     assert launch.main(["dojo"]) == 0
     assert len(fake_popen.calls) == 1
     argv, kwargs = fake_popen.calls[0]
-    assert argv == [sys.executable, "main.py"]
-    assert kwargs["cwd"] == str(ROOT / "qiskit-dojo")
+    assert argv == [sys.executable, "-m", "quantum_study.qiskit_dojo"]
+    assert kwargs["cwd"] == str(ROOT)
     assert kwargs["stdin"] == subprocess.DEVNULL
     # stdout/stderr go to the per-app log, never to the launcher's own pipes.
     log = isolated_env / "logs" / "qiskit-dojo.log"
@@ -379,11 +385,11 @@ def test_launch_app_direct_injection(fake_popen):
     proc = launch.launch_app(app, popen=fake_popen)
     assert isinstance(proc, fake_popen)
     argv, kwargs = fake_popen.calls[0]
-    assert argv[1] == "main.py" and kwargs["cwd"].endswith("exam-sim")
+    assert argv[1:] == ["-m", "quantum_study.exam_sim"] and kwargs["cwd"] == str(ROOT)
 
 
 def test_launch_app_missing_main_raises(fake_popen, monkeypatch, tmp_path):
-    monkeypatch.setattr(launch, "ROOT", tmp_path)
+    monkeypatch.setattr(launch, "PACKAGE_DIR", tmp_path)
     with pytest.raises(launch.LaunchError):
         launch.launch_app(launch.resolve_app("exam"), popen=fake_popen)
     assert fake_popen.calls == []
@@ -411,8 +417,8 @@ def test_cli_paths_work_without_pyqt6_in_process(capsys, monkeypatch):
 # CLI (fresh interpreter)
 # ---------------------------------------------------------------------------
 
-# Blocks PyQt6 *before* `import launch`, so a module-level Qt import in
-# launch.py (which would kill every CLI path) fails this test.
+# Blocks PyQt6 *before* the launcher is imported, so a module-level Qt import
+# in it (which would kill every CLI path) fails this test.
 _BLOCK_PYQT6 = textwrap.dedent("""
     import importlib.abc, sys
     class Block(importlib.abc.MetaPathFinder):
@@ -446,19 +452,25 @@ def test_pyqt6_block_harness_really_blocks(tmp_path):
     ([], 1, "stderr", "PyQt6 is required"),
 ])
 def test_cli_works_in_fresh_interpreter_without_pyqt6(tmp_path, args, rc, stream, needle):
-    res = _run_blocked(tmp_path, "import launch; sys.exit(launch.main(sys.argv[3:]))", *args)
+    res = _run_blocked(tmp_path, "from quantum_study import launch; sys.exit(launch.main(sys.argv[3:]))", *args)
     assert res.returncode == rc, (res.stdout, res.stderr)
     assert needle in getattr(res, stream), (res.stdout, res.stderr)
 
 
-def _sandbox_launcher(tmp_path: Path, stub_body: str) -> Path:
-    """Copy launch.py into tmp_path next to a stub flashcard-drill/main.py."""
-    script = tmp_path / "launch.py"
-    shutil.copy(launch.__file__, script)
-    app_dir = tmp_path / "flashcard-drill"
-    app_dir.mkdir()
+def _sandbox_launcher(tmp_path: Path, stub_body: str) -> list[str]:
+    """A throwaway package in tmp_path: the real launcher beside a stub
+    ``quantum_study.flashcard_drill``.  Returns the argv prefix that runs it
+    (with ``cwd=tmp_path``, so this copy shadows the real package)."""
+    package = tmp_path / "quantum_study"
+    app_dir = package / "flashcard_drill"
+    app_dir.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    shutil.copy(launch.__file__, package / "launch.py")
+    (app_dir / "__init__.py").write_text("", encoding="utf-8")
     (app_dir / "main.py").write_text(stub_body, encoding="utf-8")
-    return script
+    (app_dir / "__main__.py").write_text(
+        "import quantum_study.flashcard_drill.main  # noqa: F401\n", encoding="utf-8")
+    return [sys.executable, "-m", "quantum_study.launch"]
 
 
 def _pid_alive(pid: int) -> bool:
@@ -480,7 +492,7 @@ def test_cli_launch_returns_immediately_when_output_is_captured(tmp_path, isolat
         time.sleep(60)
     """))
     t0 = time.monotonic()
-    res = subprocess.run([sys.executable, str(script), "flash"], capture_output=True,
+    res = subprocess.run([*script, "flash"], capture_output=True,
                          text=True, timeout=30, cwd=str(tmp_path), env=_sandbox_env(tmp_path))
     elapsed = time.monotonic() - t0
     assert res.returncode == 0, res.stderr
@@ -674,8 +686,8 @@ def test_window_launch_buttons_start_detached_apps(window, fake_popen, isolated_
         window.launch_buttons[app.dir].click()
         assert len(fake_popen.calls) == i + 1
         argv, kwargs = fake_popen.calls[-1]
-        assert argv == [sys.executable, "main.py"]
-        assert kwargs["cwd"] == str(ROOT / app.dir)
+        assert argv == [sys.executable, "-m", app.module]
+        assert kwargs["cwd"] == str(ROOT)
         assert kwargs["stdin"] == subprocess.DEVNULL
         assert kwargs["stdout"].name == str(isolated_env / "logs" / f"{app.dir}.log")
         assert kwargs["stderr"] == subprocess.STDOUT
@@ -689,7 +701,7 @@ def test_window_launch_buttons_start_detached_apps(window, fake_popen, isolated_
 
 
 def test_window_launch_failure_is_reported_not_raised(window, fake_popen, monkeypatch, tmp_path):
-    monkeypatch.setattr(launch, "ROOT", tmp_path)
+    monkeypatch.setattr(launch, "PACKAGE_DIR", tmp_path)
     window.launch_buttons["exam-sim"].click()
     assert fake_popen.calls == []
     assert "Could not start Exam Simulator" in window.statusBar().currentMessage()
@@ -749,7 +761,7 @@ def test_window_todays_plan_runs_coach_against_temp_dir(window, qapp, isolated_e
     _wait_for_tool(window, qapp)
     assert window.last_tool_exit == 0
     text = window.output.toPlainText()
-    assert "coach.py" in text.splitlines()[0]
+    assert "quantum_study.coach" in text.splitlines()[0]
     assert len(text.splitlines()) > 3
     assert (isolated_env / "coach_state.json").is_file()   # coach wrote to the temp dir, not ~
 
@@ -765,7 +777,7 @@ def test_window_dashboard_argv(window, monkeypatch):
     seen = []
     monkeypatch.setattr(window, "run_tool", lambda argv, label, **kw: seen.append((argv, label)) or True)
     window.run_dashboard()
-    assert seen == [([sys.executable, str(launch.DASHBOARD_PY)], "Dashboard")]
+    assert seen == [(launch.DASHBOARD_CMD, "Dashboard")]
 
 
 def test_window_dashboard_runs_end_to_end_sandboxed(window, qapp, monkeypatch, tmp_path):
@@ -777,4 +789,4 @@ def test_window_dashboard_runs_end_to_end_sandboxed(window, qapp, monkeypatch, t
     window.run_dashboard()
     _wait_for_tool(window, qapp)
     assert window.last_tool_exit == 0, window.output.toPlainText()
-    assert "dashboard.py" in window.output.toPlainText().splitlines()[0]
+    assert "quantum_study.dashboard" in window.output.toPlainText().splitlines()[0]

@@ -1,0 +1,507 @@
+"""
+MainWindow — owns the QStackedWidget and routes signals between screens.
+Never calls Claude or Qiskit directly; all async work goes through workers.
+"""
+
+from __future__ import annotations
+from PyQt6.QtWidgets import QMainWindow, QStackedWidget, QMessageBox, QFileDialog
+from PyQt6.QtCore import Qt
+
+from quantum_study.common.ui.widgets import LoadingOverlay
+
+from quantum_study.quantum_quiz.core.models import QuizConfig, Question, Evaluation
+from quantum_study.quantum_quiz.core.session import QuizSession
+from quantum_study.quantum_quiz.qiskit_contexts import QiskitContext
+from quantum_study.quantum_quiz.workers.question_worker import QuestionWorker
+from quantum_study.quantum_quiz.workers.evaluation_worker import EvaluationWorker
+from quantum_study.quantum_quiz.workers.viva_worker import VivaWorker
+from quantum_study.quantum_quiz.ui.screens.setup_screen import SetupScreen
+from quantum_study.quantum_quiz.ui.screens.question_screen import QuestionScreen
+from quantum_study.quantum_quiz.ui.screens.feedback_screen import FeedbackScreen
+from quantum_study.quantum_quiz.ui.screens.summary_screen import SummaryScreen
+from quantum_study.quantum_quiz.ui.screens.history_screen import HistoryScreen
+from quantum_study.quantum_quiz.ui.screens.reference_screen import ReferenceScreen
+from quantum_study.quantum_quiz.config import APP_NAME, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT
+
+
+PAGE_SETUP    = 0
+PAGE_QUESTION = 1
+PAGE_FEEDBACK = 2
+PAGE_SUMMARY  = 3
+PAGE_HISTORY  = 4
+PAGE_REFERENCE = 5
+
+
+class MainWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle(APP_NAME)
+        self.setMinimumSize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
+        self.resize(1100, 760)
+
+        self._session: QuizSession | None = None
+        self._current_question: Question | None = None
+        self._pending_elapsed: int = 0
+        self._q_worker: QuestionWorker | None = None
+        self._ev_worker: EvaluationWorker | None = None
+        self._viva_worker: VivaWorker | None = None
+
+        # Viva mode state: (base_question, answer, evaluation) queued for a probe.
+        # Cap is one follow-up per base question, and follow-ups never spawn
+        # follow-ups — enforced by _current_is_followup below.
+        self._viva_pending: tuple[Question, str, Evaluation] | None = None
+        self._current_is_followup: bool = False
+
+        # Mistake journal: the item id logged for the answer now on screen
+        # (None when the answer was not wrong, or when the write failed).
+        self._journal_id: str | None = None
+
+        self._stack = QStackedWidget()
+        self.setCentralWidget(self._stack)
+
+        self._setup_screen   = SetupScreen()
+        self._question_screen = QuestionScreen()
+        self._feedback_screen = FeedbackScreen()
+        self._summary_screen  = SummaryScreen()
+        self._history_screen  = HistoryScreen()
+        self._reference_screen = ReferenceScreen()
+
+        self._stack.addWidget(self._setup_screen)    # 0
+        self._stack.addWidget(self._question_screen) # 1
+        self._stack.addWidget(self._feedback_screen) # 2
+        self._stack.addWidget(self._summary_screen)  # 3
+        self._stack.addWidget(self._history_screen)  # 4
+        self._stack.addWidget(self._reference_screen) # 5
+
+        self._overlay = LoadingOverlay(self)
+
+        self._setup_screen.quiz_started.connect(self._on_quiz_started)
+        self._setup_screen.history_requested.connect(self._on_history)
+        self._setup_screen.reference_requested.connect(self._on_reference)
+        self._question_screen.answer_submitted.connect(self._on_answer_submitted)
+        self._question_screen.skip_requested.connect(self._on_skip)
+        self._question_screen.confidence_opt_out.connect(self._on_confidence_opt_out)
+        self._feedback_screen.next_question_requested.connect(self._on_next_question)
+        self._feedback_screen.flag_requested.connect(self._on_flag_toggled)
+        self._feedback_screen.mistake_cause_selected.connect(self._on_mistake_cause)
+        self._feedback_screen.mistake_note_saved.connect(self._on_mistake_note)
+        self._summary_screen.restart_requested.connect(self._on_restart)
+        self._summary_screen.review_mistakes.connect(self._on_review_mistakes)
+        self._history_screen.back_requested.connect(self._on_history_back)
+        self._reference_screen.back_requested.connect(self._on_reference_back)
+
+        self._check_for_draft()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._overlay.resize(self.size())
+
+    def _show_page(self, index: int) -> None:
+        self._stack.setCurrentIndex(index)
+
+    # ── Quiz flow ─────────────────────────────────────────────────────────────
+
+    def _on_quiz_started(self, config: QuizConfig) -> None:
+        self._session = QuizSession(config)
+        self._viva_pending = None
+        self._current_is_followup = False
+        self._fetch_next_question()
+
+    def _fetch_next_question(self) -> None:
+        self._overlay.show_with_message(
+            "Generating question",
+            "Building Qiskit context and calling Claude…",
+        )
+        self._q_worker = QuestionWorker(self._session, self)
+        self._q_worker.question_ready.connect(self._on_question_ready)
+        self._q_worker.error.connect(self._on_generation_error)
+        self._q_worker.start()
+
+    def _on_question_ready(self, question: Question, context: QiskitContext) -> None:
+        self._current_question = question
+        self._current_is_followup = False
+        self._overlay.hide_overlay()
+        self._question_screen.set_confidence_enabled(self._confidence_prompt_enabled())
+        self._question_screen.load_question(
+            question=question,
+            context=context,
+            number=self._session.question_number(),
+            total=self._session.config.question_count,
+        )
+        self._show_page(PAGE_QUESTION)
+
+    def _on_answer_submitted(self, answer: str, elapsed: int) -> None:
+        if self._current_question is None:
+            return
+        self._pending_elapsed = elapsed
+        self._overlay.show_with_message("Evaluating answer", "Claude is grading your response…")
+        self._ev_worker = EvaluationWorker(self._current_question, answer, self)
+        self._ev_worker.evaluation_ready.connect(
+            lambda ev: self._on_evaluation_ready(answer, ev)
+        )
+        self._ev_worker.error.connect(self._on_evaluation_error)
+        self._ev_worker.start()
+
+    def _on_evaluation_ready(self, answer: str, evaluation: Evaluation) -> None:
+        self._overlay.hide_overlay()
+        self._session.record_answer(
+            self._current_question, answer, evaluation,
+            elapsed_seconds=self._pending_elapsed,
+            is_followup=self._current_is_followup,
+        )
+        # Queue a viva probe: base questions only (follow-ups never spawn
+        # follow-ups), and only when the answer had enough substance (score ≥ 4).
+        if (
+            self._session.config.viva_mode
+            and not self._current_is_followup
+            and evaluation.score >= 4
+        ):
+            self._viva_pending = (self._current_question, answer, evaluation)
+        else:
+            self._viva_pending = None
+        try:
+            from quantum_study.quantum_quiz.persistence import save_draft
+            save_draft(self._session.stats)
+        except Exception:
+            pass
+        self._feedback_screen.load_evaluation(evaluation)
+        self._feedback_screen.set_flagged(self._current_question_flagged())
+        self._set_errata_target()
+        self._record_mistake_and_confidence(answer, evaluation)
+        self._show_page(PAGE_FEEDBACK)
+
+    def _set_errata_target(self) -> None:
+        """Arm "report a problem" with the question now on the feedback screen.
+
+        Best-effort and never fatal: a broken data directory must not cost the
+        learner their feedback screen.
+        """
+        question = self._current_question
+        if question is None:
+            self._feedback_screen.clear_errata_item()
+            return
+        try:
+            item_id = self._journal_item_id(question)
+        except Exception:
+            item_id = ""
+        self._feedback_screen.set_errata_item(item_id, question.text)
+
+    # ── Mistake journal & confidence calibration ──────────────────────────────
+
+    @staticmethod
+    def _journal_item_id(question: Question) -> str:
+        from quantum_study.quantum_quiz.persistence import mistake_item_id
+        return mistake_item_id(question.subject, question.text)
+
+    @staticmethod
+    def _confidence_prompt_enabled() -> bool:
+        try:
+            from quantum_study.quantum_quiz.persistence import confidence_prompt_enabled
+            return confidence_prompt_enabled()
+        except Exception:
+            return True
+
+    def _on_confidence_opt_out(self) -> None:
+        """"Don't ask again" — hide the strip now and remember it."""
+        try:
+            from quantum_study.quantum_quiz.persistence import set_confidence_prompt_enabled
+            set_confidence_prompt_enabled(False)
+        except Exception:
+            pass
+        self._question_screen.set_confidence_enabled(False)
+
+    def _record_mistake_and_confidence(self, answer: str, evaluation: Evaluation) -> None:
+        """Log the confidence pairing, and journal the answer when it was wrong.
+
+        Thresholds follow the verdicts the user sees: the journal opens on an
+        "Incorrect" answer (score < SCORE_PARTIAL_THRESHOLD) and closes — marking
+        the item resolved — as soon as the same item is answered at or above that
+        bar again; calibration counts an answer correct at the "Correct" verdict
+        (score >= SCORE_CORRECT_THRESHOLD).  Every write is best-effort: a broken
+        data directory must never interrupt a session.
+        """
+        from quantum_study.quantum_quiz.config import SCORE_CORRECT_THRESHOLD, SCORE_PARTIAL_THRESHOLD
+
+        question = self._current_question
+        self._journal_id = None
+        if question is None:
+            return
+        item_id = self._journal_item_id(question)
+
+        confidence = self._question_screen.selected_confidence()
+        if confidence:
+            try:
+                from quantum_study.quantum_quiz.persistence import log_confidence
+                log_confidence(
+                    item_id,
+                    question.subject,
+                    confidence,
+                    evaluation.score >= SCORE_CORRECT_THRESHOLD,
+                )
+            except Exception:
+                pass
+
+        if evaluation.score < SCORE_PARTIAL_THRESHOLD:
+            try:
+                from quantum_study.quantum_quiz.persistence import log_mistake
+                entry = log_mistake(
+                    item_id,
+                    category=question.subject,
+                    question=question.text,
+                    your_answer=answer,
+                    correct_answer=evaluation.model_answer,
+                )
+            except Exception as exc:
+                self._feedback_screen.show_mistake_journal()
+                self._feedback_screen.set_mistake_status(f"✗ Could not save: {exc}")
+                return
+            self._journal_id = item_id
+            self._feedback_screen.show_mistake_journal(
+                cause=entry.get("cause"), note=entry.get("note", "")
+            )
+            return
+
+        # Answered well enough this time: close out any open journal entry.
+        try:
+            from quantum_study.quantum_quiz.persistence import resolve_mistake
+            resolve_mistake(item_id)
+        except Exception:
+            pass
+
+    def _on_mistake_cause(self, cause: str) -> None:
+        if self._journal_id is None:
+            return
+        try:
+            from quantum_study.quantum_quiz.persistence import CAUSE_LABELS, set_mistake_cause
+            set_mistake_cause(
+                self._journal_id, cause or None, note=self._feedback_screen.mistake_note()
+            )
+        except Exception as exc:
+            self._feedback_screen.set_mistake_status(f"✗ Could not save: {exc}")
+            return
+        self._feedback_screen.set_mistake_status(
+            f"✓ Saved as “{CAUSE_LABELS[cause]}”" if cause else "✓ Category cleared"
+        )
+
+    def _on_mistake_note(self, note: str) -> None:
+        if self._journal_id is None:
+            return
+        try:
+            from quantum_study.quantum_quiz.persistence import set_mistake_cause
+            set_mistake_cause(
+                self._journal_id, self._feedback_screen.selected_cause(), note=note
+            )
+        except Exception as exc:
+            self._feedback_screen.set_mistake_status(f"✗ Could not save: {exc}")
+            return
+        self._feedback_screen.set_mistake_status("✓ Note saved" if note else "✓ Note cleared")
+
+    # ── Flag for review ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _flag_id(question: Question) -> str:
+        # Question-specific (subject::topic::<hash of text>): two generated
+        # questions on the same topic must not share one flag entry.
+        from quantum_study.quantum_quiz.persistence import question_flag_id
+        return question_flag_id(question.subject, question.topic, question.text)
+
+    def _current_question_flagged(self) -> bool:
+        if self._current_question is None:
+            return False
+        try:
+            from quantum_study.quantum_quiz.persistence import is_flagged
+            return is_flagged(self._flag_id(self._current_question))
+        except Exception:
+            # load_flagged() never raises on a bad file; anything else here is
+            # a programming error we would rather not hide behind a False.
+            return False
+
+    def _on_flag_toggled(self) -> None:
+        q = self._current_question
+        if q is None:
+            return
+        try:
+            from quantum_study.quantum_quiz.persistence import toggle_flag
+            new_state = toggle_flag(self._flag_id(q), label=q.text, category=q.subject)
+        except Exception as exc:
+            # Do not fail silently: a read-only / missing data dir would
+            # otherwise make the button appear dead.
+            from quantum_study.quantum_quiz.persistence import flagged_file
+            self._feedback_screen.set_flagged(self._current_question_flagged())
+            QMessageBox.warning(
+                self,
+                "Could not update review flag",
+                f"Could not write {flagged_file()}:\n{exc}",
+            )
+            return
+        self._feedback_screen.set_flagged(new_state)
+
+    def _on_skip(self) -> None:
+        if self._current_is_followup:
+            # Skipping a viva follow-up: it was an extra question, so it must
+            # not consume a slot in the configured count.
+            self._current_is_followup = False
+            self._advance_or_finish()
+            return
+        self._viva_pending = None
+        self._session.record_skip()
+        self._advance_or_finish()
+
+    def _on_next_question(self) -> None:
+        if self._viva_pending is not None:
+            self._fetch_viva_followup()
+            return
+        self._current_is_followup = False
+        self._advance_or_finish()
+
+    # ── Viva mode ─────────────────────────────────────────────────────────────
+
+    def _fetch_viva_followup(self) -> None:
+        base_question, answer, evaluation = self._viva_pending
+        self._viva_pending = None
+        self._overlay.show_with_message(
+            "Generating follow-up",
+            "Claude is probing your answer one level deeper…",
+        )
+        self._viva_worker = VivaWorker(
+            self._session, base_question, answer, evaluation, self
+        )
+        self._viva_worker.question_ready.connect(self._on_viva_ready)
+        self._viva_worker.error.connect(self._on_viva_error)
+        self._viva_worker.start()
+
+    def _on_viva_ready(self, question: Question, context: QiskitContext) -> None:
+        self._current_question = question
+        self._current_is_followup = True
+        self._overlay.hide_overlay()
+        self._question_screen.set_confidence_enabled(self._confidence_prompt_enabled())
+        self._question_screen.load_question(
+            question=question,
+            context=context,
+            # The follow-up belongs to the base question just answered.
+            number=max(1, self._session.question_number() - 1),
+            total=self._session.config.question_count,
+            is_followup=True,
+        )
+        self._show_page(PAGE_QUESTION)
+
+    def _on_viva_error(self, message: str) -> None:
+        # Follow-ups are a bonus — on failure, continue the session normally.
+        self._overlay.hide_overlay()
+        self._current_is_followup = False
+        self._advance_or_finish()
+
+    def _advance_or_finish(self) -> None:
+        if self._session.is_complete():
+            self._summary_screen.load_stats(self._session.stats)
+            self._show_page(PAGE_SUMMARY)
+        else:
+            self._fetch_next_question()
+
+    def _on_restart(self) -> None:
+        self._session = None
+        self._current_question = None
+        self._viva_pending = None
+        self._current_is_followup = False
+        self._show_page(PAGE_SETUP)
+
+    def _on_review_mistakes(self) -> None:
+        """Requeue questions that scored below 7 as a new mini-session."""
+        if self._session is None:
+            return
+        failed = [
+            r.question for r in self._session.stats.history
+            if r.evaluation.score < 7
+        ]
+        if not failed:
+            return
+        from quantum_study.quantum_quiz.core.models import QuizConfig
+        from quantum_study.quantum_quiz.core.session import QuizSession
+        review_config = QuizConfig(
+            subjects=self._session.config.subjects,
+            difficulty=self._session.config.difficulty,
+            question_types=self._session.config.question_types,
+            question_count=len(failed),
+        )
+        new_session = QuizSession(review_config)
+        new_session._pending_questions = list(failed)
+        self._session = new_session
+        self._viva_pending = None
+        self._current_is_followup = False
+        self._fetch_next_question()
+
+    # ── History ───────────────────────────────────────────────────────────────
+
+    def _on_history(self) -> None:
+        self._history_screen.refresh()
+        self._show_page(PAGE_HISTORY)
+
+    def _on_history_back(self) -> None:
+        self._show_page(PAGE_SETUP)
+
+    # ── Reference (docs browser) ──────────────────────────────────────────────
+
+    def _on_reference(self) -> None:
+        self._reference_screen.load_all()
+        self._show_page(PAGE_REFERENCE)
+
+    def _on_reference_back(self) -> None:
+        self._show_page(PAGE_SETUP)
+
+    # ── Draft recovery ────────────────────────────────────────────────────────
+
+    def _check_for_draft(self) -> None:
+        try:
+            from quantum_study.quantum_quiz.persistence import has_draft, clear_draft, draft_file
+            if not has_draft():
+                return
+            reply = QMessageBox.question(
+                self,
+                "Unsaved session found",
+                "A previous session was interrupted before it completed.\n"
+                "Would you like to export it as JSON before starting fresh?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                | QMessageBox.StandardButton.Discard,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                path, _ = QFileDialog.getSaveFileName(
+                    self, "Export interrupted session",
+                    "quantum-quiz-recovered.json", "JSON (*.json)"
+                )
+                if path:
+                    import shutil
+                    shutil.copy2(str(draft_file()), path)
+            clear_draft()
+        except Exception:
+            pass
+
+    # ── Error handling ────────────────────────────────────────────────────────
+
+    def _on_generation_error(self, message: str) -> None:
+        self._overlay.hide_overlay()
+        reply = QMessageBox.question(
+            self,
+            "Question generation failed",
+            f"{message}\n\nRetry?",
+            QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Retry:
+            self._fetch_next_question()
+        else:
+            self._show_page(PAGE_SETUP)
+
+    def _on_evaluation_error(self, message: str) -> None:
+        self._overlay.hide_overlay()
+        reply = QMessageBox.question(
+            self,
+            "Evaluation failed",
+            f"{message}\n\nSkip this question and continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            if self._current_is_followup:
+                # Follow-ups are extras — dropping one must not consume a slot.
+                self._current_is_followup = False
+            else:
+                self._session.record_skip()
+            self._advance_or_finish()

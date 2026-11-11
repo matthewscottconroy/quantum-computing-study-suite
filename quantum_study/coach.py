@@ -1,0 +1,4091 @@
+"""Quantum Study Coach — daily prescription engine across all study apps.
+
+Turns cross-app history (see dashboard.py for schemas) into a concrete,
+rules-based plan for today.  Deterministic given the data; no network, no API.
+
+Usage:
+    python coach.py                # today's plan (default, interleaved)
+    python coach.py --blocked      # ... as blocked drills, one topic at a time
+    python coach.py --exam-date YYYY-MM-DD   # book (or 'clear') the exam date
+    python coach.py --diagnostic   # 20-question placement quiz
+    python coach.py --badges      # IBM Quantum Learning badge checklist
+    python coach.py --review      # unified SRS review queue
+    python coach.py --readiness   # C1000-179 exam-readiness projection
+    python coach.py --calibrate   # SM-2 intervals vs measured recall
+    python coach.py --mistakes    # error analysis: mistakes by CAUSE
+    python coach.py --calibration # confidence vs accuracy (--confidence)
+    python coach.py --item-analysis  # exam-bank question difficulty
+
+The default plan is INTERLEAVED: 3-5 due/weak topics from different apps
+and different subject areas, ordered so consecutive blocks rarely share
+either.  Mixed practice beats blocked practice on delayed tests of retention
+and transfer (Rohrer & Taylor 2007; Kornell & Bjork 2008; Rohrer, Dedrick &
+Stershic 2015) even though it feels worse while you do it -- see the
+"Interleaving" section below.  --blocked restores the one-topic-at-a-time
+plan, and interleaving switches itself off, with a reason, when there is not
+enough distinct material to mix.
+
+--exam-date YYYY-MM-DD books the C1000-179 sitting (--exam-date clear removes
+it).  With a date on file the plan counts down, back-plans which sections to
+cover in which remaining week (official blueprint weight x current weakness),
+spaces the full mocks, and reports the --readiness verdict -- or says plainly
+that the evidence is too thin to give one.
+
+Data dir defaults to dashboard.DATA_DIR (~/.local/share/quantum-study/)
+and can be overridden with the QUANTUM_STUDY_DATA_DIR environment variable.
+
+Flagged-for-review items: every "<prefix>_flagged.json" in the data dir
+(plus flashcard-drill's legacy flagged_cards.json) is discovered at run
+time.  Entries may be bare string ids or dicts per the suite's flagging
+contract — {"id", "label", "category", "app", "timestamp"}, only "id"
+required.  The app comes from the entry's "app" field, else from the file
+prefix (quiz_ -> quantum-quiz, math_ -> math-quiz, ...); undated entries
+take the file's mtime.  Items dedupe by (app, id); --review shows the
+REVIEW_CAP oldest and says how many more were dropped.
+
+Tier-5 signal files (written by the apps, only ever read here):
+mistakes.json is the cross-app mistake journal — {"id", "app", "category",
+"question", "your_answer", "correct_answer", "cause", "note", "timestamp",
+"resolved"} — where cause is one of "misread" / "didnt_know" /
+"knew_but_slipped" / "confused" / "out_of_time" / "other", or null for
+"logged but not categorised yet".  confidence.json pairs a 1-4 confidence
+taken BEFORE the reveal with the verdict — {"id", "app", "category",
+"confidence", "correct", "timestamp"}.  Both degrade to "no data" when
+absent, empty or corrupt; their schema helpers live in dashboard.py so this
+module and the dashboard read them identically.  Unresolved mistakes join
+--review alongside flags and exam misses, deduped by (app, id).
+
+--item-analysis additionally parses quantum_study/exam_sim/bank/<section>/<id>.py with ast
+(never importing it) to name every one of the 300 bank questions.
+
+Read-only extras: --readiness reads exam_history.json (per-section results),
+dojo_history.json and flashcard_history.json; --calibrate additionally reads
+<data dir>/flashcard_schedule.json, the SM-2 scheduler's own state —
+{card_id: {n, ef, interval_days, due_iso, last_seen_iso, lapses}} — and
+works fine when that file is absent.  No history schema is ever written by
+the coach; the only file it writes is coach_state.json.
+
+Coach state is stored in <data dir>/coach_state.json:
+
+    {
+      "activity_dates": ["YYYY-MM-DD", ...],   # days with real study activity
+      "current_streak": int,
+      "best_streak": int,
+      "badges": {"<badge name>": "not_started"|"in_progress"|"earned"},
+      "diagnostic": {"timestamp": float,
+                     "rungs": {"<rung>": {"total": n, "correct": n}},
+                     "recommended_rung": "<rung>"},
+      "last_plan_date": "YYYY-MM-DD",
+      "exam_date": "YYYY-MM-DD" | null          # booked C1000-179 sitting
+    }
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import json
+import math
+import os
+import random
+import sys
+import time
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import Optional
+
+# Reuse dashboard's schema knowledge + half-life weighting.  Import the module
+# (not individual names) so its helpers stay in one place.
+from quantum_study import dashboard
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+DATA_DIR = Path(os.environ.get("QUANTUM_STUDY_DATA_DIR")
+                or dashboard.DATA_DIR).expanduser()
+STATE_PATH = DATA_DIR / "coach_state.json"
+
+_NOW = time.time()
+_TODAY = datetime.now().strftime("%Y-%m-%d")
+
+STALE_DAYS = 7            # untouched for more than this many whole days = "stale"
+FOCUS_MAX_AVG = 8.0       # a category / exam section / kata section already
+                          # averaging this (of 10, i.e. 80%) or better is solid
+                          # and is not prescribed as focus work in the plan
+REVIEW_WINDOW_DAYS = 30   # low-score attempts newer than this are reviewable
+REVIEW_LOW_SCORE = 5.0    # attempts scoring below this go to the review queue
+REVIEW_CAP = 20
+EXAM_PASS_CORRECT = 47    # C1000-179 style pass line
+EXAM_PASS_TOTAL = 68
+
+# History files the coach reads (relative to DATA_DIR).  App keys are the
+# runnable app names printed in plans.
+_HISTORY_FILES = {
+    "qec-trainer":     "qec_history.json",
+    "vqa-trainer":     "vqa_history.json",
+    "flashcard-drill": "flashcard_history.json",
+    "circuit-trainer": "trainer_history.json",
+    "math-quiz":       "math_history.json",
+    "quantum-quiz":    "quiz_history.json",
+    "paper-drill":     "paper_history.json",
+    "qiskit-dojo":     "dojo_history.json",
+    "exam-sim":        "exam_history.json",
+    "problem-trainer": "problems_history.json",
+}
+
+# Flagged-for-review files are discovered at run time: every
+# "<prefix>_flagged.json" in DATA_DIR, where <prefix> is the app's history
+# filename prefix (qec_ -> qec-trainer, quiz_ -> quantum-quiz, ...).
+# flashcard-drill predates the convention and writes flagged_cards.json.
+_FLAGGED_GLOB = "*_flagged.json"
+_LEGACY_FLAGGED_FILES = {"flagged_cards.json": "flashcard-drill"}
+_PREFIX_TO_APP = {fname[:-len("_history.json")]: app
+                  for app, fname in _HISTORY_FILES.items()}
+
+# Curriculum rungs, in docs-ladder order, with their docs dir + practice app.
+RUNGS = [
+    ("math",       "docs/01_mathematical_foundations",   "math-quiz"),
+    ("qm",         "docs/02_quantum_mechanics",          "quantum-quiz"),
+    ("circuits",   "docs/03_quantum_gates_and_circuits", "circuit-trainer"),
+    ("algorithms", "docs/04_quantum_algorithms",         "quantum-quiz"),
+    ("qec",        "docs/05_quantum_error_correction",   "qec-trainer"),
+    ("vqa",        "docs/06_variational_quantum_algorithms", "vqa-trainer"),
+    ("hardware",   "docs/07_quantum_hardware",           "flashcard-drill"),
+    ("qiskit-api", "docs/08_advanced_topics",            "qiskit-dojo"),
+]
+RUNG_ORDER = [r[0] for r in RUNGS]
+
+BADGES = [
+    "Basics of Quantum Information",
+    "Fundamentals of Quantum Algorithms",
+    "General Formulation of Quantum Information",
+    "Foundations of Quantum Error Correction",
+    "Variational Algorithm Design",
+    "Quantum Computing in Practice",
+    "C1000-179 Certification (Qiskit Associate Developer)",
+]
+BADGE_STATUSES = ["not_started", "in_progress", "earned"]
+_BADGE_LABEL = {"not_started": "not started", "in_progress": "IN PROGRESS",
+                "earned": "EARNED"}
+
+
+# ---------------------------------------------------------------------------
+# 20-question diagnostic (2-3 per rung; answer index is 0-based)
+# ---------------------------------------------------------------------------
+
+DIAGNOSTIC_QUESTIONS = [
+    # -- math (3) --
+    {"rung": "math", "q": "The inner product <0|1> equals:",
+     "choices": ["0", "1", "1/sqrt(2)", "-1"], "answer": 0},
+    {"rung": "math", "q": "The eigenvalues of the Pauli Z matrix are:",
+     "choices": ["0 and 1", "+1 and -1", "+i and -i", "+1 only"], "answer": 1},
+    {"rung": "math", "q": "A matrix U is unitary when:",
+     "choices": ["U = U^T", "U^dagger U = I", "det(U) = 0", "U^2 = I"],
+     "answer": 1},
+    # -- qm (3) --
+    {"rung": "qm", "q": "For a valid qubit state a|0> + b|1>, which must hold?",
+     "choices": ["a + b = 1", "|a| + |b| = 1", "|a|^2 + |b|^2 = 1",
+                 "a^2 + b^2 = 1 (no absolute values)"], "answer": 2},
+    {"rung": "qm", "q": "Measuring |+> = (|0>+|1>)/sqrt(2) in the computational "
+                        "basis yields outcome 0 with probability:",
+     "choices": ["0", "1/4", "1/2", "1"], "answer": 2},
+    {"rung": "qm", "q": "Which two-qubit state is maximally entangled?",
+     "choices": ["|00>", "(|00>+|11>)/sqrt(2)", "(|0>+|1>)|0>/sqrt(2)",
+                 "|01>"], "answer": 1},
+    # -- circuits (3) --
+    {"rung": "circuits", "q": "Applying a Hadamard gate to |0> gives:",
+     "choices": ["|1>", "(|0>+|1>)/sqrt(2)", "(|0>-|1>)/sqrt(2)", "|0>"],
+     "answer": 1},
+    {"rung": "circuits", "q": "CNOT applied to |10> (control=1, target=0) gives:",
+     "choices": ["|10>", "|00>", "|11>", "|01>"], "answer": 2},
+    {"rung": "circuits", "q": "The Pauli X gate acts as:",
+     "choices": ["a phase flip", "a bit flip (|0> <-> |1>)",
+                 "a measurement", "the identity"], "answer": 1},
+    # -- algorithms (3) --
+    {"rung": "algorithms", "q": "Grover search over N unstructured items needs "
+                                "how many oracle queries?",
+     "choices": ["O(N)", "O(log N)", "O(sqrt(N))", "O(1)"], "answer": 2},
+    {"rung": "algorithms", "q": "Shor's algorithm provides an exponential "
+                                "speedup for:",
+     "choices": ["sorting", "integer factoring", "matrix multiplication",
+                 "graph coloring"], "answer": 1},
+    {"rung": "algorithms", "q": "Deutsch-Jozsa decides, with a single oracle "
+                                "query, whether f is:",
+     "choices": ["injective or not", "constant or balanced",
+                 "periodic or not", "linear or not"], "answer": 1},
+    # -- qec (2) --
+    {"rung": "qec", "q": "The 3-qubit repetition (bit-flip) code can correct:",
+     "choices": ["any single-qubit error", "one bit-flip (X) error",
+                 "one phase-flip (Z) error", "two bit-flip errors"],
+     "answer": 1},
+    {"rung": "qec", "q": "The surface code's error threshold is roughly:",
+     "choices": ["~1e-6", "~0.01 (1%)", "~0.5 (50%)", "~0.25 (25%)"],
+     "answer": 1},
+    # -- vqa (2) --
+    {"rung": "vqa", "q": "VQE is designed to estimate:",
+     "choices": ["a Hamiltonian's ground-state energy",
+                 "the period of a function", "a database index",
+                 "an error syndrome"], "answer": 0},
+    {"rung": "vqa", "q": "A 'barren plateau' in variational training means:",
+     "choices": ["the ansatz is too shallow",
+                 "gradients vanish exponentially with system size",
+                 "the optimizer found the global minimum",
+                 "measurement noise is zero"], "answer": 1},
+    # -- hardware (2) --
+    {"rung": "hardware", "q": "A qubit's T1 time characterizes:",
+     "choices": ["dephasing", "energy relaxation (|1> decaying to |0>)",
+                 "gate speed", "readout fidelity"], "answer": 1},
+    {"rung": "hardware", "q": "A transmon qubit is best described as:",
+     "choices": ["a trapped ion", "a superconducting anharmonic oscillator",
+                 "a photonic cavity", "a nitrogen-vacancy center"],
+     "answer": 1},
+    # -- qiskit-api (2) --
+    {"rung": "qiskit-api", "q": "In Qiskit, adding a Hadamard on qubit 0 of "
+                                "circuit qc is written:",
+     "choices": ["qc.hadamard(0)", "qc.h(0)", "qc.H[0]", "qc.gate('h', 0)"],
+     "answer": 1},
+    {"rung": "qiskit-api", "q": "Which Qiskit primitive computes expectation "
+                                "values of observables?",
+     "choices": ["Sampler", "Estimator", "Transpiler", "Provider"],
+     "answer": 1},
+]
+
+
+# ---------------------------------------------------------------------------
+# Loading (tolerant of missing / empty / corrupt files)
+# ---------------------------------------------------------------------------
+
+def _path(filename: str) -> Path:
+    return DATA_DIR / filename
+
+
+def _read_json(path: Path):
+    """Parsed JSON from *path*, or None if missing, unreadable or corrupt."""
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def _load_list(filename: str) -> list:
+    """Like dashboard._load but rooted at the coach's (overridable) DATA_DIR."""
+    data = _read_json(_path(filename))
+    return data if isinstance(data, list) else []
+
+
+# Expected JSON types of the known coach_state.json keys; a stored value of
+# the wrong type (a hand-edited file) is replaced by the default instead of
+# crashing the plan.  Unknown keys are carried through untouched.
+_STATE_TYPES = {
+    "activity_dates": list,
+    "current_streak": (int, float),
+    "best_streak": (int, float),
+    "badges": dict,
+    "diagnostic": (dict, type(None)),
+    "last_plan_date": (str, type(None)),
+    "exam_date": (str, type(None)),
+}
+
+
+def load_state() -> dict:
+    default = {
+        "activity_dates": [],
+        "current_streak": 0,
+        "best_streak": 0,
+        "badges": {},
+        "diagnostic": None,
+        "last_plan_date": None,
+        "exam_date": None,
+    }
+    try:
+        raw = json.loads(STATE_PATH.read_text())
+    except Exception:
+        return default
+    if not isinstance(raw, dict):
+        return default
+    for key, value in raw.items():
+        expected = _STATE_TYPES.get(key)
+        if expected is None:
+            default[key] = value
+        elif isinstance(value, expected) and not isinstance(value, bool):
+            if expected == (int, float):
+                try:
+                    value = int(value)          # rejects NaN / Infinity
+                except (OverflowError, ValueError):
+                    continue
+            default[key] = value
+    return default
+
+
+def save_state(state: dict) -> None:
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        STATE_PATH.write_text(json.dumps(state, indent=2))
+    except Exception:
+        pass  # never crash the plan over an unwritable state file
+
+
+# ---------------------------------------------------------------------------
+# Per-(app, category) mastery with recency decay
+# ---------------------------------------------------------------------------
+
+def _clean_sessions(sessions: list) -> list[dict]:
+    return [s for s in sessions if isinstance(s, dict)]
+
+
+def _parse_iso(value: str) -> Optional[datetime]:
+    """Aware datetime from an ISO-8601 string (naive input is taken as UTC,
+    which is what the apps write), or None when it does not parse."""
+    text = value.strip()
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _session_timestamp(session: dict) -> Optional[float]:
+    """Epoch seconds from a session's own "timestamp" field, or None.
+
+    Accepts an epoch float, a numeric string, or the ISO-8601 *string* that
+    circuit-trainer / math-quiz / quantum-quiz write (dashboard's float()
+    rejects the latter).  Ignores the "date" field -- see _session_epoch.
+    """
+    ts = session.get("timestamp")
+    if ts is not None and not isinstance(ts, bool):
+        try:
+            return float(ts)            # epoch float, or a numeric string
+        except (TypeError, ValueError):
+            pass
+    if isinstance(ts, str):
+        dt = _parse_iso(ts)
+        if dt is not None:
+            try:
+                return dt.timestamp()
+            except (OverflowError, OSError, ValueError):
+                pass
+    return None
+
+
+def _session_epoch(session: dict) -> Optional[float]:
+    """Best-effort Unix timestamp for a session (None if unknown).
+
+    Like dashboard._session_timestamp, but also understands ISO-8601 string
+    timestamps (via _session_timestamp) and anchors a date-only session at
+    *local* midnight rather than UTC midnight so its calendar day survives
+    the round trip through datetime.fromtimestamp() in every timezone.
+    """
+    ts = _session_timestamp(session)
+    if ts is not None:
+        return ts
+    day = session.get("date")
+    if isinstance(day, str) and _valid_date(day):
+        try:
+            return datetime.strptime(day, "%Y-%m-%d").timestamp()
+        except (OverflowError, OSError, ValueError):
+            pass
+    return None
+
+
+def _session_day(session: dict) -> Optional[str]:
+    """Local YYYY-MM-DD a session was recorded on (None if unknown).
+
+    A session's own "date" string is authoritative -- it is the local
+    calendar day the app stamped when the user studied.  Otherwise the
+    timestamp is converted to the local date.
+    """
+    day = session.get("date")
+    if isinstance(day, str) and _valid_date(day.strip()):
+        parsed = datetime.strptime(day.strip(), "%Y-%m-%d")
+        return parsed.strftime("%Y-%m-%d")
+    ts = _session_epoch(session)
+    if not ts:
+        return None
+    try:
+        return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def build_category_stats(histories: dict[str, list]) -> dict[tuple[str, str], dict]:
+    """Return {(app, category): {"w_sum", "ws", "last_ts", "last_day", "n"}}.
+
+    Scores are on a 0-10 scale, weighted by dashboard's 14-day half-life.
+    "last_day" is the YYYY-MM-DD of the latest session when that session
+    carried only a "date" (no usable timestamp, so last_ts is its local
+    midnight); None when the latest session had a real timestamp.
+    """
+    stats: dict[tuple[str, str], dict] = {}
+
+    def add(app: str, cat: str, weight: float, score: float,
+            ts: Optional[float], day: Optional[str]) -> None:
+        cat = str(cat).strip()
+        if not cat:
+            return
+        entry = stats.setdefault((app, cat),
+                                 {"w_sum": 0.0, "ws": 0.0, "last_ts": 0.0,
+                                  "last_day": None, "n": 0})
+        entry["w_sum"] += weight * score
+        entry["ws"] += weight
+        entry["n"] += 1
+        if ts and ts > entry["last_ts"]:
+            entry["last_ts"] = ts
+            entry["last_day"] = day
+
+    _ease = {"got_it": 10.0, "unsure": 5.0, "missed": 0.0}
+
+    for app, sessions in histories.items():
+        for s in _clean_sessions(sessions):
+            w = dashboard._session_weight(s)
+            ts = _session_epoch(s)
+            # Date-only session: ts is local midnight of its "date"; keep the
+            # day so stale_categories() can count whole calendar days.
+            day = (_session_day(s)
+                   if ts is not None and _session_timestamp(s) is None
+                   else None)
+            if app in ("qec-trainer", "vqa-trainer", "circuit-trainer"):
+                for a in s.get("attempts", []):
+                    if isinstance(a, dict):
+                        add(app, a.get("category", ""), w,
+                            _num(a.get("score", 0)), ts, day)
+            elif app == "flashcard-drill":
+                for r in s.get("results", []):
+                    if isinstance(r, dict):
+                        add(app, r.get("category", ""), w,
+                            _ease.get(r.get("rating", ""), 5.0), ts, day)
+            elif app in ("math-quiz", "quantum-quiz"):
+                for r in s.get("records", []):
+                    if isinstance(r, dict):
+                        cat = r.get("topic") or r.get("subject") or ""
+                        add(app, cat, w, _num(r.get("score", 0)), ts, day)
+            elif app == "qiskit-dojo":
+                for a in s.get("attempts", []):
+                    if isinstance(a, dict):
+                        add(app, a.get("section", ""), w,
+                            10.0 if a.get("passed") else 0.0, ts, day)
+            elif app == "exam-sim":
+                sections = s.get("sections", {})
+                if isinstance(sections, dict):
+                    for name, sec in sections.items():
+                        if isinstance(sec, dict):
+                            tot = _num(sec.get("total", 0))
+                            cor = _num(sec.get("correct", 0))
+                            if tot > 0:
+                                add(app, name, w * tot, cor / tot * 10.0, ts, day)
+            elif app == "problem-trainer":
+                for a in s.get("attempts", []):
+                    if isinstance(a, dict):
+                        cat = a.get("kind") or a.get("problem_id") or ""
+                        add(app, cat, w, _num(a.get("score", 0)), ts, day)
+            # paper-drill has no categories
+
+    return stats
+
+
+def _num(x, default: float = 0.0) -> float:
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
+
+def weakest_categories(stats: dict[tuple[str, str], dict],
+                       top_n: int = 3) -> list[tuple[str, str, float]]:
+    """Top-N weakest (app, category, weighted_avg), deterministic order."""
+    rows = [(app, cat, e["w_sum"] / e["ws"])
+            for (app, cat), e in stats.items() if e["ws"] > 1e-9]
+    rows.sort(key=lambda r: (r[2], r[0], r[1]))
+    return rows[:top_n]
+
+
+def stale_categories(stats: dict[tuple[str, str], dict]
+                     ) -> list[tuple[str, str, int]]:
+    """Categories touched before, but untouched for MORE than STALE_DAYS
+    whole days -- so every "(Nd)" listed has N > STALE_DAYS, matching the
+    "Stale (> 7 days untouched)" heading.
+
+    Days are whole days since the last session's timestamp; a session that
+    carried only a "date" (anchored at local midnight, time of day unknown)
+    is measured in local calendar days instead, so one dated exactly
+    STALE_DAYS days ago is not yet stale.
+    """
+    today = datetime.fromtimestamp(_NOW).date()
+    out = []
+    for (app, cat), e in stats.items():
+        last_ts = e.get("last_ts", 0.0)
+        if not last_ts or last_ts <= 0:
+            continue
+        last_day = e.get("last_day")
+        if isinstance(last_day, str) and _valid_date(last_day):
+            days = (today - datetime.strptime(last_day, "%Y-%m-%d").date()).days
+        else:
+            days = int((_NOW - last_ts) / 86400.0)
+        if days > STALE_DAYS:
+            out.append((app, cat, days))
+    out.sort(key=lambda r: (-r[2], r[0], r[1]))   # most stale first
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Exam readiness
+# ---------------------------------------------------------------------------
+
+def exam_readiness(exam_sessions: list) -> Optional[dict]:
+    """Latest full-exam score vs the pass line, plus weakest sections."""
+    fulls = [s for s in _clean_sessions(exam_sessions)
+             if s.get("mode") == "full" and _num(s.get("total", 0)) > 0]
+    if not fulls:
+        return None
+    latest = max(fulls, key=lambda s: _num(s.get("timestamp", 0)))
+    total = _num(latest.get("total", 0))
+    correct = _num(latest.get("correct", 0))
+    pct = correct / total * 100.0 if total else 0.0
+    pass_pct = EXAM_PASS_CORRECT / EXAM_PASS_TOTAL * 100.0
+
+    sections = []
+    secs = latest.get("sections", {})
+    if isinstance(secs, dict):
+        for name, sec in secs.items():
+            if isinstance(sec, dict) and _num(sec.get("total", 0)) > 0:
+                sections.append(
+                    (name, _num(sec.get("correct", 0))
+                     / _num(sec.get("total", 1)) * 100.0))
+    sections.sort(key=lambda r: (r[1], r[0]))
+
+    return {
+        "correct": int(correct),
+        "total": int(total),
+        "pct": pct,
+        "passing": correct / total >= EXAM_PASS_CORRECT / EXAM_PASS_TOTAL,
+        "pass_pct": pass_pct,
+        "weakest_sections": sections[:3],
+        "timestamp": _num(latest.get("timestamp", 0)),
+    }
+
+
+def dojo_weakest_section(dojo_sessions: list) -> Optional[tuple[str, float]]:
+    """(section, pass_rate_pct) with the lowest pass rate."""
+    buckets: dict[str, list[bool]] = {}
+    for s in _clean_sessions(dojo_sessions):
+        for a in s.get("attempts", []):
+            if isinstance(a, dict):
+                sec = str(a.get("section", "")).strip()
+                if sec:
+                    buckets.setdefault(sec, []).append(bool(a.get("passed")))
+    if not buckets:
+        return None
+    rates = [(sec, sum(v) / len(v) * 100.0) for sec, v in buckets.items()]
+    rates.sort(key=lambda r: (r[1], r[0]))
+    return rates[0]
+
+
+# ---------------------------------------------------------------------------
+# Flagged-for-review items — every app's *_flagged.json (see module docstring)
+# ---------------------------------------------------------------------------
+
+_FLAG_ID_KEYS = ("id", "card_id", "problem_id", "question_id", "kata_id")
+_LABEL_MAX = 72   # longest label / category rendered before truncation
+
+
+def _file_mtime(path: Path) -> float:
+    try:
+        return float(path.stat().st_mtime)
+    except OSError:
+        return 0.0
+
+
+def _epoch(value) -> float:
+    """Coerce a contract timestamp to epoch seconds (0.0 when unusable).
+
+    Accepts an epoch number (seconds or milliseconds, numeric strings too)
+    or an ISO-8601 string.
+    """
+    ts = _num(value)
+    if ts <= 0 and isinstance(value, str):
+        dt = _parse_iso(value)
+        if dt is not None:
+            try:
+                ts = dt.timestamp()
+            except (OverflowError, OSError, ValueError):
+                ts = 0.0
+    if ts <= 0:
+        return 0.0
+    if ts > 1e11:            # millisecond epoch — normalise to seconds
+        ts /= 1000.0
+    return ts
+
+
+def _short(text) -> str:
+    """One-line, whitespace-collapsed, length-capped rendering of *text*."""
+    text = " ".join(str(text).split())
+    return text if len(text) <= _LABEL_MAX else text[:_LABEL_MAX - 1] + "…"
+
+
+def _app_for_flag_file(path: Path) -> str:
+    """Owning app for a flagged file, inferred from its name."""
+    if path.name in _LEGACY_FLAGGED_FILES:
+        return _LEGACY_FLAGGED_FILES[path.name]
+    suffix = "_flagged.json"
+    prefix = (path.name[:-len(suffix)] if path.name.endswith(suffix)
+              else path.stem)
+    return _PREFIX_TO_APP.get(prefix, prefix or "unknown")
+
+
+def discover_flagged_files() -> list[tuple[str, Path]]:
+    """(app, path) for each flagged file present in DATA_DIR, by filename."""
+    found: dict[Path, str] = {}
+    try:
+        for p in DATA_DIR.glob(_FLAGGED_GLOB):
+            if p.is_file():
+                found[p] = _app_for_flag_file(p)
+        for name, app in _LEGACY_FLAGGED_FILES.items():
+            p = DATA_DIR / name
+            if p.is_file():
+                found[p] = app
+    except OSError:
+        pass
+    return [(app, p) for p, app in sorted(found.items(),
+                                          key=lambda kv: kv[0].name)]
+
+
+def _flag_entry(item, app: str, fallback_ts: float = 0.0) -> Optional[dict]:
+    """Normalize one flagged-file entry into a review item (None = skip).
+
+    Accepts a bare string id, or a dict per the flagging contract —
+    {"id", "label", "category", "app", "timestamp"}, only "id" required
+    (legacy id keys card_id/problem_id/question_id/kata_id also work).
+    A missing or invalid timestamp falls back to *fallback_ts* (file mtime).
+    """
+    if isinstance(item, str):
+        ident = item.strip()
+        if not ident:
+            return None
+        return {"app": app, "id": ident, "label": _short(ident),
+                "category": "", "ts": fallback_ts, "score": 0.0,
+                "why": "flagged"}
+    if not isinstance(item, dict):
+        return None
+    ident = ""
+    for key in _FLAG_ID_KEYS:
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            ident = str(value).strip()
+            break
+    if not ident:
+        return None
+    label = item.get("label")
+    label = (_short(label) if isinstance(label, str) and label.strip()
+             else _short(ident))
+    category = item.get("category")
+    category = _short(category) if isinstance(category, str) else ""
+    entry_app = item.get("app")
+    if isinstance(entry_app, str) and entry_app.strip():
+        app = entry_app.strip()
+    return {"app": app, "id": ident, "label": label, "category": category,
+            "ts": _epoch(item.get("timestamp")) or fallback_ts,
+            "score": 0.0, "why": "flagged"}
+
+
+def load_flagged_items(notes: Optional[list[str]] = None) -> list[dict]:
+    """Every flagged item across all apps, deduped by (app, id).
+
+    Unreadable files and malformed entries are skipped; when *notes* is a
+    list, a one-line note per problem is appended to it.
+    """
+    items: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for app, path in discover_flagged_files():
+        raw = _read_json(path)
+        if not isinstance(raw, list):
+            if notes is not None:
+                notes.append(f"skipped {path.name}: not a readable JSON list")
+            continue
+        mtime = _file_mtime(path)
+        malformed = 0
+        for entry in raw:
+            item = _flag_entry(entry, app, mtime)
+            if item is None:
+                malformed += 1
+                continue
+            key = (item["app"], item["id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(item)
+        if malformed and notes is not None:
+            notes.append(f"{path.name}: ignored {malformed} malformed "
+                         f"entr{'y' if malformed == 1 else 'ies'}")
+    return items
+
+
+def flagged_counts(items: list[dict]) -> dict[str, int]:
+    """{app: number of flagged items in *items*}, sorted by app name."""
+    counts: dict[str, int] = {}
+    for item in items:
+        if item.get("why") == "flagged":
+            counts[item["app"]] = counts.get(item["app"], 0) + 1
+    return dict(sorted(counts.items()))
+
+
+# ---------------------------------------------------------------------------
+# Unified review queue (--review, also counted in the default plan)
+# ---------------------------------------------------------------------------
+
+def collect_review_items(histories: dict[str, list],
+                         notes: Optional[list[str]] = None) -> list[dict]:
+    """Merge flagged items, exam misses, unresolved journal mistakes and
+    recent low scores (all apps).
+
+    Sorted oldest+worst first (timestamp asc, score asc) and deduped by
+    (app, id, why).  Unresolved mistakes.json entries are additionally
+    deduped against the flags and exam misses by (app, id) alone — one wrong
+    answer belongs in the queue once, whichever file recorded it.  NOT
+    capped — build_review_queue()/render_review() apply REVIEW_CAP.  Each
+    item: {app, id, label, category, ts, score, why}.
+    """
+    items: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def push(item: Optional[dict]) -> None:
+        if not item:
+            return
+        item.setdefault("id", item["label"])
+        item.setdefault("category", "")
+        key = (item["app"], item["id"], item["why"])
+        if key in seen:
+            return
+        seen.add(key)
+        items.append(item)
+
+    # 1. Flagged items from every app's flagged file
+    for item in load_flagged_items(notes):
+        push(item)
+
+    # 2. Missed exam questions
+    for m in _load_list("exam_missed.json"):
+        if isinstance(m, dict):
+            ident = m.get("question_id")
+            if ident is None:
+                continue
+            push({"app": "exam-sim", "id": str(ident), "label": str(ident),
+                  "category": str(m.get("section", "")).strip(),
+                  "ts": _epoch(m.get("timestamp")), "score": 0.0,
+                  "why": "missed exam question"})
+
+    # 3. Unresolved mistake-journal entries from every app.  A mistake that
+    #    already arrived as a flag or an exam miss is not repeated: the
+    #    journal adds the cause, not a second row.
+    seen_items = {(i["app"], i["id"]) for i in items}
+    for entry in unresolved_mistakes(load_mistakes()):
+        key = (entry["app"], entry["id"])
+        if key in seen_items:
+            continue
+        seen_items.add(key)
+        cause = entry["cause"]
+        why = ("mistake: " + CAUSE_LABELS[cause] if cause
+               else "mistake: cause not set")
+        push({"app": entry["app"], "id": entry["id"],
+              "label": _short(entry["question"] or entry["id"]),
+              "category": _short(entry["category"]),
+              "ts": entry["timestamp"], "score": 0.0, "why": why})
+
+    # 4. Low-scoring quiz / problem attempts in the last 30 days
+    cutoff = _NOW - REVIEW_WINDOW_DAYS * 86400.0
+    for app in ("math-quiz", "quantum-quiz"):
+        for s in _clean_sessions(histories.get(app, [])):
+            ts = _session_epoch(s)
+            if not ts or ts < cutoff:
+                continue
+            for r in s.get("records", []):
+                if isinstance(r, dict):
+                    score = _num(r.get("score", 10))
+                    if score < REVIEW_LOW_SCORE:
+                        topic = str(r.get("topic") or r.get("subject") or "?")
+                        subject = str(r.get("subject") or "").strip()
+                        push({"app": app, "id": topic, "label": topic,
+                              "category": subject if subject != topic else "",
+                              "ts": ts, "score": score,
+                              "why": f"scored {score:g}/10"})
+    for s in _clean_sessions(histories.get("problem-trainer", [])):
+        ts = _session_epoch(s)
+        if not ts or ts < cutoff:
+            continue
+        for a in s.get("attempts", []):
+            if isinstance(a, dict):
+                score = _num(a.get("score", 10))
+                if score < REVIEW_LOW_SCORE:
+                    ident = str(a.get("problem_id") or a.get("kind") or "?")
+                    kind = str(a.get("kind") or "").strip()
+                    push({"app": "problem-trainer", "id": ident,
+                          "label": ident,
+                          "category": kind if kind != ident else "",
+                          "ts": ts, "score": score,
+                          "why": f"scored {score:g}/10"})
+
+    items.sort(key=lambda i: (i["ts"], i["score"], i["app"], i["label"],
+                              i["id"]))
+    return items
+
+
+def build_review_queue(histories: dict[str, list],
+                       notes: Optional[list[str]] = None) -> list[dict]:
+    """The REVIEW_CAP oldest/worst items from collect_review_items()."""
+    return collect_review_items(histories, notes)[:REVIEW_CAP]
+
+
+# ---------------------------------------------------------------------------
+# Streak (real activity only — coach running does NOT count)
+# ---------------------------------------------------------------------------
+
+def latest_activity_dates(histories: dict[str, list]) -> set[str]:
+    """Every YYYY-MM-DD (local) on which any history session was recorded.
+
+    Date-only sessions (circuit-trainer / math-quiz / quantum-quiz) are
+    credited to their own "date" string; epoch and ISO-string timestamps are
+    converted to the local calendar day.
+    """
+    days: set[str] = set()
+    for sessions in histories.values():
+        for s in _clean_sessions(sessions):
+            day = _session_day(s)
+            if day:
+                days.add(day)
+    return days
+
+
+def _compute_streaks(dates: list[str]) -> tuple[int, int]:
+    """(current, best) streak from a list of YYYY-MM-DD strings."""
+    if not dates:
+        return 0, 0
+    parsed = sorted({datetime.strptime(d, "%Y-%m-%d").date()
+                     for d in dates if _valid_date(d)})
+    if not parsed:
+        return 0, 0
+    best = run = 1
+    for prev, cur in zip(parsed, parsed[1:]):
+        run = run + 1 if (cur - prev).days == 1 else 1
+        best = max(best, run)
+    today = datetime.now().date()
+    current = 0
+    check = today
+    dateset = set(parsed)
+    if today not in dateset and (today - timedelta(days=1)) in dateset:
+        check = today - timedelta(days=1)   # streak still alive from yesterday
+    while check in dateset:
+        current += 1
+        check -= timedelta(days=1)
+    return current, best
+
+
+def _valid_date(d) -> bool:
+    try:
+        datetime.strptime(d, "%Y-%m-%d")
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def update_streak_state(state: dict, histories: dict[str, list]) -> None:
+    """Record today as active only if history files show activity today."""
+    dates = [d for d in state.get("activity_dates", []) if _valid_date(d)]
+    dates = sorted(set(dates) | latest_activity_dates(histories))
+    state["activity_dates"] = dates[-365:]        # keep a year of history
+    cur, best = _compute_streaks(state["activity_dates"])
+    state["current_streak"] = cur
+    state["best_streak"] = max(best, int(_num(state.get("best_streak", 0))))
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic scoring (pure functions, testable headlessly)
+# ---------------------------------------------------------------------------
+
+def score_diagnostic(answers: list[Optional[int]]) -> dict[str, dict]:
+    """Score answers (0-based choice indices, None = skipped) per rung."""
+    rungs: dict[str, dict] = {r: {"total": 0, "correct": 0}
+                              for r in RUNG_ORDER}
+    for q, a in zip(DIAGNOSTIC_QUESTIONS, answers):
+        r = rungs[q["rung"]]
+        r["total"] += 1
+        if a is not None and a == q["answer"]:
+            r["correct"] += 1
+    return rungs
+
+
+def _rung_counts(rung) -> tuple[float, float]:
+    """(total, correct) for one stored rung record; (0, 0) if malformed."""
+    if not isinstance(rung, dict):
+        return 0.0, 0.0
+    return _num(rung.get("total", 0)), _num(rung.get("correct", 0))
+
+
+def recommended_rung(rungs: dict[str, dict]) -> str:
+    """First rung (in ladder order) below 2/3 accuracy; else the weakest."""
+    if not isinstance(rungs, dict):
+        return RUNG_ORDER[0]
+    for name in RUNG_ORDER:
+        total, correct = _rung_counts(rungs.get(name))
+        if total > 0 and correct / total < 2 / 3:
+            return name
+    # All rungs solid — recommend the (relatively) weakest one.
+    scored = []
+    for n, r in rungs.items():
+        total, correct = _rung_counts(r)
+        if total > 0 and n in RUNG_ORDER:
+            scored.append((correct / total, RUNG_ORDER.index(n), n))
+    return min(scored)[2] if scored else RUNG_ORDER[0]
+
+
+def rung_docs_dir(rung: str) -> str:
+    for name, docs, _app in RUNGS:
+        if name == rung:
+            return docs
+    return "docs/"
+
+
+def rung_app(rung: str) -> str:
+    for name, _docs, app in RUNGS:
+        if name == rung:
+            return app
+    return "flashcard-drill"
+
+
+def weak_rungs(rungs: dict[str, dict]) -> list[str]:
+    """Rungs below 2/3 accuracy, in ladder order."""
+    out = []
+    if not isinstance(rungs, dict):
+        return out
+    for name in RUNG_ORDER:
+        total, correct = _rung_counts(rungs.get(name))
+        if total > 0 and correct / total < 2 / 3:
+            out.append(name)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Interleaving — mixed practice instead of blocked practice
+#
+# Blocked practice (all of one topic, then all of the next) feels fluent and
+# tests worse.  Interleaved practice -- alternating topics inside a single
+# session -- reliably wins on *delayed* tests of retention and transfer:
+# Rohrer & Taylor (2007) and Taylor & Rohrer (2010) on maths problems,
+# Kornell & Bjork (2008) on inductive category learning, Rohrer, Dedrick &
+# Stershic (2015) in a real classroom.  The catch is that it feels harder
+# while you do it and learners rate it as worse, which is exactly why the
+# coach has to prescribe it instead of leaving it to taste.
+#
+# So the default plan is a MIXED session: 3-5 due/weak topics pulled from
+# DIFFERENT apps and DIFFERENT subject areas, ordered so consecutive blocks
+# rarely share either.  `--blocked` restores the one-topic-at-a-time plan for
+# when you deliberately want to drill one thing, and interleaving switches
+# itself off (with a reason) when there is not enough distinct material.
+# ---------------------------------------------------------------------------
+
+INTERLEAVE_MIN_BLOCKS = 3        # fewer blocks than this is not a mix
+INTERLEAVE_MAX_BLOCKS = 5
+INTERLEAVE_MIN_APPS = 2          # ... spread over at least this many apps
+INTERLEAVE_MIN_AREAS = 2         # ... and this many subject areas
+INTERLEAVE_SESSION_MINUTES = 30  # budget split across the blocks
+INTERLEAVE_MIN_BLOCK_MINUTES = 5
+INTERLEAVE_POOL = 12             # weakest categories considered for the mix
+
+INTERLEAVE_RATIONALE = (
+    "Why this is mixed and not one long block: interleaving — switching "
+    "topic inside a session — beats blocked practice on delayed tests of",
+    "retention and transfer (Rohrer & Taylor 2007; Kornell & Bjork 2008; "
+    "Rohrer, Dedrick & Stershic 2015). Mixing forces you to pick the method,",
+    "not just apply the one the block already told you. It feels slower and "
+    "more error-prone while you do it; that is the effect working.",
+)
+
+# Subject area per app, used when a topic name says nothing useful.
+_AREA_BY_APP = {
+    "math-quiz": "math",
+    "quantum-quiz": "qm",
+    "circuit-trainer": "circuits",
+    "qec-trainer": "qec",
+    "vqa-trainer": "vqa",
+    "flashcard-drill": "recall",
+    "qiskit-dojo": "qiskit-api",
+    "exam-sim": "exam",
+    "paper-drill": "papers",
+    "problem-trainer": "problem-solving",
+    "review queue": "review",
+}
+
+# Topic name -> subject area.  Checked in order, first match wins; a
+# single-word key matches a whole word or a longer form of it ("eigen"
+# matches "eigenvalues"), a multi-word key is matched as a phrase.  This is
+# the second axis interleaving alternates on, so that two different apps
+# drilling the same subject do not count as a mix.
+_AREA_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("qec", ("stabilizer", "syndrome", "surface", "decoder", "toric",
+             "steane", "shor code", "repetition code", "error correction",
+             "fault", "threshold", "logical", "css")),
+    ("vqa", ("ansatz", "vqe", "qaoa", "variational", "cost function",
+             "gradient", "parameter shift", "optimizer", "optimiser",
+             "barren")),
+    ("qiskit-api", ("qiskit", "sampler", "estimator", "primitive", "transpil",
+                    "qasm", "backend", "session", "runtime", "pass manager",
+                    "provider", "databin", "visualiz", "visualis",
+                    "histogram", "counts", "create circuits", "run circuits",
+                    "quantum operations", "results analysis")),
+    ("algorithms", ("algorithm", "grover", "shor", "deutsch", "jozsa",
+                    "simon", "qft", "fourier", "phase estimation",
+                    "bernstein", "hhl", "oracle", "amplitude")),
+    ("hardware", ("hardware", "t1", "t2", "coherence", "decoher", "transmon",
+                  "noise", "calibration", "pulse", "crosstalk", "readout",
+                  "topology", "ion trap")),
+    ("circuits", ("circuit", "gate", "pauli", "hadamard", "cnot", "toffoli",
+                  "unitary", "rotation", "entangler", "clifford",
+                  "controlled")),
+    ("qm", ("state", "measure", "entangle", "superposition", "bloch", "born",
+            "density", "postulate", "observable", "hamiltonian", "spin",
+            "interference", "bell", "teleport")),
+    ("math", ("eigen", "matrix", "matrices", "linear algebra", "algebra",
+              "vector", "tensor", "complex", "probability", "calculus",
+              "integral", "derivative", "trigonometr", "inner product",
+              "norm", "hilbert", "dirac", "bra", "ket")),
+)
+
+
+def topic_area(app: str, topic) -> str:
+    """Subject area for an (app, topic) pair; falls back to the app's own."""
+    norm = _norm_name(topic)
+    tokens = norm.split()
+    for area, keywords in _AREA_KEYWORDS:
+        for kw in keywords:
+            if " " in kw:
+                if kw in norm:
+                    return area
+            elif any(t.startswith(kw) for t in tokens):
+                return area
+    return _AREA_BY_APP.get(app, "general")
+
+
+def interleave_candidates(stats: dict[tuple[str, str], dict], *,
+                          exam: Optional[dict] = None,
+                          dojo: Optional[tuple[str, float]] = None,
+                          diag_rungs: Optional[dict] = None,
+                          review_count: int = 0,
+                          exam_week: Optional[dict] = None) -> list[dict]:
+    """Everything that could go in today's session, as interleavable blocks.
+
+    Each candidate is {app, topic, area, priority, pinned, why, action};
+    *priority* is a 0-10 urgency where lower is more urgent (a category's own
+    weighted average, a section's percentage / 10, ...) so that sources stay
+    comparable.  "pinned" candidates -- the review queue and a booked exam's
+    target for this week -- keep their slot even when they collide with an
+    area already in the mix.  Nothing here is capped or ordered: that is
+    build_mixed_session()'s job.
+    """
+    cands: list[dict] = []
+
+    def add(app: str, topic, priority: float, why: str, action: str,
+            pinned: bool = False) -> None:
+        name = str(topic).strip()
+        if not name:
+            return
+        cands.append({"app": app, "topic": name, "area": topic_area(app, name),
+                      "priority": float(priority), "pinned": pinned,
+                      "why": why, "action": action})
+
+    if review_count > 0:
+        add("review queue", "oldest due items", -1.0,
+            f"{review_count} item(s) due",
+            "clear the oldest first: `python coach.py --review`",
+            pinned=True)
+
+    if exam_week:
+        add("exam-sim", exam_week["name"], 0.5,
+            f"exam-plan target for this week "
+            f"({exam_week['weight']}% of the exam, {exam_week['status']})",
+            _SECTION_ACTIONS.get(exam_week["name"], "study this section"),
+            pinned=True)
+
+    for app, cat, avg in weakest_categories(stats, top_n=INTERLEAVE_POOL):
+        if avg < FOCUS_MAX_AVG:
+            add(app, cat, avg, f"weakest, avg {avg:.1f}/10",
+                f"drill '{cat}' in {app}")
+
+    if exam:
+        for name, pct in exam["weakest_sections"]:
+            if pct < FOCUS_MAX_AVG * 10.0:
+                add("exam-sim", name, pct / 10.0,
+                    f"{pct:.0f}% on the last full exam",
+                    f"exam-sim Sprint on '{name}'")
+
+    if dojo:
+        sec, rate = dojo
+        if rate < FOCUS_MAX_AVG * 10.0:
+            add("qiskit-dojo", sec, rate / 10.0,
+                f"{rate:.0f}% kata pass rate (lowest)",
+                f"2 katas in '{sec}'")
+
+    if diag_rungs:
+        for rung in weak_rungs(diag_rungs):
+            total, correct = _rung_counts(diag_rungs.get(rung))
+            add(rung_app(rung), rung,
+                (correct / total * 10.0) if total else 0.0,
+                f"diagnostic {correct:g}/{total:g} on rung '{rung}'",
+                f"one set in {rung_app(rung)}, then read "
+                f"{rung_docs_dir(rung)}")
+
+    for app, cat, days in stale_categories(stats):
+        add(app, cat, max(0.5, 4.0 - days / 30.0),
+            f"untouched {days} days", f"one short {app} set on '{cat}'")
+
+    return cands
+
+
+def _dedupe_candidates(cands: list[dict]) -> list[dict]:
+    """One row per (app, topic) -- the most urgent -- most urgent first.
+
+    A pinned duplicate keeps the pin: an exam-plan target that is also this
+    week's weakest category must not lose its guaranteed slot to the merge.
+    """
+    best: dict[tuple[str, str], dict] = {}
+    for c in cands:
+        key = (c["app"], _norm_name(c["topic"]))
+        current = best.get(key)
+        if current is None or c["priority"] < current["priority"]:
+            best[key] = dict(c, pinned=bool(c.get("pinned"))
+                             or bool(current and current.get("pinned")))
+        elif c.get("pinned"):
+            current["pinned"] = True
+    rows = list(best.values())
+    rows.sort(key=lambda c: (c["priority"], c["app"], c["topic"]))
+    return rows
+
+
+def select_interleaved(cands: list[dict],
+                       max_blocks: int = INTERLEAVE_MAX_BLOCKS) -> list[dict]:
+    """Up to *max_blocks* candidates, spread as widely as the data allows.
+
+    Pinned candidates go in first.  Then pass 1 takes the most urgent
+    candidate whose app AND area are both new, pass 2 relaxes to app OR
+    area, and pass 3 fills any remaining slots by urgency.  Deterministic:
+    ties break on (priority, app, topic).
+    """
+    rows = _dedupe_candidates(cands)
+    chosen: list[dict] = []
+    picked: set[tuple[str, str]] = set()
+    apps: set[str] = set()
+    areas: set[str] = set()
+
+    def take(c: dict) -> None:
+        chosen.append(c)
+        picked.add((c["app"], c["topic"]))
+        apps.add(c["app"])
+        areas.add(c["area"])
+
+    for c in rows:
+        if len(chosen) >= max_blocks:
+            break
+        if c.get("pinned"):
+            take(c)
+
+    for wants_both in (True, False):
+        for c in rows:
+            if len(chosen) >= max_blocks:
+                break
+            if (c["app"], c["topic"]) in picked:
+                continue
+            fresh_app = c["app"] not in apps
+            fresh_area = c["area"] not in areas
+            if (fresh_app and fresh_area) if wants_both \
+                    else (fresh_app or fresh_area):
+                take(c)
+    for c in rows:
+        if len(chosen) >= max_blocks:
+            break
+        if (c["app"], c["topic"]) not in picked:
+            take(c)
+    return chosen
+
+
+def order_interleaved(blocks: list[dict]) -> list[dict]:
+    """Order *blocks* so consecutive ones share neither app nor area where
+    that is possible, most urgent first among the legal choices."""
+    remaining = sorted(blocks,
+                       key=lambda c: (c["priority"], c["app"], c["topic"]))
+    out: list[dict] = []
+    prev_app = prev_area = None
+    while remaining:
+        idx = next((i for i, c in enumerate(remaining)
+                    if c["app"] != prev_app and c["area"] != prev_area), None)
+        if idx is None:
+            idx = next((i for i, c in enumerate(remaining)
+                        if c["app"] != prev_app), None)
+        if idx is None:
+            idx = 0
+        pick = remaining.pop(idx)
+        out.append(pick)
+        prev_app, prev_area = pick["app"], pick["area"]
+    return out
+
+
+def build_mixed_session(cands: list[dict],
+                        minutes: int = INTERLEAVE_SESSION_MINUTES) -> dict:
+    """Today's interleaved session, plus whether it is one at all.
+
+    "enough" is False when the data cannot support a real mix -- too few
+    distinct topics, or all of them in one app or one area -- and "reason"
+    then says which, so the caller can fall back to the blocked plan and
+    explain itself instead of pretending.
+    """
+    blocks = order_interleaved(select_interleaved(cands))
+    apps = sorted({b["app"] for b in blocks})
+    areas = sorted({b["area"] for b in blocks})
+
+    reason = None
+    if len(blocks) < INTERLEAVE_MIN_BLOCKS:
+        reason = (f"only {len(blocks)} distinct due/weak topic(s) on file — "
+                  f"interleaving needs at least {INTERLEAVE_MIN_BLOCKS}")
+    elif len(apps) < INTERLEAVE_MIN_APPS:
+        reason = (f"every due/weak topic is in one app ({apps[0]}) — "
+                  f"there is nothing to alternate with yet")
+    elif len(areas) < INTERLEAVE_MIN_AREAS:
+        reason = (f"every due/weak topic is in one area ({areas[0]}) — "
+                  f"there is nothing to alternate with yet")
+
+    per = (max(INTERLEAVE_MIN_BLOCK_MINUTES,
+               int(round(minutes / len(blocks)))) if blocks else 0)
+    for b in blocks:
+        b["minutes"] = per
+
+    clean = sum(1 for a, b in zip(blocks, blocks[1:])
+                if a["app"] != b["app"] and a["area"] != b["area"])
+    return {"blocks": blocks, "enough": reason is None, "reason": reason,
+            "block_minutes": per, "minutes": per * len(blocks),
+            "apps": apps, "areas": areas,
+            "handovers": max(0, len(blocks) - 1), "clean_handovers": clean}
+
+
+# ---------------------------------------------------------------------------
+# Exam-date mode (--exam-date) — backwards planning from a booked exam
+#
+# Given the date you actually booked, the coach works backwards: which of the
+# eight C1000-179 sections to cover in which remaining week (weighted by the
+# official blueprint weight AND by how weak you currently are there), when to
+# sit each full mock (spaced, with a taper before the exam), and whether
+# --readiness says you are on track.  The verdict is only ever as strong as
+# the evidence: when --readiness cannot score you, this says so rather than
+# inventing a number.
+# ---------------------------------------------------------------------------
+
+EXAM_PLAN_MAX_WEEKS = 12          # schedule at most the final 12 weeks
+EXAM_PLAN_MAX_SLOTS_PER_WEEK = 4  # sections to cover in one week
+EXAM_PLAN_MIN_SLOTS_PER_WEEK = 2
+EXAM_PLAN_BASE_NEED = 0.25        # even a section you ace keeps some time
+EXAM_PLAN_UNMEASURED_GAP = 0.5    # an unmeasured section is treated as 50/50
+EXAM_PLAN_MAX_MOCKS = 5
+EXAM_PLAN_MOCK_GAP_DAYS = 14      # spaced, not crammed
+EXAM_PLAN_LAST_MOCK_LEAD_DAYS = 3 # last full mock this many days out
+EXAM_PLAN_MIN_MOCK_DAYS = 4       # closer than this, no mock is worth it
+EXAM_PLAN_TAPER_DAYS = 2          # no new material in the final days
+EXAM_PLAN_TIGHT_DAYS = 14         # "behind" this close needs saying plainly
+EXAM_DATE_CLEAR_WORDS = ("clear", "none", "off", "remove", "unset")
+
+
+def _today_date() -> date:
+    """Today as a date, honouring the module-level _TODAY stamp."""
+    try:
+        return datetime.strptime(_TODAY, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return datetime.now().date()
+
+
+def parse_exam_date(text) -> Optional[date]:
+    """A date from an ISO YYYY-MM-DD string, or None when it is not one."""
+    if not isinstance(text, str):
+        return None
+    stripped = text.strip()
+    if not stripped:
+        return None
+    try:
+        return datetime.strptime(stripped, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _fmt_day(d: date) -> str:
+    return d.strftime("%a %d %b")
+
+
+def apply_exam_date(state: dict, text) -> tuple[bool, str]:
+    """Set (or clear) state["exam_date"].  Returns (ok, message).
+
+    The caller saves the state and prints the message; on a bad date nothing
+    is changed and ok is False.
+    """
+    raw = (text or "").strip() if isinstance(text, str) else ""
+    if raw.lower() in EXAM_DATE_CLEAR_WORDS:
+        had = state.get("exam_date")
+        state["exam_date"] = None
+        return True, (f"Exam date cleared (was {had})." if had
+                      else "No exam date was set — nothing to clear.")
+    parsed = parse_exam_date(raw)
+    if parsed is None:
+        example = (_today_date() + timedelta(days=60)).strftime("%Y-%m-%d")
+        return False, (
+            f"coach.py: --exam-date: {text!r} is not a date. Use YYYY-MM-DD "
+            f"(for example {example}), or 'clear' to remove the one on file.")
+    iso = parsed.strftime("%Y-%m-%d")
+    state["exam_date"] = iso
+    days = (parsed - _today_date()).days
+    if days > 0:
+        when = f"{days} day(s) from now"
+    elif days == 0:
+        when = "today"
+    else:
+        when = f"{-days} day(s) ago — already past"
+    return True, f"Exam date set to {iso} ({when})."
+
+
+def exam_section_needs(readiness: dict) -> list[dict]:
+    """The eight sections ranked by how much study time they have earned.
+
+    need = official weight x (base + weakness), where weakness is 1 - your
+    measured accuracy, or EXAM_PLAN_UNMEASURED_GAP when the section is
+    unmeasured or too stale to trust.  Heaviest need first.
+    """
+    rows = []
+    for s in readiness["sections"]:
+        if s["measured"] and s["accuracy"] is not None:
+            gap = max(0.0, 1.0 - s["accuracy"])
+            status = f"at {s['accuracy'] * 100:.0f}%"
+            accuracy = s["accuracy"]
+        else:
+            gap = EXAM_PLAN_UNMEASURED_GAP
+            status = "stale evidence" if s["stale"] else "unmeasured"
+            accuracy = None
+        rows.append({"name": s["name"], "weight": s["weight"],
+                     "accuracy": accuracy, "status": status,
+                     "need": s["weight"] * (EXAM_PLAN_BASE_NEED + gap),
+                     "action": s["action"]})
+    rows.sort(key=lambda r: (-r["need"], -r["weight"], r["name"]))
+    return rows
+
+
+def _allocate_slots(rows: list[dict], total_slots: int,
+                    cap: int) -> dict[str, int]:
+    """Split *total_slots* study slots across *rows* in proportion to need.
+
+    Every section gets one slot before any gets a second (largest-remainder
+    from there), and no section gets more than *cap* -- it cannot be covered
+    twice in the same week.
+    """
+    alloc = {r["name"]: 0 for r in rows}
+    if total_slots <= 0 or not rows:
+        return alloc
+    if total_slots >= len(rows):
+        for r in rows:
+            alloc[r["name"]] = 1
+        left = total_slots - len(rows)
+    else:
+        for r in rows[:total_slots]:          # rows are need-ordered
+            alloc[r["name"]] = 1
+        left = 0
+    if left > 0:
+        need_total = sum(r["need"] for r in rows) or 1.0
+        shares = [(r, left * r["need"] / need_total) for r in rows]
+        for r, share in shares:
+            alloc[r["name"]] += int(share)
+        spare = total_slots - sum(alloc.values())
+        order = sorted(shares,
+                       key=lambda t: (-(t[1] - int(t[1])), -t[0]["need"],
+                                      t[0]["name"]))
+        i = 0
+        while spare > 0 and order:
+            alloc[order[i % len(order)][0]["name"]] += 1
+            spare -= 1
+            i += 1
+    spare = 0
+    for name, n in alloc.items():
+        if n > cap:
+            spare += n - cap
+            alloc[name] = cap
+    while spare > 0:
+        moved = False
+        for r in rows:
+            if spare <= 0:
+                break
+            if alloc[r["name"]] < cap:
+                alloc[r["name"]] += 1
+                spare -= 1
+                moved = True
+        if not moved:
+            break
+    return alloc
+
+
+def _weekly_sections(rows: list[dict], alloc: dict[str, int], weeks: int,
+                     per_week: int) -> list[list[dict]]:
+    """Place the allocated slots into weeks, heaviest need first and
+    avoiding the same section in two consecutive weeks where possible."""
+    left = dict(alloc)
+    out: list[list[dict]] = []
+    previous: set[str] = set()
+    for _ in range(weeks):
+        pool = [r for r in rows if left.get(r["name"], 0) > 0]
+        pool.sort(key=lambda r: (r["name"] in previous, -left[r["name"]],
+                                 -r["need"], r["name"]))
+        week = pool[:per_week]
+        for r in week:
+            left[r["name"]] -= 1
+        previous = {r["name"] for r in week}
+        out.append(week)
+    for r in rows:                       # nothing stranded by the greedy pass
+        while left.get(r["name"], 0) > 0:
+            slot = next((wk for wk in out
+                         if len(wk) < per_week
+                         and all(x["name"] != r["name"] for x in wk)), None)
+            if slot is None:
+                break
+            slot.append(r)
+            left[r["name"]] -= 1
+    return out
+
+
+def _mock_dates(today: date, exam: date, window_start: date,
+                confident: bool) -> list[dict]:
+    """Full-mock sittings: spaced EXAM_PLAN_MOCK_GAP_DAYS apart, the last one
+    EXAM_PLAN_LAST_MOCK_LEAD_DAYS before the exam so there is room to review
+    it, plus an immediate one when --readiness cannot score you yet."""
+    days_left = (exam - today).days
+    if days_left < EXAM_PLAN_MIN_MOCK_DAYS:
+        return []
+    needs_evidence = not confident
+    limit = EXAM_PLAN_MAX_MOCKS - (1 if needs_evidence else 0)
+    floor_day = max(today, window_start)
+    dates: list[date] = []
+    d = exam - timedelta(days=EXAM_PLAN_LAST_MOCK_LEAD_DAYS)
+    while d >= floor_day and len(dates) < limit:
+        dates.append(d)
+        d -= timedelta(days=EXAM_PLAN_MOCK_GAP_DAYS)
+    dates.sort()
+    if needs_evidence:
+        first = today + timedelta(days=2)
+        if first < exam and (not dates or (dates[0] - first).days >= 4):
+            dates.insert(0, first)
+        elif not dates:
+            dates.append(min(first, exam - timedelta(days=1)))
+    rows = []
+    for i, d in enumerate(dates):
+        if needs_evidence and i == 0:
+            note = ("evidence mock — --readiness cannot score you until one "
+                    "full exam is on file")
+        elif d == dates[-1]:
+            note = "final rehearsal — full timed mock, then taper"
+        else:
+            note = "full 68-question timed mock"
+        rows.append({"date": d.strftime("%Y-%m-%d"), "day": _fmt_day(d),
+                     "days_out": (exam - d).days, "note": note})
+    return rows
+
+
+def _exam_verdict(readiness: dict, days_left: int, weeks_left: int) -> dict:
+    """On-track / behind, or an honest "cannot say" when the evidence is thin."""
+    if not readiness["confident"]:
+        detail = list(readiness["reasons"][:2])
+        detail.append(
+            f"sit one full {EXAM_PASS_TOTAL}-question mock in exam-sim — that "
+            f"alone is enough for --readiness to produce a number")
+        return {"status": "unknown", "short": "readiness not scoreable yet",
+                "line": "On track? Unknown — the evidence is too thin to "
+                        "score you, so no verdict is offered.",
+                "detail": detail}
+
+    projected = readiness["projected"]
+    low, high = readiness["low"], readiness["high"]
+    pass_mark, questions = readiness["pass_mark"], readiness["questions"]
+    if low >= pass_mark:
+        status, short = "on_track", "on track to pass"
+        line = "On track — the whole 95% band clears the pass mark."
+    elif high < pass_mark:
+        status, short = "behind", "behind the pass line"
+        line = "Behind — even the top of the 95% band misses the pass mark."
+    else:
+        status, short = "borderline", "too close to call"
+        line = "Too close to call — the 95% band straddles the pass mark."
+    detail = [f"projected {projected:.0f}/{questions} (95% band "
+              f"{low:.0f}–{high:.0f}, pass mark {pass_mark}/{questions})"]
+    gap = pass_mark - projected
+    if gap > 0 and weeks_left >= 1:
+        detail.append(f"you need about +{gap:.0f} question(s) in "
+                      f"{weeks_left} week(s) — roughly "
+                      f"{gap / weeks_left:.1f} per week")
+    if status == "behind" and 0 <= days_left < EXAM_PLAN_TIGHT_DAYS:
+        detail.append(f"with {days_left} day(s) left that is a big ask — "
+                      f"moving the date is a legitimate option")
+    return {"status": status, "short": short, "line": line, "detail": detail}
+
+
+def build_exam_plan(state: dict, histories: dict[str, list],
+                    readiness: Optional[dict] = None) -> Optional[dict]:
+    """The backwards-planned schedule for a booked exam, or None when no
+    date is set.  Every date in the result is an ISO string, so the plan
+    stays JSON-serialisable and comparable."""
+    raw = state.get("exam_date")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    today = _today_date()
+    exam = parse_exam_date(raw)
+    if exam is None:
+        return {"valid": False, "raw": raw, "date": None, "days_left": None,
+                "weeks_left": None, "status": "invalid", "weeks": [],
+                "mocks": [], "verdict": None, "needs": [], "this_week": [],
+                "lead_in": None, "per_week": 0,
+                "countdown": (f"Exam date on file is unusable ({raw!r}) — set "
+                              f"one with `python coach.py --exam-date "
+                              f"YYYY-MM-DD`")}
+
+    iso = exam.strftime("%Y-%m-%d")
+    days_left = (exam - today).days
+    if readiness is None:
+        readiness = build_readiness(histories)
+
+    if days_left < 0:
+        return {"valid": True, "raw": raw, "date": iso, "days_left": days_left,
+                "weeks_left": 0, "status": "past", "weeks": [], "mocks": [],
+                "verdict": None, "needs": [], "this_week": [], "lead_in": None,
+                "per_week": 0,
+                "countdown": (f"Exam date {iso} passed {-days_left} day(s) "
+                              f"ago — `python coach.py --exam-date clear` to "
+                              f"remove it, or set the new one.")}
+
+    weeks_left = max(1, -(-days_left // 7))
+    verdict = _exam_verdict(readiness, days_left, weeks_left)
+
+    if days_left == 0:
+        return {"valid": True, "raw": raw, "date": iso, "days_left": 0,
+                "weeks_left": 0, "status": "today", "weeks": [], "mocks": [],
+                "verdict": verdict, "needs": exam_section_needs(readiness),
+                "this_week": [], "lead_in": None, "per_week": 0,
+                "countdown": (f"Exam: C1000-179 is TODAY — no new material. "
+                              f"Skim what you flagged, then go "
+                              f"({verdict['short']}).")}
+
+    needs = exam_section_needs(readiness)
+    plan_weeks = min(weeks_left, EXAM_PLAN_MAX_WEEKS)
+    per_week = min(EXAM_PLAN_MAX_SLOTS_PER_WEEK,
+                   max(EXAM_PLAN_MIN_SLOTS_PER_WEEK,
+                       -(-len(needs) // plan_weeks)))
+    alloc = _allocate_slots(needs, plan_weeks * per_week, plan_weeks)
+    weekly = _weekly_sections(needs, alloc, plan_weeks, per_week)
+
+    weeks = []
+    for i, sections in enumerate(weekly):
+        end = exam - timedelta(days=7 * (plan_weeks - 1 - i))
+        # Weeks run backwards from the exam, so the first one can start
+        # either side of today; when the window reaches back to now it
+        # starts today, so no day of the run-up is left unplanned.
+        start = (today if i == 0 and plan_weeks == weeks_left
+                 else end - timedelta(days=6))
+        weeks.append({
+            "index": i + 1,
+            "start": start.strftime("%Y-%m-%d"),
+            "end": end.strftime("%Y-%m-%d"),
+            "label": f"{_fmt_day(start)} – {_fmt_day(end)}",
+            "sections": [{k: s[k] for k in
+                          ("name", "weight", "accuracy", "status", "action")}
+                         for s in sections],
+        })
+
+    window_start = exam - timedelta(days=7 * plan_weeks - 1)
+    lead_in = None
+    if weeks_left > plan_weeks:
+        lead_in = (f"{weeks_left} weeks out — the schedule below covers the "
+                   f"final {plan_weeks}. Until "
+                   f"{window_start.strftime('%Y-%m-%d')}, follow the daily "
+                   f"plan, keep the streak, and re-sit a full mock every "
+                   f"couple of months to keep the projection honest.")
+
+    unscheduled = [r["name"] for r in needs if alloc.get(r["name"], 0) == 0]
+    countdown = (f"Exam: C1000-179 on {iso} — {days_left} day(s) "
+                 f"({weeks_left} week(s)) to go — {verdict['short']}.")
+    return {"valid": True, "raw": raw, "date": iso, "days_left": days_left,
+            "weeks_left": weeks_left, "status": "upcoming", "weeks": weeks,
+            "mocks": _mock_dates(today, exam, window_start,
+                                 readiness["confident"]),
+            "verdict": verdict, "needs": needs,
+            "this_week": weeks[0]["sections"] if weeks else [],
+            "lead_in": lead_in, "per_week": per_week,
+            "unscheduled": unscheduled, "countdown": countdown}
+
+
+# ---------------------------------------------------------------------------
+# Plan builder (deterministic, rules-based)
+# ---------------------------------------------------------------------------
+
+def build_plan(histories: dict[str, list], state: dict) -> dict:
+    """Compute everything the default view prints."""
+    stats = build_category_stats(histories)
+    weakest = weakest_categories(stats, top_n=3)
+    stale = stale_categories(stats)
+    exam = exam_readiness(histories.get("exam-sim", []))
+    dojo = dojo_weakest_section(histories.get("qiskit-dojo", []))
+    review_all = collect_review_items(histories)
+    review = review_all[:REVIEW_CAP]
+    review_dropped = len(review_all) - len(review)
+    flagged_by_app = flagged_counts(review_all)
+    flagged_total = sum(flagged_by_app.values())
+    missed_count = len({str(m["question_id"])
+                        for m in _load_list("exam_missed.json")
+                        if isinstance(m, dict)
+                        and m.get("question_id") is not None})
+
+    mistakes = load_mistakes()
+    confidence = load_confidence()
+    mistake_unresolved = len(unresolved_mistakes(mistakes))
+    conf_wrong = len(dashboard.confidently_wrong(confidence))
+
+    diag = state.get("diagnostic") or None
+    diag_rungs = diag.get("rungs") if isinstance(diag, dict) else None
+    if not isinstance(diag_rungs, dict):
+        diag_rungs = {}
+    weak_rung_list = weak_rungs(diag_rungs) if diag_rungs else []
+
+    # A booked exam date reshapes the whole plan: countdown, this week's
+    # sections, and the mock schedule.  None when no date is on file.
+    exam_plan = build_exam_plan(state, histories)
+    exam_week = (exam_plan.get("this_week") or [None])[0] if exam_plan \
+        else None
+
+    items: list[str] = []
+
+    # 1. Review queue first — overdue material beats new material.
+    if review:
+        apps = sorted({i["app"] for i in review})
+        detail = [", ".join(apps)]
+        if flagged_total:
+            detail.append(f"{flagged_total} flagged across "
+                          f"{len(flagged_by_app)} app(s)")
+        journal = sum(1 for i in review if i["why"].startswith("mistake: "))
+        if journal:
+            detail.append(f"{journal} from the mistake journal")
+        if review_dropped:
+            detail.append(f"+{review_dropped} more past the cap of "
+                          f"{REVIEW_CAP}")
+        items.append(
+            f"review queue — {len(review)} item(s) due "
+            f"({'; '.join(detail)}): run `python coach.py --review`")
+
+    # 1b. A booked exam outranks anything that is not already overdue: cover
+    #     this week's highest-need section while there is still time to.
+    if exam_week:
+        items.append(
+            f"exam-sim — 15 min on '{exam_week['name']}' "
+            f"({exam_week['weight']}% of the exam, {exam_week['status']}) — "
+            f"this week's exam-plan target")
+
+    # 2. Weakest categories, grouped per app -- but only ones that are
+    #    actually weak: with a single perfect exam on file the "weakest"
+    #    rows average 10.0/10, and prescribing those would be noise.  Solid
+    #    categories (>= FOCUS_MAX_AVG) are skipped; the starter defaults
+    #    below pad the plan instead.
+    by_app: dict[str, list[tuple[str, float]]] = {}
+    for app, cat, avg in weakest:
+        if avg < FOCUS_MAX_AVG:
+            by_app.setdefault(app, []).append((cat, avg))
+    for app in sorted(by_app):
+        cats = ", ".join(c for c, _ in by_app[app])
+        worst = min(a for _, a in by_app[app])
+        items.append(f"{app} — 15 min, focus: {cats} "
+                     f"(weakest, avg {worst:.1f}/10)")
+
+    def _planned_apps() -> set[str]:
+        return {i.split(" — ")[0] for i in items}
+
+    # 3. Exam readiness: sprint on a genuinely weak section (same floor,
+    #    in percent); otherwise a retake if the last full exam failed.
+    if exam and "exam-sim" not in _planned_apps():
+        sprint = exam["weakest_sections"][0] if exam["weakest_sections"] \
+            else None
+        if sprint and sprint[1] < FOCUS_MAX_AVG * 10.0:
+            sec, pct = sprint
+            items.append(f"exam-sim — Sprint: {sec} "
+                         f"({pct:.0f}% on last full exam)")
+        elif not exam["passing"]:
+            items.append(f"exam-sim — full exam retake "
+                         f"(last: {exam['correct']}/{exam['total']}, "
+                         f"need {EXAM_PASS_CORRECT}/{EXAM_PASS_TOTAL})")
+
+    # 4. Dojo lowest pass-rate section (unless already covered above, and
+    #    only if it is actually below the floor).
+    if dojo and "qiskit-dojo" not in _planned_apps():
+        sec, rate = dojo
+        if rate < FOCUS_MAX_AVG * 10.0:
+            items.append(f"qiskit-dojo — 2 katas in '{sec}' "
+                         f"({rate:.0f}% pass rate, lowest)")
+
+    # 5. Diagnostic bias: hit the weakest rung with its practice app.
+    if weak_rung_list:
+        rung = weak_rung_list[0]
+        total, correct = _rung_counts(diag_rungs.get(rung))
+        items.append(f"{rung_app(rung)} — 1 session on rung '{rung}' "
+                     f"(diagnostic: {correct:g}/{total:g}"
+                     f"; read {rung_docs_dir(rung)})")
+
+    # 6. Stale categories (skip apps already planned above).
+    for app, cat, days in stale:
+        if app not in _planned_apps():
+            items.append(f"{app} — 1 short session: {cat} "
+                         f"(untouched {days} days)")
+            break
+
+    # Cap at 5; pad to 3 with sensible defaults.
+    items = items[:5]
+    defaults = [
+        "flashcard-drill — 10 min mixed deck (keep the streak alive)",
+        "quantum-quiz — 5 questions, mixed topics",
+        "read one docs section from the ladder (start: docs/01_...)",
+    ]
+    for d in defaults:
+        if len(items) >= 3:
+            break
+        items.append(d)
+
+    # The same signals, mixed instead of blocked (see "Interleaving").  Built
+    # from the full candidate pool rather than from *items*, which is capped
+    # and grouped per app.
+    mixed = build_mixed_session(interleave_candidates(
+        stats, exam=exam, dojo=dojo, diag_rungs=diag_rungs,
+        review_count=len(review), exam_week=exam_week))
+
+    return {
+        "items": items,
+        "mixed": mixed,
+        "exam_plan": exam_plan,
+        "weakest": weakest,
+        "stale": stale,
+        "exam": exam,
+        "dojo": dojo,
+        "review_count": len(review),
+        "review_total": len(review_all),
+        "review_dropped": review_dropped,
+        "flagged_total": flagged_total,
+        "flagged_by_app": flagged_by_app,
+        "missed_count": missed_count,
+        "diagnostic": diag,
+        "weak_rungs": weak_rung_list,
+        "teaser": plan_teaser(histories),
+        "mistake_total": len(mistakes),
+        "mistake_unresolved": mistake_unresolved,
+        "confidence_total": len(confidence),
+        "confidently_wrong": conf_wrong,
+        "signals": signals_teaser(mistakes, confidence),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Rendering (rich if available, plain text otherwise)
+# ---------------------------------------------------------------------------
+
+def _console():
+    """Return a rich Console or None (plain-text fallback).
+
+    soft_wrap=True keeps rich from inserting hard line breaks at the
+    detected width (80 columns when stdout is a pipe without COLUMNS), so
+    a long plan line stays one line when piped to a file or grep; an
+    interactive terminal still wraps it visually.
+    """
+    try:
+        from rich.console import Console
+        return Console(soft_wrap=True)
+    except ImportError:
+        return None
+
+
+def _heading(console, text: str) -> None:
+    if console:
+        console.rule(f"[bold cyan]{text}[/bold cyan]")
+    else:
+        print()
+        print("=" * 62)
+        print(f"  {text}")
+        print("=" * 62)
+
+
+def _escape_markup(text: str) -> str:
+    """Escape rich markup so dynamic text like "[qec]" prints literally."""
+    try:
+        from rich.markup import escape
+    except ImportError:
+        return text
+    return escape(text)
+
+
+def _line(console, text: str, style: str = "") -> None:
+    if console:
+        text = _escape_markup(text)
+        console.print(f"[{style}]{text}[/{style}]" if style else text)
+    else:
+        print(text)
+
+
+def _fmt_date(ts: float) -> str:
+    if not ts:
+        return "undated"
+    try:
+        return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+    except (OverflowError, OSError, ValueError):
+        return "undated"
+
+
+def _flagged_summary(flagged_by_app: dict[str, int]) -> str:
+    total = sum(flagged_by_app.values())
+    per_app = ", ".join(f"{a} {n}" for a, n in flagged_by_app.items())
+    return (f"Flagged for review: {total} item(s) across "
+            f"{len(flagged_by_app)} app(s) — {per_app}")
+
+
+def render_plan(plan: dict, state: dict, blocked: bool = False) -> None:
+    console = _console()
+    _heading(console, f"Quantum Study Coach — plan for {_TODAY}")
+    print()
+
+    # One-line countdown first when an exam is booked -- it reframes
+    # everything below it.
+    exam_plan = plan.get("exam_plan")
+    if exam_plan and exam_plan.get("countdown"):
+        _line(console, exam_plan["countdown"], "bold cyan")
+        print()
+
+    # Situation report
+    if plan["weakest"]:
+        _line(console, "Weakest categories (recency-weighted):", "bold")
+        for app, cat, avg in plan["weakest"]:
+            _line(console, f"  - {cat} [{app}] — {avg:.1f}/10")
+    else:
+        _line(console, "No scored history yet — starter plan below.", "dim")
+
+    if plan["stale"]:
+        names = ", ".join(f"{c} ({d}d)" for _a, c, d in plan["stale"][:5])
+        _line(console, f"Stale (> {STALE_DAYS} days untouched): {names}")
+
+    exam = plan["exam"]
+    if exam:
+        verdict = "PASSING" if exam["passing"] else "below pass line"
+        _line(console,
+              f"Exam readiness: {exam['correct']}/{exam['total']} "
+              f"({exam['pct']:.0f}%) on last full exam — {verdict} "
+              f"(pass = {EXAM_PASS_CORRECT}/{EXAM_PASS_TOTAL}, "
+              f"{exam['pass_pct']:.0f}%)")
+        if exam["weakest_sections"]:
+            secs = ", ".join(f"{n} ({p:.0f}%)"
+                             for n, p in exam["weakest_sections"])
+            _line(console, f"  weakest sections: {secs}")
+    if plan["missed_count"]:
+        _line(console,
+              f"Missed exam questions due for review: {plan['missed_count']}")
+    if plan["flagged_total"]:
+        _line(console, _flagged_summary(plan["flagged_by_app"]))
+
+    diag = plan["diagnostic"]
+    if isinstance(diag, dict) and isinstance(diag.get("recommended_rung"), str) \
+            and diag["recommended_rung"]:
+        rung = diag["recommended_rung"]
+        _line(console,
+              f"Docs ladder: start at rung '{rung}' -> {rung_docs_dir(rung)}"
+              + (f" (weak rungs: {', '.join(plan['weak_rungs'])})"
+                 if plan["weak_rungs"] else ""))
+    else:
+        _line(console,
+              "No diagnostic on file — run `python coach.py --diagnostic` "
+              "to calibrate the docs ladder.", "dim")
+
+    if plan.get("teaser"):
+        _line(console, plan["teaser"])
+    if plan.get("signals"):
+        _line(console, plan["signals"])
+
+    # The plan itself: interleaved by default, blocked on request or when
+    # there is not enough distinct material to mix.
+    print()
+    mixed = plan.get("mixed") or {}
+    if mixed.get("enough") and not blocked:
+        render_mixed_session(mixed, console)
+    else:
+        _line(console, "TODAY'S PLAN — blocked (one topic at a time)",
+              "bold green")
+        for i, item in enumerate(plan["items"], 1):
+            _line(console, f"  {i}. {item}")
+        if blocked:
+            _line(console, "  Blocked because you asked for --blocked; the "
+                           "interleaved mix is the default.", "dim")
+        elif mixed.get("reason"):
+            _line(console, f"  Not interleaved: {mixed['reason']}.", "dim")
+
+    if exam_plan and exam_plan.get("valid") and exam_plan["status"] != "past":
+        print()
+        render_exam_plan(exam_plan, console)
+
+    # Streak + badges summary
+    print()
+    cur = state.get("current_streak", 0)
+    best = state.get("best_streak", 0)
+    flame = " *" if cur >= 7 else ""
+    _line(console, f"Streak: {cur} day(s) (best: {best}){flame}",
+          "bold yellow")
+
+    badges = state.get("badges", {})
+    earned = sum(1 for b in BADGES if badges.get(b) == "earned")
+    in_prog = sum(1 for b in BADGES if badges.get(b) == "in_progress")
+    _line(console,
+          f"Badges: {earned}/{len(BADGES)} earned, {in_prog} in progress "
+          f"(`python coach.py --badges`)")
+    print()
+
+
+def render_mixed_session(mixed: dict, console=None) -> None:
+    """Print the interleaved session and why it is interleaved."""
+    _line(console, f"TODAY'S PLAN — interleaved, "
+                   f"{mixed['minutes']} min in {len(mixed['blocks'])} blocks",
+          "bold green")
+    for i, b in enumerate(mixed["blocks"], 1):
+        _line(console, f"  {i}. {b['minutes']} min  {b['app']} — "
+                       f"{b['topic']} [{b['area']}] — {b['why']}")
+        _line(console, f"        -> {b['action']}", "dim")
+    _line(console, f"  Rotate on the clock: when a block's "
+                   f"{mixed['block_minutes']} min are up, switch even if you "
+                   f"are mid-problem. "
+                   f"{mixed['clean_handovers']}/{mixed['handovers']} "
+                   f"handover(s) change both app and area.")
+    for line in INTERLEAVE_RATIONALE:
+        _line(console, f"  {line}", "dim")
+    _line(console, "  Want to drill one thing instead? "
+                   "`python coach.py --blocked`", "dim")
+
+
+def render_exam_plan(xp: dict, console=None, standalone: bool = False) -> None:
+    """Print the countdown, the week-by-week section schedule and the mocks.
+
+    *standalone* adds the rule and the countdown line; inside the daily plan
+    both are already on screen, so only what they do not say is printed.
+    """
+    if console is None and standalone:
+        console = _console()
+    if standalone:
+        _heading(console, "Exam Plan — IBM C1000-179")
+        print()
+        if not xp.get("valid") or xp["status"] != "upcoming":
+            _line(console, xp["countdown"], "bold yellow")
+    if not xp.get("valid") or xp["status"] == "past":
+        return                      # the countdown already said it all
+    if xp["status"] == "today":
+        if xp.get("verdict"):
+            if not standalone:
+                _line(console, f"EXAM PLAN — C1000-179 is today "
+                               f"({xp['date']})", "bold cyan")
+            _line(console, f"  {xp['verdict']['line']}")
+            for d in xp["verdict"]["detail"]:
+                _line(console, f"    - {d}", "dim")
+        return
+
+    _line(console, f"EXAM PLAN — C1000-179 on {xp['date']}: "
+                   f"{xp['days_left']} day(s), {xp['weeks_left']} week(s) to go",
+          "bold cyan")
+    verdict = xp["verdict"]
+    _line(console, f"  {verdict['line']}",
+          "bold green" if verdict["status"] == "on_track"
+          else "bold yellow")
+    for d in verdict["detail"]:
+        _line(console, f"    - {d}", "dim")
+    if xp.get("lead_in"):
+        _line(console, f"  {xp['lead_in']}", "dim")
+
+    _line(console, "  Sections by week (official blueprint weight x your "
+                   "current weakness):")
+    for week in xp["weeks"]:
+        secs = "; ".join(f"{s['name']} ({s['weight']}%, {s['status']})"
+                         for s in week["sections"]) or "consolidation"
+        _line(console, f"    Week {week['index']:>2}  {week['label']}  {secs}")
+    if xp.get("unscheduled"):
+        _line(console,
+              f"    not scheduled (no room left): "
+              f"{', '.join(xp['unscheduled'])} — the daily plan still covers "
+              f"them", "dim")
+
+    if xp["mocks"]:
+        _line(console, "  Full mocks (spaced — a mock you cram is a mock you "
+                       "cannot learn from):")
+        for m in xp["mocks"]:
+            _line(console, f"    {m['date']} ({m['day']}, "
+                           f"{m['days_out']}d out) — {m['note']}")
+        _line(console,
+              f"    Taper: nothing new in the last {EXAM_PLAN_TAPER_DAYS} "
+              f"day(s) — re-read `python coach.py --mistakes` and sleep.",
+              "dim")
+    else:
+        _line(console, f"  No full mock scheduled — under "
+                       f"{EXAM_PLAN_MIN_MOCK_DAYS} days left. Do an exam-sim "
+                       f"Sprint on your weakest section instead, and rest.")
+
+
+def render_review(items: list[dict],
+                  notes: Optional[list[str]] = None) -> None:
+    """Print the review queue.
+
+    *items* is the full, sorted list from collect_review_items(); the first
+    REVIEW_CAP are shown as "<app> — <label or id> [<category>] — <why>"
+    and the number dropped by the cap is reported.
+    """
+    console = _console()
+    _heading(console, "Review Today — unified SRS queue")
+    print()
+    for note in notes or []:
+        _line(console, f"note: {note}", "dim")
+    if notes:
+        print()
+
+    queue = items[:REVIEW_CAP]
+    dropped = len(items) - len(queue)
+    if not queue:
+        _line(console, "Nothing due for review. Nice.", "green")
+        print()
+        return
+
+    shown = (f"{len(queue)} of {len(items)} item(s)" if dropped
+             else f"{len(queue)} item(s)")
+    _line(console, f"{shown}, oldest & worst first (capped at {REVIEW_CAP}):",
+          "bold")
+    for i, item in enumerate(queue, 1):
+        cat = f" [{item['category']}]" if item.get("category") else ""
+        _line(console,
+              f"  {i:2}. {item['app']} — {item['label']}{cat} — "
+              f"{item['why']} ({_fmt_date(item['ts'])})")
+    if dropped:
+        _line(console,
+              f"  ... {dropped} more item(s) dropped by the cap of "
+              f"{REVIEW_CAP} — clear the ones above first.", "dim")
+    print()
+    flagged_by_app = flagged_counts(items)
+    if flagged_by_app:
+        _line(console, _flagged_summary(flagged_by_app))
+    apps = sorted({i["app"] for i in queue})
+    _line(console, f"Open these apps to clear the queue: {', '.join(apps)}")
+    print()
+
+
+# ---------------------------------------------------------------------------
+# C1000-179 exam readiness  (--readiness)
+#
+# Blends three independent evidence streams per exam section and projects a
+# score out of 68, weighted by the official exam weights.  Everything here is
+# built to refuse rather than guess: a section is unmeasured unless it holds
+# at least READINESS_MIN_SECTION_OBS direct (exam + dojo) observations whose
+# mean age is under READINESS_MAX_AGE_DAYS, and no number is printed at all
+# until enough of the exam's weight is covered by measured sections.
+# ---------------------------------------------------------------------------
+
+# Official C1000-179 section weights (percent of the exam).  Order is the
+# published order; the values sum to 100.
+EXAM_SECTION_WEIGHTS: list[tuple[str, int]] = [
+    ("Create circuits",    18),
+    ("Quantum operations", 16),
+    ("Run circuits",       15),
+    ("Sampler",            12),
+    ("Estimator",          12),
+    ("Visualization",      11),
+    ("Results analysis",   10),
+    ("OpenQASM",            6),
+]
+EXAM_WEIGHT_TOTAL = sum(w for _n, w in EXAM_SECTION_WEIGHTS)     # 100
+
+# Evidence streams: base share of a section's estimate, and the shrinkage
+# constant k in n/(n+k) that stops a two-question stream from dominating.
+READINESS_STREAM_BASE = {"exam-sim": 0.60, "qiskit-dojo": 0.25,
+                         "flashcard-drill": 0.15}
+READINESS_STREAM_K = {"exam-sim": 5.0, "qiskit-dojo": 3.0,
+                      "flashcard-drill": 10.0}
+
+# Direct (exam + dojo) observations before a section counts as measured.
+READINESS_MIN_SECTION_OBS = 8
+# Exam-weight points (of 100) that must be measured before any score.
+READINESS_MIN_COVERED_WEIGHT = 60
+# Direct observations overall before any score.
+READINESS_MIN_TOTAL_OBS = 40
+# ... and those observations have to be recent.  Freshness is the mean
+# recency weight of a section's evidence under dashboard's 14-day half-life;
+# 0.125 is three half-lives, i.e. an average age of about six weeks.  Kish's
+# effective sample size cannot do this job -- it is scale-invariant, so a
+# single ancient exam still scores n_eff = n.
+READINESS_MIN_FRESHNESS = 0.125
+READINESS_MAX_AGE_DAYS = 42        # the same threshold expressed in days
+READINESS_WEAK_ACC = 0.70          # below this, a section gets an action
+READINESS_UNMEASURED_SE = 0.25     # accuracy s.e. for an unmeasured section
+READINESS_MIN_SE = 0.03            # floor: no claim beats +-3 accuracy pts
+READINESS_Z = 1.96                 # band half-width in standard errors (95%)
+
+# The flashcard category that maps onto Qiskit API knowledge.  Matched after
+# normalisation, so "Qiskit API", "qiskit_api" and "Qiskit-API" all count.
+FLASHCARD_API_CATEGORY = "Qiskit API"
+
+# Spelling variants seen in the wild -> canonical section name.  Deliberately
+# tiny: a section name that is not an official one is *reported as ignored*
+# rather than guessed into a bucket.
+_SECTION_ALIASES = {
+    "create circuit": "Create circuits",
+    "creating circuits": "Create circuits",
+    "quantum operation": "Quantum operations",
+    "run circuit": "Run circuits",
+    "running circuits": "Run circuits",
+    "execute circuits": "Run circuits",
+    "visualisation": "Visualization",
+    "visualisations": "Visualization",
+    "visualizations": "Visualization",
+    "result analysis": "Results analysis",
+    "analysing results": "Results analysis",
+    "qasm": "OpenQASM",
+    "open qasm": "OpenQASM",
+    "openqasm 2": "OpenQASM",
+    "openqasm 3": "OpenQASM",
+}
+
+_SECTION_ACTIONS = {
+    "Create circuits":
+        "qiskit-dojo katas in 'Create circuits' (compose / assign_parameters / "
+        "measure_all), then an exam-sim Sprint on the section",
+    "Quantum operations":
+        "flashcard-drill decks 'Gate Unitaries' + 'Pauli Matrices', then "
+        "qiskit-dojo 'Quantum operations' katas",
+    "Run circuits":
+        "qiskit-dojo 'Run circuits' katas (transpile -> backend -> job -> "
+        "result), then an exam-sim Sprint",
+    "Sampler":
+        "qiskit-dojo 'Sampler' katas — pub format and DataBin/classical-register "
+        "access are the usual traps",
+    "Estimator":
+        "qiskit-dojo 'Estimator' katas — observables, parameter binding and "
+        "expectation values",
+    "Visualization":
+        "qiskit-dojo 'Visualization' katas — plot_histogram, plot_bloch_*, "
+        "QuantumCircuit.draw options",
+    "Results analysis":
+        "qiskit-dojo 'Results analysis' katas — counts, quasi-probabilities and "
+        "marginalisation",
+    "OpenQASM":
+        "qiskit-dojo 'OpenQASM' katas — qasm2/qasm3 dumps() and loads() round "
+        "trips",
+}
+
+
+def _norm_name(name) -> str:
+    """Lowercase, punctuation-collapsed key for matching section/category names."""
+    text = "".join(ch if ch.isalnum() else " " for ch in str(name).lower())
+    return " ".join(text.split())
+
+
+_SECTION_BY_NORM = {_norm_name(name): name for name, _w in EXAM_SECTION_WEIGHTS}
+_SECTION_BY_NORM.update({_norm_name(k): v for k, v in _SECTION_ALIASES.items()})
+
+
+def canonical_section(name) -> Optional[str]:
+    """Official C1000-179 section for *name*, or None when it is not one."""
+    return _SECTION_BY_NORM.get(_norm_name(name))
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    """_num, but NaN and +/-inf also fall back to *default*.
+
+    History and schedule files are hand-editable JSON, and Python's json
+    module happily parses NaN / Infinity; letting either through would
+    silently poison every average, median and comparison downstream.
+    """
+    v = _num(value, default)
+    if v != v or v in (float("inf"), float("-inf")):
+        return default
+    return v
+
+
+def _safe_int(value, default: int = 0) -> int:
+    return int(_safe_float(value, float(default)))
+
+
+class _Evidence:
+    """Recency-weighted accuracy with a Kish effective sample size.
+
+    ``add(weight, correct, count)`` records *count* graded questions, each of
+    session weight *weight*, of which *correct* were right.
+    """
+
+    __slots__ = ("sw", "sw2", "swx", "n")
+
+    def __init__(self) -> None:
+        self.sw = 0.0     # sum of weights
+        self.sw2 = 0.0    # sum of squared weights
+        self.swx = 0.0    # sum of weight * correct
+        self.n = 0        # raw observation count
+
+    def add(self, weight: float, correct: float, count: float = 1.0) -> None:
+        if count <= 0:
+            return
+        self.n += int(count)          # raw count, however old the session
+        if weight <= 0:               # decayed to nothing: no weighted signal
+            return
+        self.sw += weight * count
+        self.sw2 += weight * weight * count
+        self.swx += weight * correct
+
+    @property
+    def accuracy(self) -> Optional[float]:
+        if self.sw <= 0:
+            return None
+        return max(0.0, min(1.0, self.swx / self.sw))
+
+    @property
+    def n_eff(self) -> float:
+        """Kish effective sample size -- used for the standard error only.
+
+        Scale-invariant by construction (equal weights give n_eff = n however
+        old they are), so freshness is measured separately.
+        """
+        return (self.sw * self.sw / self.sw2) if self.sw2 > 0 else 0.0
+
+    @property
+    def freshness(self) -> float:
+        """Mean recency weight of this evidence, 0..1 (0 = nothing/ancient)."""
+        return (self.sw / self.n) if self.n else 0.0
+
+
+def _evidence_age_days(freshness: float) -> float:
+    """Mean age in days implied by a freshness, under the 14-day half-life."""
+    if freshness <= 0:
+        return float("inf")
+    return dashboard._HALF_LIFE_DAYS * math.log2(1.0 / min(1.0, freshness))
+
+
+def _fmt_age(days: float) -> str:
+    return ">1y" if days > 365 else f"{days:.0f}d"
+
+
+def _stream_weight(app: str, n_eff: float) -> float:
+    base = READINESS_STREAM_BASE.get(app, 0.0)
+    k = READINESS_STREAM_K.get(app, 5.0)
+    return base * (n_eff / (n_eff + k)) if n_eff > 0 else 0.0
+
+
+def _binomial_se(p: float, n_eff: float) -> float:
+    """Standard error of an accuracy, with p pulled off the 0/1 rails."""
+    if n_eff <= 0:
+        return READINESS_UNMEASURED_SE
+    pc = max(0.10, min(0.90, p))
+    return math.sqrt(pc * (1.0 - pc) / n_eff)
+
+
+# Flashcard ratings as a recall fraction.
+_RECALL_FRACTION = {"got_it": 1.0, "unsure": 0.5, "missed": 0.0}
+
+
+def section_evidence(histories: dict[str, list]) -> dict:
+    """Per-section exam/dojo evidence plus the global qiskit_api flashcard rate.
+
+    Returns {"exam": {section: _Evidence}, "dojo": {...},
+             "flashcard": _Evidence, "unmapped": {name: (questions, sources)}}.
+    """
+    exam: dict[str, _Evidence] = {}
+    dojo: dict[str, _Evidence] = {}
+    flashcard = _Evidence()
+    unmapped: dict[str, list] = {}
+
+    def note_unmapped(name, count: int, source: str) -> None:
+        key = " ".join(str(name).split()) or "(blank)"
+        row = unmapped.setdefault(key, [0, set()])
+        row[0] += count
+        row[1].add(source)
+
+    for s in _clean_sessions(histories.get("exam-sim", [])):
+        w = dashboard._session_weight(s)
+        secs = s.get("sections")
+        if not isinstance(secs, dict):
+            continue
+        for name, sec in secs.items():
+            if not isinstance(sec, dict):
+                continue
+            total = _safe_float(sec.get("total", 0))
+            if total <= 0:
+                continue
+            correct = max(0.0, min(_safe_float(sec.get("correct", 0)), total))
+            canon = canonical_section(name)
+            if canon is None:
+                note_unmapped(name, int(total), "exam-sim")
+                continue
+            exam.setdefault(canon, _Evidence()).add(w, correct, total)
+
+    for s in _clean_sessions(histories.get("qiskit-dojo", [])):
+        w = dashboard._session_weight(s)
+        for a in s.get("attempts", []) or []:
+            if not isinstance(a, dict):
+                continue
+            canon = canonical_section(a.get("section", ""))
+            if canon is None:
+                note_unmapped(a.get("section", ""), 1, "qiskit-dojo")
+                continue
+            dojo.setdefault(canon, _Evidence()).add(
+                w, 1.0 if a.get("passed") else 0.0, 1.0)
+
+    api_key = _norm_name(FLASHCARD_API_CATEGORY)
+    for s in _clean_sessions(histories.get("flashcard-drill", [])):
+        w = dashboard._session_weight(s)
+        for r in s.get("results", []) or []:
+            if not isinstance(r, dict):
+                continue
+            if _norm_name(r.get("category", "")) != api_key:
+                continue
+            flashcard.add(w, _RECALL_FRACTION.get(r.get("rating"), 0.5), 1.0)
+
+    return {"exam": exam, "dojo": dojo, "flashcard": flashcard,
+            "unmapped": {k: (v[0], sorted(v[1]))
+                         for k, v in sorted(unmapped.items())}}
+
+
+def build_readiness(histories: dict[str, list]) -> dict:
+    """Exam-readiness estimate for C1000-179.  Never invents a number."""
+    ev = section_evidence(histories)
+    fc = ev["flashcard"]
+    fc_acc, fc_neff, fc_n = fc.accuracy, fc.n_eff, fc.n
+
+    sections: list[dict] = []
+    for name, weight in EXAM_SECTION_WEIGHTS:
+        e = ev["exam"].get(name, _Evidence())
+        d = ev["dojo"].get(name, _Evidence())
+
+        streams = []
+        if e.n:
+            streams.append(("exam-sim", e.accuracy, e.n_eff))
+        if d.n:
+            streams.append(("qiskit-dojo", d.accuracy, d.n_eff))
+        if fc_n:
+            streams.append(("flashcard-drill", fc_acc, fc_neff))
+
+        blend_w = [(app, p, _stream_weight(app, n)) for app, p, n in streams]
+        wsum = sum(w for _a, _p, w in blend_w)
+        accuracy = (sum(p * w for _a, p, w in blend_w) / wsum) if wsum > 0 \
+            else None
+
+        n_direct = e.n + d.n
+        n_eff_direct = e.n_eff + d.n_eff
+        freshness = ((e.sw + d.sw) / n_direct) if n_direct else 0.0
+        age_days = _evidence_age_days(freshness)
+        enough = n_direct >= READINESS_MIN_SECTION_OBS
+        fresh = freshness >= READINESS_MIN_FRESHNESS
+        measured = enough and fresh and accuracy is not None
+        stale = enough and not fresh
+
+        ps = [p for _a, p, _w in blend_w]
+        spread = (max(ps) - min(ps)) if len(ps) > 1 else 0.0
+        if measured:
+            se = max(_binomial_se(accuracy, n_eff_direct), spread / 4.0,
+                     READINESS_MIN_SE)
+        else:
+            se = READINESS_UNMEASURED_SE
+
+        sections.append({
+            "name": name, "weight": weight,
+            "exam_n": e.n, "exam_acc": e.accuracy,
+            "dojo_n": d.n, "dojo_acc": d.accuracy,
+            "flashcard_n": fc_n, "flashcard_acc": fc_acc,
+            "accuracy": accuracy, "n_direct": n_direct,
+            "n_eff": n_eff_direct, "measured": measured, "se": se,
+            "freshness": freshness, "age_days": age_days, "stale": stale,
+            "spread": spread,
+            "sources": [a for a, _p, _w in blend_w],
+            "action": _SECTION_ACTIONS.get(name, "study this section"),
+        })
+
+    measured_secs = [s for s in sections if s["measured"]]
+    stale_secs = [s for s in sections if s["stale"]]
+    covered_weight = sum(s["weight"] for s in measured_secs)
+    total_direct = sum(s["n_direct"] for s in sections)
+    prior = None
+    if measured_secs:
+        pw = sum(s["weight"] for s in measured_secs)
+        prior = sum(s["accuracy"] * s["weight"] for s in measured_secs) / pw
+
+    reasons: list[str] = []
+    if total_direct < READINESS_MIN_TOTAL_OBS:
+        reasons.append(
+            f"only {total_direct} direct observation(s); "
+            f"{READINESS_MIN_TOTAL_OBS} needed "
+            f"({READINESS_MIN_TOTAL_OBS - total_direct} more)")
+    if covered_weight < READINESS_MIN_COVERED_WEIGHT:
+        reasons.append(
+            f"only {covered_weight} of {EXAM_WEIGHT_TOTAL} exam-weight points "
+            f"are measured; {READINESS_MIN_COVERED_WEIGHT} needed "
+            f"(a section counts once it has {READINESS_MIN_SECTION_OBS} "
+            f"exam/dojo observations averaging under "
+            f"{READINESS_MAX_AGE_DAYS} days old)")
+    if stale_secs:
+        names = ", ".join(f"{s['name']} ({_fmt_age(s['age_days'])})"
+                          for s in stale_secs)
+        reasons.append(
+            f"{len(stale_secs)} section(s) have enough observations but they "
+            f"are too old to trust: {names}")
+    if prior is None:
+        reasons.append("no section has enough evidence to estimate an accuracy")
+    confident = not reasons
+
+    projected = low = high = None
+    if confident:
+        acc_total = 0.0
+        var_total = 0.0
+        for s in sections:
+            frac = s["weight"] / EXAM_WEIGHT_TOTAL
+            p = s["accuracy"] if s["measured"] else prior
+            se = s["se"]
+            acc_total += frac * p
+            var_total += (frac * se) ** 2
+        projected = acc_total * EXAM_PASS_TOTAL
+        half = READINESS_Z * math.sqrt(var_total) * EXAM_PASS_TOTAL
+        low = max(0.0, projected - half)
+        high = min(float(EXAM_PASS_TOTAL), projected + half)
+
+    if not confident:
+        verdict = "not enough evidence for a projected score"
+    elif low >= EXAM_PASS_CORRECT:
+        verdict = "on track to pass"
+    elif high < EXAM_PASS_CORRECT:
+        verdict = "below the pass line"
+    else:
+        verdict = "too close to call"
+
+    thin = [s for s in sections if not s["measured"]]
+    # (thin covers both "too few" and "too old" -- both need the same fix)
+    weak = [s for s in measured_secs if s["accuracy"] < READINESS_WEAK_ACC]
+    weak.sort(key=lambda s: (s["accuracy"], -s["weight"], s["name"]))
+
+    return {
+        "sections": sections,
+        "measured": measured_secs,
+        "thin": thin,
+        "weak": weak,
+        "covered_weight": covered_weight,
+        "weight_total": EXAM_WEIGHT_TOTAL,
+        "total_direct": total_direct,
+        "stale_sections": stale_secs,
+        "prior": prior,
+        "flashcard_acc": fc_acc,
+        "flashcard_n": fc_n,
+        "unmapped": ev["unmapped"],
+        "confident": confident,
+        "reasons": reasons,
+        "projected": projected,
+        "low": low,
+        "high": high,
+        "pass_mark": EXAM_PASS_CORRECT,
+        "questions": EXAM_PASS_TOTAL,
+        "verdict": verdict,
+    }
+
+
+def _pct(value: Optional[float]) -> str:
+    return "  --" if value is None else f"{value * 100:3.0f}%"
+
+
+def render_readiness(r: dict) -> None:
+    console = _console()
+    _heading(console, "Exam Readiness — IBM C1000-179 (Qiskit Associate "
+                      "Developer)")
+    print()
+
+    if r["confident"]:
+        _line(console,
+              f"Projected score: {r['projected']:.0f}/{r['questions']} "
+              f"({r['projected'] / r['questions'] * 100:.0f}%) — {r['verdict']}",
+              "bold green" if r["verdict"] == "on track to pass"
+              else "bold yellow")
+        _line(console,
+              f"  95% band: {r['low']:.0f}–{r['high']:.0f} of {r['questions']} "
+              f"(pass mark {r['pass_mark']}/{r['questions']}, "
+              f"{r['pass_mark'] / r['questions'] * 100:.0f}%)")
+        _line(console,
+              f"  built on {r['total_direct']} exam/dojo observation(s) "
+              f"covering {r['covered_weight']}/{r['weight_total']} "
+              f"exam-weight points")
+    else:
+        _line(console, "No projected score — the evidence is too thin.",
+              "bold yellow")
+        for reason in r["reasons"]:
+            _line(console, f"  - {reason}")
+        print()
+        _line(console, "To earn a number:", "bold")
+        _line(console,
+              f"  1. run one FULL {EXAM_PASS_TOTAL}-question exam in exam-sim "
+              f"— it covers all eight sections at once and is worth "
+              f"{EXAM_PASS_TOTAL} observations")
+        _line(console,
+              f"  2. or clear qiskit-dojo katas: every attempt in a matching "
+              f"section counts, {READINESS_MIN_SECTION_OBS} per section makes "
+              f"that section measurable")
+        _line(console,
+              "  3. flashcard-drill 'Qiskit API' cards refine the estimate but "
+              "never make a section measurable on their own")
+    print()
+
+    _line(console, "Per-section evidence (acc = blended; exam/dojo = "
+                   "observations; age = mean evidence age):", "bold")
+    _line(console, f"  {'section':<20}{'wt':>4}{'acc':>6}{'exam':>7}"
+                   f"{'dojo':>7}{'age':>7}  status")
+    for s in r["sections"]:
+        if s["measured"]:
+            status = "measured"
+        elif s["stale"]:
+            status = f"stale (> {READINESS_MAX_AGE_DAYS}d old)"
+        else:
+            status = f"thin (<{READINESS_MIN_SECTION_OBS} obs)"
+        age = _fmt_age(s["age_days"]) if s["n_direct"] else "--"
+        _line(console,
+              f"  {s['name']:<20}{s['weight']:>4}{_pct(s['accuracy']):>6}"
+              f"{s['exam_n']:>7}{s['dojo_n']:>7}{age:>7}  {status}")
+    fc_n = r["flashcard_n"]
+    _line(console,
+          f"  flashcard '{FLASHCARD_API_CATEGORY}': "
+          + (f"{_pct(r['flashcard_acc']).strip()} over {fc_n} card review(s) — "
+             f"folded into every section" if fc_n
+             else "no reviews yet"))
+    print()
+
+    if r["thin"]:
+        names = ", ".join(
+            f"{s['name']} ({s['n_direct']} obs"
+            + (f", {_fmt_age(s['age_days'])} old" if s["stale"] else "") + ")"
+            for s in r["thin"])
+        _line(console,
+              f"Too little usable data — too few observations or too old "
+              f"({len(r['thin'])} section(s), "
+              f"{sum(s['weight'] for s in r['thin'])} exam-weight points): "
+              f"{names}", "yellow")
+        if r["confident"]:
+            _line(console,
+                  "  these are projected at the average of your measured "
+                  f"sections ({_pct(r['prior']).strip()}) and widen the band by "
+                  f"±{READINESS_UNMEASURED_SE:.2f} accuracy each")
+        print()
+
+    if r["unmapped"]:
+        rows = ", ".join(f"{name} ({n} obs, {'/'.join(src)})"
+                         for name, (n, src) in r["unmapped"].items())
+        _line(console,
+              f"Ignored — not C1000-179 sections: {rows}", "dim")
+        print()
+
+    todo = list(r["weak"]) + list(r["thin"])
+    if todo:
+        _line(console, "Next action per weak/unmeasured section:", "bold")
+        for s in todo:
+            if s["measured"]:
+                head = (f"{s['name']} ({_pct(s['accuracy']).strip()}, "
+                        f"n={s['n_direct']})")
+            else:
+                why = ("stale" if s["stale"] else "unmeasured")
+                head = f"{s['name']} ({why}, n={s['n_direct']})"
+            _line(console, f"  - {head}: {s['action']}")
+    else:
+        _line(console, "No weak or unmeasured sections. Keep them warm.",
+              "green")
+    print()
+
+
+# ---------------------------------------------------------------------------
+# SM-2 schedule calibration  (--calibrate)
+#
+# Compares the intervals the scheduler chose against what actually happened:
+# for every card seen twice in flashcard_history.json, the gap between the two
+# reviews and the rating at the second one.  SM-2 aims for about
+# SM2_TARGET_RECALL recall at the scheduled interval; measured recall well
+# under that means intervals are too long, well over means they are too short.
+# flashcard_schedule.json is optional — its absence only costs the EF numbers.
+# ---------------------------------------------------------------------------
+
+SCHEDULE_FILE = "flashcard_schedule.json"
+SM2_TARGET_RECALL = 0.90
+SM2_DEFAULT_EF = 2.5
+SM2_MIN_EF = 1.3
+SM2_MAX_EF = 3.0
+CALIBRATE_BUCKETS = ((0.0, 1.0), (1.0, 3.0), (3.0, 7.0), (7.0, 14.0),
+                     (14.0, 30.0), (30.0, float("inf")))
+CALIBRATE_MIN_OBS = 20         # repeat reviews before any verdict is given
+CALIBRATE_MIN_BUCKET_OBS = 8   # reviews before a bucket's lapse rate is judged
+CALIBRATE_TOO_LONG_LAPSE = 0.20   # lapse rate above this = intervals too long
+CALIBRATE_TOO_SHORT_LAPSE = 0.03  # lapse rate below this = intervals too short
+CALIBRATE_MIN_R2 = 0.50           # worse than this and no S is reported
+
+
+def flashcard_recall_observations(sessions: list) -> list[dict]:
+    """Every "card seen again" event: {card_id, category, gap_days, rating, ts}.
+
+    Built only from flashcard_history.json, so it works with or without the
+    scheduler's own file.
+    """
+    seen: dict[str, list[tuple[float, str, str]]] = {}
+    for s in _clean_sessions(sessions):
+        s_ts = _session_epoch(s)
+        for r in s.get("results", []) or []:
+            if not isinstance(r, dict):
+                continue
+            card_id = str(r.get("card_id") or "").strip()
+            if not card_id:
+                continue
+            own = _session_timestamp(r)
+            ts = own if own is not None else s_ts
+            if ts is None:
+                continue
+            seen.setdefault(card_id, []).append(
+                (ts, str(r.get("rating") or ""),
+                 " ".join(str(r.get("category") or "").split())))
+    obs: list[dict] = []
+    for card_id, events in seen.items():
+        events.sort(key=lambda e: e[0])
+        for prev, cur in zip(events, events[1:]):
+            gap = (cur[0] - prev[0]) / 86400.0
+            if gap < 0:
+                continue
+            obs.append({"card_id": card_id, "gap_days": gap,
+                        "rating": cur[1], "category": cur[2], "ts": cur[0]})
+    obs.sort(key=lambda o: (o["gap_days"], o["card_id"]))
+    return obs
+
+
+def bucket_recall(obs: list[dict]) -> list[dict]:
+    """Lapse rate and recall per interval bucket, with the observation count.
+
+    "missed" is a lapse; "unsure" counts as half a success (and is not a
+    lapse); "got_it" is a success.
+    """
+    rows = []
+    for lo, hi in CALIBRATE_BUCKETS:
+        sel = [o for o in obs if lo <= o["gap_days"] < hi]
+        if not sel:
+            continue
+        n = len(sel)
+        lapses = sum(1 for o in sel if o["rating"] == "missed")
+        got = sum(1 for o in sel if o["rating"] == "got_it")
+        unsure = n - lapses - got
+        lapse_rate = lapses / n
+        if n < CALIBRATE_MIN_BUCKET_OBS:
+            verdict = f"too few (n<{CALIBRATE_MIN_BUCKET_OBS})"
+        elif lapse_rate > CALIBRATE_TOO_LONG_LAPSE:
+            verdict = "intervals too long"
+        elif lapse_rate < CALIBRATE_TOO_SHORT_LAPSE:
+            verdict = "intervals too short"
+        else:
+            verdict = "about right"
+        rows.append({
+            "label": (f"{lo:g}-{hi:g}d" if hi != float("inf") else f"{lo:g}d+"),
+            "lo": lo, "hi": hi, "n": n, "lapses": lapses,
+            "lapse_rate": lapse_rate,
+            "recall": (got + 0.5 * unsure) / n,
+            "mean_gap": sum(o["gap_days"] for o in sel) / n,
+            "judged": n >= CALIBRATE_MIN_BUCKET_OBS,
+            "verdict": verdict,
+        })
+    return rows
+
+
+def load_schedule() -> Optional[dict]:
+    """flashcard_schedule.json, normalised; None when absent or unreadable.
+
+    Schema (written by flashcard-drill's SM-2 scheduler):
+        {card_id: {n, ef, interval_days, due_iso, last_seen_iso, lapses}}
+    """
+    raw = _read_json(_path(SCHEDULE_FILE))
+    if not isinstance(raw, dict):
+        return None
+    out: dict[str, dict] = {}
+    for card_id, rec in raw.items():
+        if not isinstance(rec, dict):
+            continue
+        out[str(card_id)] = {
+            "n": _safe_int(rec.get("n", 0)),
+            "ef": _safe_float(rec.get("ef", SM2_DEFAULT_EF), SM2_DEFAULT_EF),
+            "interval_days": _safe_float(rec.get("interval_days", 0)),
+            "due_iso": rec.get("due_iso")
+            if isinstance(rec.get("due_iso"), str) else None,
+            "last_seen_iso": rec.get("last_seen_iso")
+            if isinstance(rec.get("last_seen_iso"), str) else None,
+            "lapses": _safe_int(rec.get("lapses", 0)),
+        }
+    return out
+
+
+def _median(values: list[float]) -> Optional[float]:
+    if not values:
+        return None
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+
+def summarise_schedule(schedule: Optional[dict]) -> Optional[dict]:
+    """Card count, EF/interval medians, overdue count and lapses."""
+    if not schedule:
+        return None
+    efs = [c["ef"] for c in schedule.values()]
+    intervals = [c["interval_days"] for c in schedule.values()
+                 if c["interval_days"] > 0]
+    overdue = 0
+    for card in schedule.values():
+        due = card["due_iso"]
+        if not due:
+            continue
+        dt = _parse_iso(due)
+        if dt is not None:
+            try:
+                if dt.timestamp() <= _NOW:
+                    overdue += 1
+            except (OverflowError, OSError, ValueError):
+                pass
+    return {
+        "cards": len(schedule),
+        "median_ef": _median(efs),
+        "median_interval": _median(intervals),
+        "scheduled": len(intervals),
+        "overdue": overdue,
+        "lapses": sum(c["lapses"] for c in schedule.values()),
+        # SM-2 resets n to 0 on a lapse, so this is "new or relearning",
+        # not "never seen".
+        "relearning": sum(1 for c in schedule.values() if c["n"] <= 0),
+    }
+
+
+def build_calibration(histories: dict[str, list]) -> dict:
+    """SM-2 schedule vs measured recall.  Tolerates a missing schedule file."""
+    obs = flashcard_recall_observations(histories.get("flashcard-drill", []))
+    buckets = bucket_recall(obs)
+    schedule = load_schedule()
+    sched = summarise_schedule(schedule)
+
+    reasons: list[str] = []
+    if len(obs) < CALIBRATE_MIN_OBS:
+        reasons.append(
+            f"only {len(obs)} repeat review(s); {CALIBRATE_MIN_OBS} needed "
+            f"({CALIBRATE_MIN_OBS - len(obs)} more)")
+    judged = [b for b in buckets if b["judged"]]
+    if not judged:
+        reasons.append(
+            f"no interval bucket has reached {CALIBRATE_MIN_BUCKET_OBS} "
+            f"review(s) yet")
+    confident = not reasons
+
+    # Exponential retention R(t) = exp(-t/S) fitted through the origin on the
+    # judged buckets (observation-weighted least squares on ln R).
+    stability = None
+    fit_r2 = None
+    fit_buckets = [b for b in judged if b["recall"] > 0 and b["mean_gap"] > 0]
+    if len(fit_buckets) >= 2:
+        sxy = sum(b["n"] * b["mean_gap"] * math.log(b["recall"])
+                  for b in fit_buckets)
+        sxx = sum(b["n"] * b["mean_gap"] ** 2 for b in fit_buckets)
+        slope = sxy / sxx if sxx > 0 else 0.0
+        sw = sum(b["n"] for b in fit_buckets)
+        ybar = sum(b["n"] * math.log(b["recall"]) for b in fit_buckets) / sw
+        ss_res = sum(b["n"] * (math.log(b["recall"]) - slope * b["mean_gap"]) ** 2
+                     for b in fit_buckets)
+        ss_tot = sum(b["n"] * (math.log(b["recall"]) - ybar) ** 2
+                     for b in fit_buckets)
+        fit_r2 = (1.0 - ss_res / ss_tot) if ss_tot > 1e-12 else 0.0
+        if slope < -1e-12 and fit_r2 >= CALIBRATE_MIN_R2:
+            stability = -1.0 / slope
+
+    optimal = stability * -math.log(SM2_TARGET_RECALL) if stability else None
+
+    # The verdict is about the intervals the reviews ACTUALLY happened at --
+    # they are what produced the lapse rates above.  The schedule's own
+    # planned intervals are compared separately, because a user who reviews
+    # late is a different problem from a scheduler that plans badly.
+    observed_interval = _median([o["gap_days"] for o in obs])
+    observed_factor = (optimal / observed_interval
+                       if optimal and observed_interval
+                       and observed_interval > 0 else None)
+    schedule_interval = sched["median_interval"] if sched else None
+    schedule_factor = (optimal / schedule_interval
+                       if optimal and schedule_interval
+                       and schedule_interval > 0 else None)
+    current_ef = (sched["median_ef"] if sched and sched["median_ef"]
+                  else SM2_DEFAULT_EF)
+    # EF drives how fast planned intervals grow, so tune it against the
+    # schedule when there is one and against reality otherwise.
+    ef_factor = schedule_factor if schedule_factor else observed_factor
+    suggested_ef = (max(SM2_MIN_EF, min(SM2_MAX_EF, current_ef * ef_factor))
+                    if ef_factor else None)
+    adherence = (observed_interval / schedule_interval
+                 if observed_interval and schedule_interval
+                 and schedule_interval > 0 else None)
+
+    overall_lapse = (sum(b["lapses"] for b in judged) / sum(b["n"] for b in judged)
+                     if judged else None)
+    if not confident:
+        verdict = "not enough repeat reviews to judge the schedule"
+    elif observed_factor is not None:
+        if observed_factor < 0.85:
+            verdict = "intervals look too long"
+        elif observed_factor > 1.20:
+            verdict = "intervals look too short"
+        else:
+            verdict = "intervals look about right"
+    elif overall_lapse is not None and overall_lapse > CALIBRATE_TOO_LONG_LAPSE:
+        verdict = "intervals look too long"
+    elif overall_lapse is not None and overall_lapse < CALIBRATE_TOO_SHORT_LAPSE:
+        verdict = "intervals look too short"
+    else:
+        verdict = "intervals look about right"
+
+    return {
+        "n_obs": len(obs),
+        "n_cards": len({o["card_id"] for o in obs}),
+        "buckets": buckets,
+        "judged": judged,
+        "schedule": sched,
+        "schedule_present": schedule is not None,
+        "schedule_unreadable": schedule is None and _path(SCHEDULE_FILE).exists(),
+        "stability_days": stability,
+        "fit_r2": fit_r2,
+        "optimal_interval_days": optimal,
+        "observed_interval_days": observed_interval,
+        "interval_factor": observed_factor,
+        "schedule_interval_days": schedule_interval,
+        "schedule_factor": schedule_factor,
+        "adherence": adherence,
+        "overall_lapse_rate": overall_lapse,
+        "current_ef": current_ef,
+        "suggested_ef": suggested_ef,
+        "target_recall": SM2_TARGET_RECALL,
+        "confident": confident,
+        "reasons": reasons,
+        "verdict": verdict,
+    }
+
+
+def render_calibration(c: dict) -> None:
+    console = _console()
+    _heading(console, "SM-2 Calibration — scheduled intervals vs real recall")
+    print()
+
+    if c["schedule_present"] and c["schedule"]:
+        s = c["schedule"]
+        _line(console,
+              f"Schedule file: {SCHEDULE_FILE} — {s['cards']} card(s), "
+              f"{s['scheduled']} with an interval, {s['overdue']} due now, "
+              f"{s['lapses']} lifetime lapse(s), {s['relearning']} new or "
+              f"relearning (n=0)")
+        _line(console,
+              f"  median EF {s['median_ef']:.2f}"
+              + (f", median interval {s['median_interval']:.1f}d"
+                 if s["median_interval"] else ", no intervals set yet"))
+    elif c["schedule_unreadable"]:
+        _line(console,
+              f"{SCHEDULE_FILE} is present but not a readable "
+              f"{{card_id: {{...}}}} object — ignoring it and judging recall "
+              f"against SM-2 defaults (EF {SM2_DEFAULT_EF:.1f}, target recall "
+              f"{SM2_TARGET_RECALL * 100:.0f}%).", "yellow")
+    else:
+        _line(console,
+              f"No {SCHEDULE_FILE} yet — judging recall against SM-2 defaults "
+              f"(EF {SM2_DEFAULT_EF:.1f}, target recall "
+              f"{SM2_TARGET_RECALL * 100:.0f}%).", "dim")
+    print()
+
+    _line(console,
+          f"Measured recall from flashcard_history.json: {c['n_obs']} repeat "
+          f"review(s) over {c['n_cards']} card(s)", "bold")
+    if c["buckets"]:
+        _line(console, f"  {'interval':<10}{'n':>5}{'lapses':>8}"
+                       f"{'lapse rate':>12}{'recall':>9}   verdict")
+        for b in c["buckets"]:
+            _line(console,
+                  f"  {b['label']:<10}{b['n']:>5}{b['lapses']:>8}"
+                  f"{b['lapse_rate'] * 100:>11.0f}%{b['recall'] * 100:>8.0f}%"
+                  f"   {b['verdict']}")
+        _line(console,
+              f"  (a bucket is judged only at n >= {CALIBRATE_MIN_BUCKET_OBS}; "
+              f"'unsure' counts as half a success and is not a lapse)", "dim")
+    else:
+        _line(console, "  no card has been reviewed twice yet", "dim")
+    print()
+
+    if not c["confident"]:
+        _line(console, f"Verdict: {c['verdict']}", "bold yellow")
+        for reason in c["reasons"]:
+            _line(console, f"  - {reason}")
+        _line(console,
+              "  Keep drilling flashcard-drill on separate days — the "
+              "calibration needs the same card seen twice, not more cards.")
+        print()
+        return
+
+    _line(console, f"Verdict: {c['verdict']}", "bold")
+    if c["stability_days"]:
+        _line(console,
+              f"  fitted memory stability S = {c['stability_days']:.1f}d "
+              f"(R(t) = exp(-t/S)); half-life "
+              f"{c['stability_days'] * math.log(2):.1f}d")
+        _line(console,
+              f"  interval holding {c['target_recall'] * 100:.0f}% recall: "
+              f"{c['optimal_interval_days']:.1f}d — you actually review at a "
+              f"median gap of {c['observed_interval_days']:.1f}d "
+              f"(x{c['interval_factor']:.2f}, R^2 {c['fit_r2']:.2f})")
+    else:
+        why = ("too noisy to fit a decay curve "
+               f"(R^2 {c['fit_r2']:.2f} < {CALIBRATE_MIN_R2:.2f})"
+               if c["fit_r2"] is not None
+               else "not enough spread across interval buckets to fit a "
+                    "decay curve")
+        _line(console,
+              f"  {why} — the lapse-rate table above is the whole story.",
+              "dim")
+        if c["overall_lapse_rate"] is not None:
+            _line(console,
+                  f"  overall lapse rate across judged buckets: "
+                  f"{c['overall_lapse_rate'] * 100:.0f}% "
+                  f"(target {100 - c['target_recall'] * 100:.0f}%)")
+    if c["schedule_interval_days"] and c["schedule_factor"]:
+        _line(console,
+              f"  the schedule plans a median {c['schedule_interval_days']:.1f}d "
+              f"interval — x{c['schedule_factor']:.2f} off the fitted optimum")
+    if c["adherence"] and (c["adherence"] > 1.5 or c["adherence"] < 0.67):
+        ratio = max(c["adherence"], 1.0 / c["adherence"])
+        direction = "later" if c["adherence"] > 1 else "sooner"
+        _line(console,
+              f"  adherence: you review about {ratio:.1f}x {direction} than "
+              f"the schedule asks — fix that before retuning EF", "yellow")
+    if c["suggested_ef"]:
+        delta = c["suggested_ef"] - c["current_ef"]
+        basis = ("the schedule's planned intervals"
+                 if c["schedule_factor"] else "your actual review gaps")
+        _line(console,
+              f"  suggested EF: {c['current_ef']:.2f} -> "
+              f"{c['suggested_ef']:.2f} ({delta:+.2f}), i.e. multiply new "
+              f"intervals by {(c['schedule_factor'] or c['interval_factor']):.2f} "
+              f"(based on {basis})")
+    _line(console,
+          "  (advisory only — coach.py never writes "
+          f"{SCHEDULE_FILE})", "dim")
+    print()
+
+
+# ---------------------------------------------------------------------------
+# Tier-5 signals: the mistake journal (--mistakes), confidence calibration
+# (--calibration) and exam-bank item analysis (--item-analysis).
+#
+# The apps write two new cross-app files as you answer; the coach only reads
+# them.  The schema, the cause vocabulary and the tolerant loaders live in
+# dashboard.py, so the dashboard's panels and these reports cannot drift.
+#
+#   mistakes.json    a wrong answer + WHY it was wrong.  A flagged item is a
+#                    bookmark; a cause turns nine scattered slips into "nine
+#                    little-endian misreads this month", which is actionable.
+#   confidence.json  a 1-4 confidence captured BEFORE the reveal, paired with
+#                    the verdict.  It separates "right" from "right and knew
+#                    it", and — the money output — finds the topics you were
+#                    CONFIDENT about and still got wrong.
+#
+# Every path here works when the files are absent, empty, corrupt or thin:
+# the reports say what is missing instead of inventing a number.
+# ---------------------------------------------------------------------------
+
+MISTAKES_FILE = dashboard.MISTAKES_FILE
+CONFIDENCE_FILE = dashboard.CONFIDENCE_FILE
+MISTAKE_CAUSES = dashboard.MISTAKE_CAUSES
+UNCATEGORISED = dashboard.UNCATEGORISED
+CAUSE_LABELS = dashboard.CAUSE_LABELS
+CAUSE_ADVICE = dashboard.CAUSE_ADVICE
+CONFIDENCE_LABELS = dashboard.CONFIDENCE_LABELS
+CONFIDENCE_TARGET = dashboard.CONFIDENCE_TARGET
+CONFIDENT_LEVEL = dashboard.CONFIDENT_LEVEL
+
+# Pure, Qt-free helpers re-exported so that tests (and the apps) have one
+# import site for the schema.  coach.py and dashboard.py never write either
+# journal — each app's own persistence module owns the writing.
+make_mistake_entry = dashboard.make_mistake_entry
+make_confidence_entry = dashboard.make_confidence_entry
+normalise_mistake = dashboard.normalise_mistake
+normalise_confidence = dashboard.normalise_confidence
+latest_mistakes = dashboard.latest_mistakes
+unresolved_mistakes = dashboard.unresolved_mistakes
+cause_of = dashboard.cause_of
+
+CONFIDENCE_MIN_OBS = dashboard.CONFIDENCE_MIN_OBS          # N = 20
+CONFIDENCE_MIN_LEVEL_OBS = dashboard.CONFIDENCE_MIN_LEVEL_OBS   # 5
+
+MISTAKE_TREND_DAYS = 14        # trend = this window vs the one before it
+MISTAKE_TREND_MIN_OBS = 4      # fewer dated mistakes than this => no trend
+MISTAKE_MIN_DOMINANT = 5       # categorised mistakes before "what this means"
+MISTAKE_TOP_CONCEPTS = 8       # recurring-concept rows printed
+MISTAKE_LIST_CAP = 15          # unresolved rows printed
+CONFIDENTLY_WRONG_CAP = 10     # confidently-wrong topic rows printed
+
+# Exam-bank item analysis.  The bank is 300 one-question modules under
+# quantum_study/exam_sim/bank/<section>/<id>.py; they are parsed with ast (never imported),
+# so the coach stays stdlib-only and runs no app code.
+EXAM_BANK_DIR = Path(__file__).resolve().parent / "exam_sim" / "bank"
+ITEM_MIN_ATTEMPTS = 3          # below this an item is "needs more attempts"
+ITEM_LIST_CAP = 15             # rows printed per item-analysis bucket
+
+
+def load_mistakes() -> list[dict]:
+    """mistakes.json from the coach's (overridable) data dir, oldest first."""
+    return dashboard.load_mistakes(_path(MISTAKES_FILE))
+
+
+def load_confidence() -> list[dict]:
+    """confidence.json from the coach's data dir, oldest first."""
+    return dashboard.load_confidence(_path(CONFIDENCE_FILE))
+
+
+# -- (a) --mistakes: error analysis -----------------------------------------
+
+def mistake_trend(entries: list[dict], window_days: float = MISTAKE_TREND_DAYS,
+                  now: Optional[float] = None) -> dict:
+    """Per-cause counts in the last *window_days* vs the window before it.
+
+    Undated entries (timestamp 0) are excluded — they cannot be placed on a
+    timeline — and are reported separately by the caller.  ``direction`` is
+    "shrinking" / "growing" / "flat", the question the report actually asks.
+    """
+    now = _NOW if now is None else now
+    span = window_days * 86400.0
+    recent_cut, prev_cut = now - span, now - 2 * span
+    recent: dict[str, int] = {}
+    previous: dict[str, int] = {}
+    dated = 0
+    for entry in entries:
+        ts = entry["timestamp"]
+        if ts <= 0:
+            continue
+        cause = cause_of(entry)
+        if ts >= recent_cut:
+            dated += 1
+            recent[cause] = recent.get(cause, 0) + 1
+        elif ts >= prev_cut:
+            dated += 1
+            previous[cause] = previous.get(cause, 0) + 1
+    rows = []
+    for cause in sorted(set(recent) | set(previous),
+                        key=lambda c: (-(recent.get(c, 0)
+                                         + previous.get(c, 0)), c)):
+        r, p = recent.get(cause, 0), previous.get(cause, 0)
+        if r < p:
+            direction = "shrinking"
+        elif r > p:
+            direction = "growing"
+        else:
+            direction = "flat"
+        rows.append({"cause": cause, "label": CAUSE_LABELS.get(cause, cause),
+                     "recent": r, "previous": p, "delta": r - p,
+                     "direction": direction})
+    return {"window_days": window_days, "rows": rows, "n_dated": dated,
+            "judged": dated >= MISTAKE_TREND_MIN_OBS}
+
+
+def recurring_concepts(entries: list[dict],
+                       top_n: int = MISTAKE_TOP_CONCEPTS) -> list[dict]:
+    """Most-repeated (app, category) concepts, worst first.
+
+    A category is the concept; entries without one fall back to a per-item
+    row so nothing disappears into an unnamed bucket.
+    """
+    groups: dict[tuple[str, str], dict] = {}
+    for entry in entries:
+        category = entry["category"] or f"item {entry['id']}"
+        key = (entry["app"], category)
+        row = groups.setdefault(key, {"app": key[0], "concept": key[1],
+                                      "n": 0, "items": set(),
+                                      "causes": {}, "unresolved": 0,
+                                      "last_ts": 0.0})
+        row["n"] += 1
+        row["items"].add(entry["id"])
+        cause = cause_of(entry)
+        row["causes"][cause] = row["causes"].get(cause, 0) + 1
+        row["last_ts"] = max(row["last_ts"], entry["timestamp"])
+    for row in groups.values():
+        row["n_items"] = len(row["items"])
+        del row["items"]
+        top = sorted(row["causes"].items(), key=lambda kv: (-kv[1], kv[0]))
+        row["top_cause"] = top[0][0] if top else UNCATEGORISED
+    rows = sorted(groups.values(),
+                  key=lambda r: (-r["n"], -r["n_items"], -r["last_ts"],
+                                 r["app"], r["concept"]))
+    # unresolved-per-concept is computed against the latest state of each item
+    latest = {(e["app"], e["id"]): e for e in latest_mistakes(entries)}
+    for row in rows:
+        row["unresolved"] = sum(
+            1 for (app, _ident), e in latest.items()
+            if app == row["app"]
+            and (e["category"] or f"item {e['id']}") == row["concept"]
+            and not e["resolved"])
+    return rows[:top_n]
+
+
+def build_mistake_report(entries: Optional[list[dict]] = None) -> dict:
+    """Everything --mistakes prints.  Safe on absent / empty / thin data."""
+    if entries is None:
+        entries = load_mistakes()
+    panel = dashboard.mistakes_panel(entries)
+
+    by_cause = []
+    for row in panel["rows"]:
+        cause = row["cause"]
+        cats: dict[str, int] = {}
+        for entry in entries:
+            if cause_of(entry) != cause:
+                continue
+            label = entry["category"] or f"item {entry['id']}"
+            cats[f"{label} [{entry['app']}]"] = cats.get(
+                f"{label} [{entry['app']}]", 0) + 1
+        by_cause.append({
+            **row,
+            "categories": sorted(cats.items(),
+                                 key=lambda kv: (-kv[1], kv[0]))[:5],
+            "advice": CAUSE_ADVICE.get(cause, ""),
+        })
+
+    unresolved = unresolved_mistakes(entries)
+    undated = sum(1 for e in entries if e["timestamp"] <= 0)
+    categorised = sum(1 for e in entries if cause_of(e) != UNCATEGORISED)
+
+    notes: list[str] = []
+    if not (_path(MISTAKES_FILE).exists()):
+        notes.append(f"no {MISTAKES_FILE} in {DATA_DIR} yet")
+    elif not entries:
+        notes.append(f"{MISTAKES_FILE} holds no usable entries "
+                     f"(empty, corrupt, or every row missing an \"id\")")
+    if undated:
+        notes.append(f"{undated} "
+                     + ("entry has" if undated == 1 else "entries have")
+                     + " no usable timestamp and "
+                     + ("is" if undated == 1 else "are")
+                     + " left out of the trend")
+    if categorised < MISTAKE_MIN_DOMINANT and entries:
+        notes.append(f"only {categorised} of {len(entries)} mistake(s) have a "
+                     f"cause; {MISTAKE_MIN_DOMINANT} are needed before the "
+                     f"'what this means' reading is worth acting on")
+    if len(entries) >= dashboard.JOURNAL_READ_CAP:
+        notes.append(f"only the newest {dashboard.JOURNAL_READ_CAP} entries "
+                     f"are read (growth cap)")
+
+    return {
+        "panel": panel,
+        "entries": entries,
+        "n": panel["n"],
+        "n_items": panel["n_items"],
+        "n_categorised": categorised,
+        "by_cause": by_cause,
+        "concepts": recurring_concepts(entries),
+        "trend": mistake_trend(entries),
+        "unresolved": unresolved,
+        "unresolved_shown": unresolved[:MISTAKE_LIST_CAP],
+        "unresolved_dropped": max(0, len(unresolved) - MISTAKE_LIST_CAP),
+        "apps": panel["apps"],
+        "dominant": panel["dominant"] if categorised >= MISTAKE_MIN_DOMINANT
+                    else None,
+        "notes": notes,
+    }
+
+
+def render_mistake_report(r: dict) -> None:
+    console = _console()
+    _heading(console, "Mistake Journal — what went wrong, and why")
+    print()
+    for note in r["notes"]:
+        _line(console, f"note: {note}", "dim")
+    if r["notes"]:
+        print()
+
+    if not r["n"]:
+        _line(console,
+              "Nothing logged yet.  Every app now asks 'what went wrong?' "
+              "after a wrong answer — one click, skippable.", "dim")
+        _line(console,
+              "Until a mistake carries a cause it is a bookmark, not "
+              "analysis.", "dim")
+        print()
+        return
+
+    panel = r["panel"]
+    span = ""
+    if panel["first_ts"] and panel["last_ts"]:
+        span = (f", {_fmt_date(panel['first_ts'])} to "
+                f"{_fmt_date(panel['last_ts'])}")
+    _line(console,
+          f"{r['n']} mistake(s) over {r['n_items']} item(s) across "
+          f"{len(r['apps'])} app(s){span} — {panel['n_unresolved']} "
+          f"unresolved, {panel['n_resolved']} cleared", "bold")
+    print()
+
+    _line(console, "BY CAUSE", "bold")
+    for row in r["by_cause"]:
+        _line(console,
+              f"  {row['label']:<22}{row['n']:>4}  "
+              f"{dashboard.signal_bar(row['n'] / r['n'])} "
+              f"{row['pct']:>3.0f}%")
+        if row["categories"]:
+            detail = ", ".join(f"{name} x{n}" for name, n in row["categories"])
+            _line(console, f"      {detail}", "dim")
+    print()
+
+    _line(console, "TOP RECURRING CONCEPTS", "bold")
+    if r["concepts"]:
+        for i, c in enumerate(r["concepts"], 1):
+            _line(console,
+                  f"  {i:2}. {_short(c['concept'])} [{c['app']}] — "
+                  f"{c['n']} mistake(s) over {c['n_items']} item(s), "
+                  f"{c['unresolved']} unresolved, mostly "
+                  f"{CAUSE_LABELS.get(c['top_cause'], c['top_cause'])}")
+    else:
+        _line(console, "  nothing repeats yet", "dim")
+    print()
+
+    trend = r["trend"]
+    _line(console, f"TREND — last {trend['window_days']:.0f} days vs the "
+                   f"{trend['window_days']:.0f} before", "bold")
+    if not trend["judged"]:
+        _line(console,
+              f"  only {trend['n_dated']} dated mistake(s) in the last "
+              f"{trend['window_days'] * 2:.0f} days — "
+              f"{MISTAKE_TREND_MIN_OBS} needed before a direction means "
+              f"anything", "dim")
+    else:
+        for row in trend["rows"]:
+            arrow = {"shrinking": "v", "growing": "^", "flat": "="}[
+                row["direction"]]
+            _line(console,
+                  f"  {row['label']:<22}{row['previous']:>4} -> "
+                  f"{row['recent']:<4} {arrow} {row['direction']}")
+    print()
+
+    _line(console, "UNRESOLVED, OLDEST FIRST", "bold")
+    if not r["unresolved"]:
+        _line(console, "  none — every logged mistake has been re-answered "
+                       "correctly since.", "green")
+    else:
+        for i, e in enumerate(r["unresolved_shown"], 1):
+            cause = cause_of(e)
+            label = _short(e["question"] or e["id"])
+            cat = f" [{_short(e['category'])}]" if e["category"] else ""
+            _line(console,
+                  f"  {i:2}. {e['app']} — {label}{cat} — "
+                  f"{CAUSE_LABELS.get(cause, cause)} "
+                  f"({_fmt_date(e['timestamp'])})")
+            if e["note"]:
+                _line(console, f"      note: {_short(e['note'])}", "dim")
+        if r["unresolved_dropped"]:
+            _line(console,
+                  f"  ... {r['unresolved_dropped']} more — clear these "
+                  f"first.", "dim")
+    print()
+
+    _line(console, "WHAT THIS MEANS", "bold")
+    if r["dominant"]:
+        _line(console,
+              f"  Dominant cause: {CAUSE_LABELS[r['dominant']]} "
+              f"({r['panel']['counts'][r['dominant']]} of {r['n']}).",
+              "yellow")
+        _line(console, f"  {CAUSE_ADVICE[r['dominant']]}")
+    else:
+        _line(console,
+              f"  No dominant cause yet — {r['n_categorised']} of {r['n']} "
+              f"mistake(s) are categorised "
+              f"({MISTAKE_MIN_DOMINANT} needed).", "dim")
+    if r["panel"]["uncategorised"]:
+        _line(console, f"  {CAUSE_ADVICE[UNCATEGORISED]} "
+                       f"({r['panel']['uncategorised']} waiting)", "dim")
+    _line(console,
+          "  Unresolved mistakes are already in `python coach.py --review`.",
+          "dim")
+    print()
+
+
+# -- (b) --calibration: confidence vs accuracy ------------------------------
+
+def build_confidence_report(obs: Optional[list[dict]] = None) -> dict:
+    """Everything --calibration prints.  Refuses a verdict below N obs."""
+    if obs is None:
+        obs = load_confidence()
+    panel = dashboard.calibration_panel(obs)
+
+    judged = [row for row in panel["levels"] if row["judged"]]
+    mean_abs_gap = (sum(abs(row["gap"]) for row in judged) / len(judged)
+                    if judged else None)
+    # Brier score over the stated confidences (0 = perfect, 0.25 = a coin
+    # flip claimed at 50%).  Lower is better; it punishes confident misses
+    # far harder than hesitant ones, which is exactly the failure mode here.
+    brier = (sum((CONFIDENCE_TARGET[o["confidence"]]
+                  - (1.0 if o["correct"] else 0.0)) ** 2 for o in obs)
+             / len(obs)) if obs else None
+
+    worst_items: dict[tuple[str, str], dict] = {}
+    for o in obs:
+        if o["confidence"] < CONFIDENT_LEVEL or o["correct"]:
+            continue
+        key = (o["app"], o["id"])
+        row = worst_items.setdefault(key, {"app": o["app"], "id": o["id"],
+                                           "category": o["category"], "n": 0,
+                                           "max_confidence": 0,
+                                           "last_ts": 0.0})
+        row["n"] += 1
+        row["max_confidence"] = max(row["max_confidence"], o["confidence"])
+        row["last_ts"] = max(row["last_ts"], o["timestamp"])
+    items = sorted(worst_items.values(),
+                   key=lambda r: (-r["n"], -r["max_confidence"],
+                                  -r["last_ts"], r["app"], r["id"]))
+
+    notes: list[str] = []
+    if not _path(CONFIDENCE_FILE).exists():
+        notes.append(f"no {CONFIDENCE_FILE} in {DATA_DIR} yet")
+    elif not obs:
+        notes.append(f"{CONFIDENCE_FILE} holds no usable observations "
+                     f"(empty, corrupt, or every row missing an id / a "
+                     f"1-4 confidence / a correct flag)")
+    if len(obs) >= dashboard.JOURNAL_READ_CAP:
+        notes.append(f"only the newest {dashboard.JOURNAL_READ_CAP} "
+                     f"observations are read (growth cap)")
+
+    conf_wrong = panel["confidently_wrong"]
+    return {
+        "panel": panel,
+        "n": panel["n"],
+        "accuracy": panel["accuracy"],
+        "levels": panel["levels"],
+        "overconfidence": panel["overconfidence"],
+        "mean_abs_gap": mean_abs_gap,
+        "brier": brier,
+        "verdict": panel["verdict"],
+        "enough": panel["enough"],
+        "min_obs": CONFIDENCE_MIN_OBS,
+        "min_level_obs": CONFIDENCE_MIN_LEVEL_OBS,
+        "confidently_wrong": conf_wrong,
+        "confidently_wrong_shown": conf_wrong[:CONFIDENTLY_WRONG_CAP],
+        "confidently_wrong_dropped": max(
+            0, len(conf_wrong) - CONFIDENTLY_WRONG_CAP),
+        "n_confident": panel["n_confident"],
+        "n_confidently_wrong": panel["n_confidently_wrong"],
+        "confident_error_rate": panel["confident_error_rate"],
+        "worst_items": items[:CONFIDENTLY_WRONG_CAP],
+        "apps": panel["apps"],
+        "notes": notes,
+    }
+
+
+def render_confidence_report(c: dict) -> None:
+    console = _console()
+    _heading(console, "Confidence Calibration — did you know that you knew?")
+    print()
+    for note in c["notes"]:
+        _line(console, f"note: {note}", "dim")
+    if c["notes"]:
+        print()
+
+    if not c["n"]:
+        _line(console,
+              "No confidence ratings yet.  Each app shows a 1-4 strip before "
+              "the answer is revealed — optional, and skippable for good.",
+              "dim")
+        _line(console,
+              "Nothing else in the suite can tell 'right' from 'right and "
+              "knew it'.", "dim")
+        print()
+        return
+
+    _line(console,
+          f"{c['n']} rated answer(s) across {len(c['apps'])} app(s) — "
+          f"{c['accuracy'] * 100:.0f}% correct overall", "bold")
+    print()
+
+    _line(console, f"  {'confidence':<18}{'n':>5}{'correct':>9}"
+                   f"{'measured':>10}{'calibrated':>12}   verdict")
+    for row in c["levels"]:
+        if not row["n"]:
+            _line(console,
+                  f"  {row['level']} {row['label']:<16}{0:>5}{'-':>9}"
+                  f"{'-':>10}{row['target'] * 100:>11.0f}%   not used yet",
+                  "dim")
+            continue
+        if not row["judged"]:
+            verdict = f"n < {c['min_level_obs']}, not judged"
+        else:
+            gap = row["gap"] * 100.0
+            if gap < -10:
+                verdict = f"OVERconfident ({gap:+.0f} pts)"
+            elif gap > 10:
+                verdict = f"underconfident ({gap:+.0f} pts)"
+            else:
+                verdict = f"calibrated ({gap:+.0f} pts)"
+        _line(console,
+              f"  {row['level']} {row['label']:<16}{row['n']:>5}"
+              f"{row['correct']:>9}{row['accuracy'] * 100:>9.0f}%"
+              f"{row['target'] * 100:>11.0f}%   {verdict}")
+    _line(console,
+          f"  (a calibrated learner scores about 25/50/75/95% at levels 1-4; "
+          f"a level is judged only at n >= {c['min_level_obs']})", "dim")
+    print()
+
+    if not c["enough"]:
+        _line(console, f"Verdict: {c['verdict']}", "bold yellow")
+        _line(console,
+              f"  {CONFIDENCE_MIN_OBS} rated answers is the floor for an "
+              f"overconfidence number; {CONFIDENCE_MIN_OBS - c['n']} more to "
+              f"go.  The confidently-wrong list below is still real — it is "
+              f"a list of things that happened, not an estimate.")
+    else:
+        _line(console, f"Verdict: {c['verdict']}", "bold")
+        _line(console,
+              f"  overconfidence index {c['overconfidence']:+.0f} pts "
+              f"(claimed accuracy minus measured; positive = you believe "
+              f"yourself more than the marking does)")
+        if c["mean_abs_gap"] is not None:
+            _line(console,
+                  f"  mean absolute gap across judged levels "
+                  f"{c['mean_abs_gap'] * 100:.0f} pts; Brier score "
+                  f"{c['brier']:.3f} (0 = perfect, 0.25 = a coin flip "
+                  f"called at 50%)")
+    print()
+
+    _line(console, "CONFIDENTLY WRONG — the unknown unknowns", "bold red")
+    if not c["confidently_wrong"]:
+        _line(console,
+              f"  None: every answer you rated {CONFIDENT_LEVEL}+ was "
+              f"correct.  That is the good outcome.", "green")
+    else:
+        rate = c["confident_error_rate"]
+        _line(console,
+              f"  {c['n_confidently_wrong']} of {c['n_confident']} confident "
+              f"answer(s) were wrong ({rate * 100:.0f}%).  These sink exam "
+              f"scores because nothing else flags them as shaky.")
+        for i, row in enumerate(c["confidently_wrong_shown"], 1):
+            ids = ", ".join(row["ids"][:3])
+            more = f" +{len(row['ids']) - 3}" if len(row["ids"]) > 3 else ""
+            _line(console,
+                  f"  {i:2}. {_short(row['category'])} [{row['app']}] — "
+                  f"{row['n']} wrong at mean confidence "
+                  f"{row['mean_confidence']:.1f} ({ids}{more})")
+        if c["confidently_wrong_dropped"]:
+            _line(console,
+                  f"  ... {c['confidently_wrong_dropped']} more topic(s)",
+                  "dim")
+        _line(console,
+              "  Treat these as unlearned, not as slips: re-read the source, "
+              "then drill them.")
+    print()
+
+
+# -- (c) --item-analysis: which bank questions carry signal -----------------
+
+def _bank_question(path: Path) -> Optional[dict]:
+    """id / section / difficulty of one bank module, parsed without importing.
+
+    Returns None for a file that does not hold a literal ``Question(id=...)``
+    call — a malformed or experimental module must not break the report.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, ValueError):
+        return None
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "Question"):
+            continue
+        fields: dict[str, object] = {}
+        for kw in node.keywords:
+            if kw.arg not in ("id", "section", "difficulty", "options"):
+                continue
+            try:
+                fields[kw.arg] = ast.literal_eval(kw.value)
+            except (ValueError, TypeError, SyntaxError, MemoryError,
+                    RecursionError):
+                continue
+        ident = fields.get("id")
+        if isinstance(ident, str) and ident.strip():
+            options = fields.get("options")
+            return {
+                "id": ident.strip(),
+                "section": str(fields.get("section") or "").strip()
+                           or "(unknown section)",
+                "difficulty": str(fields.get("difficulty") or "").strip()
+                              or "unknown",
+                "n_options": len(options) if isinstance(options, list) else 0,
+            }
+    return None
+
+
+def load_exam_bank(bank_dir: Optional[Path] = None) -> list[dict]:
+    """Every exam-sim bank question, by static parse ([] when not found)."""
+    root = Path(bank_dir) if bank_dir is not None else EXAM_BANK_DIR
+    try:
+        if not root.is_dir():
+            return []
+        files = sorted(p for p in root.glob("*/*.py")
+                       if p.name != "__init__.py")
+    except OSError:
+        return []
+    out: list[dict] = []
+    seen: set[str] = set()
+    for path in files:
+        q = _bank_question(path)
+        if q is None or q["id"] in seen:
+            continue
+        seen.add(q["id"])
+        out.append(q)
+    out.sort(key=lambda q: (q["section"], q["id"]))
+    return out
+
+
+def build_item_analysis(bank: Optional[list[dict]] = None,
+                        confidence: Optional[list[dict]] = None,
+                        mistakes: Optional[list[dict]] = None,
+                        missed: Optional[list[dict]] = None) -> dict:
+    """Per-question difficulty across the 300-question exam bank.
+
+    Graded attempts come from confidence.json (the only per-attempt log of
+    "this id, right or wrong").  For an item with no graded attempt the
+    journal still proves something: a mistakes.json row is one wrong attempt,
+    and a resolved one adds the later correct attempt; an exam_missed.json
+    row is one wrong attempt.  That merge is stated in the report, because it
+    is evidence of a different strength.
+
+    States: "always correct" (no signal left in the item), "always missed"
+    (a real gap — or an ambiguous/broken item worth re-reading), "mixed"
+    (the item discriminates), "needs more attempts" (below
+    ITEM_MIN_ATTEMPTS) and "never attempted".
+    """
+    if bank is None:
+        bank = load_exam_bank()
+    if confidence is None:
+        confidence = load_confidence()
+    if mistakes is None:
+        mistakes = load_mistakes()
+    if missed is None:
+        missed = _load_list("exam_missed.json")
+
+    records: dict[str, dict] = {}
+
+    def record(ident: str) -> dict:
+        return records.setdefault(ident, {
+            "id": ident, "section": "", "difficulty": "", "in_bank": False,
+            "attempts": 0, "correct": 0, "graded": 0, "last_ts": 0.0,
+            "sources": set()})
+
+    for q in bank:
+        row = record(q["id"])
+        row.update(section=q["section"], difficulty=q["difficulty"],
+                   in_bank=True)
+
+    for o in confidence:
+        if o["app"] != "exam-sim":
+            continue
+        row = record(o["id"])
+        row["attempts"] += 1
+        row["graded"] += 1
+        row["correct"] += 1 if o["correct"] else 0
+        row["last_ts"] = max(row["last_ts"], o["timestamp"])
+        row["sources"].add("confidence.json")
+        if not row["section"] and o["category"]:
+            row["section"] = o["category"]
+
+    for e in latest_mistakes(mistakes):
+        if e["app"] != "exam-sim" or records.get(e["id"], {}).get("graded"):
+            continue
+        row = record(e["id"])
+        row["attempts"] += 2 if e["resolved"] else 1
+        row["correct"] += 1 if e["resolved"] else 0
+        row["last_ts"] = max(row["last_ts"], e["timestamp"])
+        row["sources"].add("mistakes.json")
+        if not row["section"] and e["category"]:
+            row["section"] = e["category"]
+
+    for m in missed:
+        if not isinstance(m, dict) or m.get("question_id") is None:
+            continue
+        ident = str(m["question_id"]).strip()
+        if not ident or records.get(ident, {}).get("attempts"):
+            continue
+        row = record(ident)
+        row["attempts"] += 1
+        row["last_ts"] = max(row["last_ts"], _epoch(m.get("timestamp")))
+        row["sources"].add("exam_missed.json")
+        if not row["section"]:
+            row["section"] = str(m.get("section") or "").strip()
+
+    for row in records.values():
+        row["sources"] = sorted(row["sources"])
+        row["section"] = row["section"] or "(unknown section)"
+        row["difficulty"] = row["difficulty"] or "unknown"
+        n = row["attempts"]
+        row["p_value"] = (row["correct"] / n) if n else None
+        if n == 0:
+            row["state"] = "never attempted"
+        elif n < ITEM_MIN_ATTEMPTS:
+            row["state"] = "needs more attempts"
+        elif row["correct"] == n:
+            row["state"] = "always correct"
+        elif row["correct"] == 0:
+            row["state"] = "always missed"
+        else:
+            row["state"] = "mixed"
+
+    def bucket(state: str) -> list[dict]:
+        rows = [r for r in records.values() if r["state"] == state]
+        rows.sort(key=lambda r: (-r["attempts"],
+                                 r["p_value"] if r["p_value"] is not None
+                                 else 1.0, r["section"], r["id"]))
+        return rows
+
+    always_missed = bucket("always missed")
+    always_correct = bucket("always correct")
+    mixed = bucket("mixed")
+    needs_more = bucket("needs more attempts")
+    never = bucket("never attempted")
+    observed = [r for r in records.values() if r["attempts"]]
+    unknown = sorted(r["id"] for r in observed if not r["in_bank"])
+
+    notes: list[str] = []
+    if not bank:
+        notes.append(f"exam bank not found at {EXAM_BANK_DIR} — analysing "
+                     f"only the question ids that appear in your data")
+    if not observed:
+        notes.append("no per-question exam attempts on file yet; "
+                     "confidence.json (exam-sim rows) is what feeds this")
+    if unknown:
+        notes.append(f"{len(unknown)} answered "
+                     + ("id is" if len(unknown) == 1 else "ids are")
+                     + " not in the bank (renamed or removed questions): "
+                     f"{', '.join(unknown[:5])}"
+                     + (" ..." if len(unknown) > 5 else ""))
+    graded = sum(r["graded"] for r in records.values())
+    if observed and graded < sum(r["attempts"] for r in observed):
+        notes.append("some rows rest on journal evidence (a logged mistake = "
+                     "one wrong attempt) rather than graded attempts")
+
+    return {
+        "bank_size": len(bank),
+        "bank_present": bool(bank),
+        "bank_dir": str(EXAM_BANK_DIR),
+        "min_attempts": ITEM_MIN_ATTEMPTS,
+        "items": sorted(records.values(),
+                        key=lambda r: (r["section"], r["id"])),
+        "n_items": len(records),
+        "n_observed": len(observed),
+        "n_attempts": sum(r["attempts"] for r in records.values()),
+        "n_graded": graded,
+        "always_missed": always_missed,
+        "always_correct": always_correct,
+        "mixed": mixed,
+        "needs_more": needs_more,
+        "never_attempted": never,
+        "unknown_ids": unknown,
+        "sections": _item_sections(records.values()),
+        "notes": notes,
+    }
+
+
+def _item_sections(rows) -> list[dict]:
+    """Per-section attempt/accuracy roll-up for the item-analysis header."""
+    by_section: dict[str, dict] = {}
+    for row in rows:
+        s = by_section.setdefault(row["section"],
+                                  {"section": row["section"], "items": 0,
+                                   "attempted": 0, "attempts": 0,
+                                   "correct": 0})
+        s["items"] += 1
+        if row["attempts"]:
+            s["attempted"] += 1
+        s["attempts"] += row["attempts"]
+        s["correct"] += row["correct"]
+    out = list(by_section.values())
+    for s in out:
+        s["p_value"] = (s["correct"] / s["attempts"]) if s["attempts"] else None
+    out.sort(key=lambda s: (-s["attempts"], s["section"]))
+    return out
+
+
+def render_item_analysis(a: dict) -> None:
+    console = _console()
+    _heading(console, "Item Analysis — which exam questions still teach you "
+                      "something")
+    print()
+    for note in a["notes"]:
+        _line(console, f"note: {note}", "dim")
+    if a["notes"]:
+        print()
+
+    _line(console,
+          f"Bank: {a['bank_size']} question(s) parsed from {a['bank_dir']}"
+          if a["bank_present"] else "Bank: not found", "bold")
+    _line(console,
+          f"Attempts on file: {a['n_attempts']} over {a['n_observed']} "
+          f"question(s) ({a['n_graded']} graded by confidence.json)")
+    print()
+
+    if a["sections"] and a["n_observed"]:
+        _line(console, f"  {'section':<22}{'seen':>6}{'/of':>6}"
+                       f"{'attempts':>10}{'correct':>9}")
+        for s in a["sections"]:
+            if not s["attempts"]:
+                continue
+            pct = f"{s['p_value'] * 100:.0f}%"
+            _line(console,
+                  f"  {_short(s['section']):<22}{s['attempted']:>6}"
+                  f"{s['items']:>6}{s['attempts']:>10}{pct:>9}")
+        print()
+
+    def show(title: str, rows: list[dict], meaning: str, style: str = "",
+             empty: str = "none") -> None:
+        _line(console, f"{title} ({len(rows)})", "bold" + (f" {style}"
+                                                           if style else ""))
+        _line(console, f"  {meaning}", "dim")
+        if not rows:
+            _line(console, f"  {empty}", "dim")
+        for row in rows[:ITEM_LIST_CAP]:
+            _line(console,
+                  f"   - {row['id']} [{_short(row['section'])}] — "
+                  f"{row['correct']}/{row['attempts']} correct"
+                  + (f", {row['difficulty']}" if row["in_bank"] else
+                     ", not in bank"))
+        if len(rows) > ITEM_LIST_CAP:
+            _line(console, f"   ... {len(rows) - ITEM_LIST_CAP} more", "dim")
+        print()
+
+    show("ALWAYS MISSED", a["always_missed"],
+         f"missed on every one of >= {a['min_attempts']} attempts: a real "
+         f"gap, or an ambiguous / broken item — re-read the explanation and "
+         f"decide which.", "red")
+    show("ALWAYS CORRECT", a["always_correct"],
+         f"correct on every one of >= {a['min_attempts']} attempts: no "
+         f"signal left, stop spending exam time on these.", "green")
+    show("MIXED — these discriminate", a["mixed"],
+         "sometimes right, sometimes wrong: the questions actually worth "
+         "drilling.")
+    show("NEEDS MORE ATTEMPTS", a["needs_more"],
+         f"seen, but fewer than {a['min_attempts']} times — no verdict yet.")
+    _line(console,
+          f"NEVER ATTEMPTED ({len(a['never_attempted'])})", "bold")
+    _line(console,
+          "  no attempt on file; run more full exams to cover the bank.",
+          "dim")
+    print()
+    _line(console,
+          "  (single-learner item analysis: 'everyone' is you, across "
+          "attempts.  A 4-option item missed every time is either unlearned "
+          "or badly worded — the explanation tells you which.)", "dim")
+    print()
+
+
+# -- (e) one-line teaser for the default plan -------------------------------
+
+def signals_teaser(mistakes: Optional[list[dict]] = None,
+                   confidence: Optional[list[dict]] = None) -> Optional[str]:
+    """One line about the two new datasets, or None when both are empty."""
+    entries = load_mistakes() if mistakes is None else mistakes
+    obs = load_confidence() if confidence is None else confidence
+    parts: list[str] = []
+    flags: list[str] = []
+
+    if obs:
+        wrong = dashboard.confidently_wrong(obs)
+        if wrong:
+            parts.append(f"{len(wrong)} confidently-wrong topic(s)")
+        else:
+            parts.append(f"{len(obs)} confidence rating(s), none "
+                         f"confidently wrong")
+        flags.append("`coach.py --calibration`")
+    if entries:
+        panel = dashboard.mistakes_panel(entries)
+        top = panel["dominant"]
+        detail = (f", top cause: {CAUSE_LABELS[top]} "
+                  f"({panel['counts'][top]})" if top else "")
+        parts.append(f"{panel['n_unresolved']} unresolved mistake(s){detail}")
+        flags.append("`coach.py --mistakes`")
+    if not parts:
+        return None
+    return "Signals: " + " · ".join(parts) + " — " + ", ".join(flags)
+
+
+# ---------------------------------------------------------------------------
+# One-line readiness / retention teaser for the default plan
+# ---------------------------------------------------------------------------
+
+# coach app key -> dashboard.py display name (dashboard owns the retention maths)
+_DASHBOARD_NAMES = {
+    "qec-trainer": "QEC Trainer", "vqa-trainer": "VQA Trainer",
+    "flashcard-drill": "Flashcard Drill", "circuit-trainer": "Circuit Trainer",
+    "math-quiz": "Math Quiz", "quantum-quiz": "Quantum Quiz",
+    "paper-drill": "Paper Drill", "qiskit-dojo": "Qiskit Dojo",
+    "exam-sim": "Exam Simulator", "problem-trainer": "Problem Trainer",
+}
+
+
+def _dashboard_raw(histories: dict[str, list]) -> dict[str, list]:
+    return {display: histories.get(app, [])
+            for app, display in _DASHBOARD_NAMES.items()}
+
+
+def plan_teaser(histories: dict[str, list]) -> Optional[str]:
+    """One line of Tier-4 signal for the default plan, or None with no data."""
+    parts: list[str] = []
+    readiness = build_readiness(histories)
+    if readiness["confident"]:
+        parts.append(
+            f"readiness ~{readiness['projected']:.0f}/{readiness['questions']} "
+            f"(band {readiness['low']:.0f}–{readiness['high']:.0f}, pass "
+            f"{readiness['pass_mark']}) — {readiness['verdict']}")
+    elif readiness["total_direct"] > 0:
+        parts.append(
+            f"readiness not scoreable yet "
+            f"({readiness['covered_weight']}/{readiness['weight_total']} "
+            f"exam-weight measured, {readiness['total_direct']} obs)")
+
+    summary = dashboard.retention_summary(_dashboard_raw(histories))
+    if summary:
+        if summary["half_life_days"]:
+            parts.append(f"cross-app recall half-life "
+                         f"{summary['half_life_days']:.0f}d "
+                         f"(n={summary['n_gap_obs']})")
+        elif summary["category_half_life"]:
+            parts.append(f"recall half-life "
+                         f"{summary['category_half_life']:.0f}d in "
+                         f"{summary['category_label']} "
+                         f"(n={summary['category_n']})")
+        elif summary["week_acc"] is not None:
+            parts.append(f"this week {summary['week_acc'] * 100:.0f}% over "
+                         f"{summary['week_n']} item(s)")
+    if not parts:
+        return None
+    return (" · ".join(parts)
+            + " — `coach.py --readiness`, `--calibrate`, `dashboard.py`")
+
+
+# ---------------------------------------------------------------------------
+# Interactive modes
+# ---------------------------------------------------------------------------
+
+def run_diagnostic(state: dict) -> None:
+    console = _console()
+    _heading(console, "Placement Diagnostic — 20 questions")
+    print()
+    _line(console, "Answer a/b/c/d (or 1-4). Press Enter to skip.", "dim")
+    print()
+
+    answers: list[Optional[int]] = []
+    for i, q in enumerate(DIAGNOSTIC_QUESTIONS, 1):
+        _line(console, f"Q{i}/20 [{q['rung']}]  {q['q']}", "bold")
+        # Shown in a shuffled order, lettered by row.  14 of the 20 keys sit
+        # at index 1, so in stored order answering "b" throughout scored 70%
+        # and placed the learner at the top of the ladder.  `answers` holds
+        # stored indices, which is what score_diagnostic() compares.
+        order = _shuffled_order(len(q["choices"]))
+        for row, stored in enumerate(order):
+            _line(console, f"    {'abcd'[row]}) {q['choices'][stored]}")
+        row = _read_choice(len(order))
+        answers.append(None if row is None else order[row])
+        print()
+
+    rungs = score_diagnostic(answers)
+    rec = recommended_rung(rungs)
+    state["diagnostic"] = {
+        "timestamp": _NOW,
+        "rungs": rungs,
+        "recommended_rung": rec,
+    }
+    save_state(state)
+
+    total = sum(r["total"] for r in rungs.values())
+    correct = sum(r["correct"] for r in rungs.values())
+    _line(console, f"Score: {correct}/{total}", "bold green")
+    print()
+    for name in RUNG_ORDER:
+        r = rungs[name]
+        mark = "weak" if (r["total"] and r["correct"] / r["total"] < 2 / 3) \
+            else "ok"
+        _line(console,
+              f"  {name:<12} {r['correct']}/{r['total']}  [{mark}]")
+    print()
+    _line(console,
+          f"Recommended docs-ladder starting rung: '{rec}' "
+          f"-> {rung_docs_dir(rec)}", "bold")
+    _line(console, "Future plans will bias toward your weak rungs.", "dim")
+    print()
+
+
+def _shuffled_order(n_choices: int) -> list[int]:
+    """A random display order: order[row] is the stored index shown there."""
+    order = list(range(n_choices))
+    random.shuffle(order)
+    return order
+
+
+def _read_choice(n_choices: int) -> Optional[int]:
+    """Read one MC answer from stdin; None means skipped/EOF."""
+    letters = "abcd"[:n_choices]
+    while True:
+        try:
+            raw = input("  > ").strip().lower()
+        except EOFError:
+            return None
+        if raw == "":
+            return None
+        if raw in letters:
+            return letters.index(raw)
+        if raw.isdigit() and 1 <= int(raw) <= n_choices:
+            return int(raw) - 1
+        print(f"    (enter one of: {', '.join(letters)} / 1-{n_choices}, "
+              f"or Enter to skip)")
+
+
+def cycle_badge(state: dict, badge: str) -> str:
+    """Advance a badge's status (not_started -> in_progress -> earned -> ...)."""
+    badges = state.setdefault("badges", {})
+    cur = badges.get(badge, "not_started")
+    if cur not in BADGE_STATUSES:
+        cur = "not_started"
+    nxt = BADGE_STATUSES[(BADGE_STATUSES.index(cur) + 1) % len(BADGE_STATUSES)]
+    badges[badge] = nxt
+    return nxt
+
+
+def run_badges(state: dict) -> None:
+    console = _console()
+    _heading(console, "IBM Quantum Learning — badge tracker")
+    print()
+    _line(console,
+          "Enter a number to cycle its status "
+          "(not started -> in progress -> earned). q to quit.", "dim")
+    while True:
+        print()
+        badges = state.get("badges", {})
+        for i, name in enumerate(BADGES, 1):
+            status = badges.get(name, "not_started")
+            if status not in BADGE_STATUSES:
+                status = "not_started"
+            _line(console, f"  {i}. [{_BADGE_LABEL[status]:<11}] {name}")
+        print()
+        try:
+            raw = input("badge # (q to quit) > ").strip().lower()
+        except EOFError:
+            break
+        if raw in ("q", "quit", "exit", ""):
+            break
+        if raw.isdigit() and 1 <= int(raw) <= len(BADGES):
+            name = BADGES[int(raw) - 1]
+            new = cycle_badge(state, name)
+            save_state(state)
+            _line(console, f"  -> {name}: {_BADGE_LABEL[new]}")
+        else:
+            _line(console, "  (enter 1-7 or q)")
+    save_state(state)
+    print()
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def load_histories() -> dict[str, list]:
+    return {app: _load_list(fname) for app, fname in _HISTORY_FILES.items()}
+
+
+def main(argv: Optional[list[str]] = None) -> None:
+    parser = argparse.ArgumentParser(
+        description="Quantum Study Coach — daily plan from cross-app history")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--diagnostic", action="store_true",
+                      help="20-question placement quiz")
+    mode.add_argument("--badges", action="store_true",
+                      help="IBM Quantum Learning badge checklist")
+    mode.add_argument("--review", action="store_true",
+                      help="unified SRS review queue")
+    mode.add_argument("--readiness", action="store_true",
+                      help="C1000-179 exam-readiness projection")
+    mode.add_argument("--calibrate", action="store_true",
+                      help="SM-2 schedule vs measured flashcard recall")
+    mode.add_argument("--mistakes", action="store_true",
+                      help="error analysis from the cross-app mistake "
+                           "journal (mistakes.json)")
+    mode.add_argument("--calibration", "--confidence", action="store_true",
+                      dest="calibration",
+                      help="confidence vs accuracy, and the topics you were "
+                           "confident about and still got wrong "
+                           "(confidence.json)")
+    mode.add_argument("--item-analysis", action="store_true",
+                      dest="item_analysis",
+                      help="which exam-bank questions still carry signal")
+    mode.add_argument("--exam-date", metavar="YYYY-MM-DD", dest="exam_date",
+                      default=None,
+                      help="book your C1000-179 sitting (or 'clear' to "
+                           "remove it): the daily plan then counts down, "
+                           "back-plans the remaining weeks and spaces the "
+                           "full mocks")
+    parser.add_argument("--blocked", action="store_true",
+                        help="default view only: drill one topic at a time "
+                             "instead of today's interleaved mix. Mixing is "
+                             "the default because interleaved practice beats "
+                             "blocked practice on delayed retention and "
+                             "transfer (Rohrer & Taylor 2007; Kornell & "
+                             "Bjork 2008) even though it feels harder while "
+                             "you do it")
+    args = parser.parse_args(argv)
+
+    state = load_state()
+
+    if args.exam_date is not None:
+        ok, message = apply_exam_date(state, args.exam_date)
+        if not ok:
+            print(message, file=sys.stderr)
+            raise SystemExit(2)
+        save_state(state)
+        print(message)
+        booked = build_exam_plan(state, load_histories())
+        if booked is not None:
+            print()
+            render_exam_plan(booked, standalone=True)
+        return
+
+    if args.diagnostic:
+        run_diagnostic(state)
+        return
+    if args.badges:
+        run_badges(state)
+        return
+
+    histories = load_histories()
+
+    if args.review:
+        notes: list[str] = []
+        render_review(collect_review_items(histories, notes), notes)
+        return
+
+    if args.readiness:
+        render_readiness(build_readiness(histories))
+        return
+
+    if args.calibrate:
+        render_calibration(build_calibration(histories))
+        return
+
+    if args.mistakes:
+        render_mistake_report(build_mistake_report())
+        return
+
+    if args.calibration:
+        render_confidence_report(build_confidence_report())
+        return
+
+    if args.item_analysis:
+        render_item_analysis(build_item_analysis())
+        return
+
+    # Default: today's plan.
+    update_streak_state(state, histories)
+    plan = build_plan(histories, state)
+    state["last_plan_date"] = _TODAY
+    save_state(state)
+    render_plan(plan, state, blocked=args.blocked)
+
+
+if __name__ == "__main__":
+    main()

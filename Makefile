@@ -60,13 +60,13 @@ dev: ## setup plus pytest, notebook tooling and a Jupyter kernel (setup.sh --dev
 	@bash $(ROOT)/setup.sh --dev $(ARGS)
 
 # ---------------------------------------------------------------------------
-test: ## Run every test suite: root tests/ plus one process per app
+test: ## Run every test (make test ARGS=quantum_study/exam_sim for one app)
 	@bash $(ROOT)/tools/run_tests.sh $(ARGS)
 
 docs: ## Verify the docs corpus and lesson plans (structure, links, snippets)
 	@cd $(ROOT) && $(PYTHON) tools/verify_docs.py --all $(ARGS)
 
-lint: ## Type-check the console tools with mypy ([tool.mypy] in pyproject.toml)
+lint: ## Type-check the package and tools with mypy ([tool.mypy] in pyproject.toml)
 	@if ! $(PYTHON) -c 'import mypy' >/dev/null 2>&1; then \
 		echo "make lint: mypy is not installed for $(PYTHON)"; \
 		echo "           install it with: $(PYTHON) -m pip install mypy"; \
@@ -74,15 +74,14 @@ lint: ## Type-check the console tools with mypy ([tool.mypy] in pyproject.toml)
 	fi
 	@cd $(ROOT) && $(PYTHON) -m mypy $(ARGS)
 
-coverage: ## Run the root suite under coverage ([tool.coverage] in pyproject.toml)
+coverage: ## Run every test under coverage ([tool.coverage] in pyproject.toml)
 	@if ! $(PYTHON) -c 'import coverage' >/dev/null 2>&1; then \
 		echo "make coverage: coverage is not installed for $(PYTHON)"; \
 		echo "               install it with: $(PYTHON) -m pip install coverage"; \
 		exit 1; \
 	fi
-	@# Headless Qt, as tools/run_tests.sh does.  The study data directory
-	@# needs no guard here: tests/conftest.py points QUANTUM_STUDY_DATA_DIR at
-	@# a fresh temp dir at import time, before any test runs.
+	@# Headless Qt, as tools/run_tests.sh does.  The root conftest.py keeps
+	@# every test out of the real study data directory.
 	@cd $(ROOT) \
 		&& export QT_QPA_PLATFORM=$${QT_QPA_PLATFORM:-offscreen} \
 		&& $(PYTHON) -m coverage erase \

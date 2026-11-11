@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from common import errata                           # noqa: E402
+from quantum_study.common import errata                           # noqa: E402
 
 TEMPLATE_FILE = ROOT / ".github" / "ISSUE_TEMPLATE" / "content_error.yml"
 
@@ -100,7 +100,7 @@ def test_every_argument_reaches_the_url():
     f = fields(url)
     assert f["template"] == "content_error.yml"
     assert f["title"] == "[content] qiskit-dojo: kata_07"
-    assert "qiskit-dojo/katas/" in f["file"] and "kata_07" in f["file"]
+    assert "quantum_study/qiskit_dojo/katas/" in f["file"] and "kata_07" in f["file"]
     assert f["quote"] == "Build a Bell state with two gates."
     assert f["why_wrong"] == "The expected answer uses three gates."
     assert f["correction"] == "Accept h+cx as well."
@@ -131,7 +131,7 @@ def test_a_generated_item_says_so_instead_of_naming_a_file():
     for app in ("math-quiz", "quantum-quiz", "paper-drill"):
         assert "generated" in errata.item_location(app, "id").lower()
     assert errata.item_location("exam-sim", "ex_017") == \
-        "exam-sim/bank/ — item id `ex_017`"
+        "quantum_study/exam_sim/bank/ — item id `ex_017`"
 
 
 def test_an_unknown_app_still_produces_something_usable():

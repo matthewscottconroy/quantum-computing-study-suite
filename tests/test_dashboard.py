@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-import dashboard
-from dashboard import AppStats, DashboardReport, build_report
+from quantum_study import dashboard
+from quantum_study.dashboard import AppStats, DashboardReport, build_report
 
 DAY = 86400.0
 approx = pytest.approx

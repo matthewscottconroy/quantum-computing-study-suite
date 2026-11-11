@@ -1,53 +1,23 @@
-# pyproject.toml — packaging and tool configuration for the Quantum Computing
-# Study Suite.
+# Packaging and tool configuration for the Quantum Computing Study Suite.
 #
-# What this packages, and what it deliberately does not
-# -----------------------------------------------------
-# Installed: the three root console scripts (launch.py, coach.py, dashboard.py)
-# as top-level modules, exposed as the `quantum-study`, `quantum-coach` and
-# `quantum-dashboard` commands, plus the `common` package -- the shared code
-# the ten apps import (data-directory resolution, the mistake/confidence
-# journal, the flag store, schema versioning, errata URLs, and the Qt theme,
-# widgets and Reference screen under `common.ui`).  `common` is a real package
-# with no name clashes, so unlike the apps it installs cleanly; see
-# common/README.md for the import shim the apps use to reach it.
+# One package, `quantum_study`: the ten PyQt6 apps (`quantum_study.<app>`), the
+# code they share (`quantum_study.common`) and the three console tools.  The
+# teaching corpus (docs/, lesson-plans/, labs/, notebooks/, projects/) and the
+# maintenance scripts (tools/) stay in the repository and are not packaged, so
+# install it editable from a checkout: `./setup.sh`, `make dev`, or
+# `pip install -e .`.  A plain wheel runs the apps, but their Reference
+# screens need QUANTUM_STUDY_DOCS_DIR pointed at a copy of docs/.
 #
-# NOT installed: the ten PyQt6 apps (circuit-trainer, exam-sim, flashcard-drill,
-# math-quiz, paper-drill, problem-trainer, qec-trainer, qiskit-dojo,
-# quantum-quiz, vqa-trainer).  They are not importable packages: each app is a
-# self-contained tree with its own top-level `main.py`, `core/`, `ui/`,
-# `config.py` and (variously) `workers/`, `grading/`, `problems/`, so several
-# apps define the *same* top-level module names and cannot coexist on one
-# sys.path — tools/run_tests.sh runs each app's suite in its own pytest process
-# for exactly this reason.  Making them importable would mean renaming every
-# app's internals; instead launch.py starts each app as a detached subprocess
-# (`sys.executable main.py` with cwd = the app directory), so `quantum-study`
-# reaches all ten without any of them being on sys.path.
-#
-# Consequence: install this project **editable** (`pip install -e .`, or
-# `./setup.sh`, or `make dev`).  launch.py, coach.py and dashboard.py resolve the
-# apps, docs corpus and lesson plans from `Path(__file__).resolve().parent`; a
-# non-editable install copies the three modules into site-packages, where that
-# path no longer contains the repository, and the console scripts would find no
-# apps and no docs.
-#
-# Note: test configuration lives in the repository's pytest.ini, which owns it.
-# There is deliberately no [tool.pytest.ini_options] table here — two pytest
-# config sources in one project is a silent-override trap.
+# Test configuration lives in pytest.ini.
 
 [build-system]
-# setuptools >= 77 is the first release that understands the PEP 639
-# `license = "MIT"` SPDX expression and `license-files` used below.
+# setuptools >= 77 understands the PEP 639 `license = "MIT"` expression.
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
-
-# ---------------------------------------------------------------------------
-# PEP 621 metadata
-# ---------------------------------------------------------------------------
 [project]
 name = "quantum-study-suite"
-version = "0.2.0"
+dynamic = ["version"]
 description = "A self-contained desktop learning suite for quantum computing: ten PyQt6 trainers, a teaching corpus, and console study tools for the IBM C1000-179 certification."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -66,8 +36,6 @@ keywords = [
     "c1000-179",
     "pyqt6",
 ]
-# No "License :: OSI Approved :: ..." classifier: setuptools rejects license
-# classifiers alongside the PEP 639 `license` expression above.
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: X11 Applications :: Qt",
@@ -86,46 +54,36 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 
-# Mirrors requirements.txt.  Keep the two in step: requirements.txt is what
-# setup.sh and CI install, this table is what `pip install -e .` resolves.
-# tests/test_packaging.py fails if either list (or the [dev] extra below and
-# requirements-dev.txt) drifts from the other.
+# Mirrors requirements.txt, which is what setup.sh and CI install.
+# tests/test_packaging.py fails if the two lists (or the [dev] extra and
+# requirements-dev.txt) drift apart.
 dependencies = [
-    # Desktop UI (all ten apps)
     "PyQt6>=6.6",
-    # Claude API — validated on the 1.x SDK; a future 2.x is untested
-    "anthropic>=1.0,<2",
-    # Qiskit stack (quantum-quiz, circuit-trainer, qiskit-dojo, notebooks, labs)
+    # Checked against 1.0 and 2.8: the apps only call messages.create() without
+    # sampling parameters, which is all API version 2026-10-21 (SDK 2.x) needs.
+    "anthropic>=1.0,<3",
     "qiskit>=2.0,<3",
     "qiskit-aer>=0.17",
     "qiskit-ibm-runtime>=0.40",
     "qiskit-qasm3-import>=0.6",
     "pylatexenc>=2.10",
-    # Numerics and plotting
     "numpy>=1.26",
     "scipy>=1.11",
     "matplotlib>=3.8",
     "seaborn>=0.13",
-    # Console tools (coach.py, dashboard.py) — both degrade to plain text
     "rich>=13",
 ]
 
-# Mirrors requirements-dev.txt.  Its `-r requirements.txt` line is implicit
-# here: an extra is installed on top of [project.dependencies].
 [project.optional-dependencies]
 dev = [
-    # Tests (each app has its own tests/ and pytest.ini; tools/run_tests.sh
-    # runs them one process at a time)
     "pytest>=8.0",
     "pytest-timeout>=2.3",
-    # Notebooks (notebooks/ch01-ch08.ipynb, noise_labs.ipynb)
     "nbformat>=5.10",
     "nbclient>=0.10",
     "ipykernel>=6.29",
     "jupyterlab>=4.2",
-    # Flashcard export (tools/export_cards.py --apkg); --json and --html need
-    # nothing beyond the standard library
-    "genanki>=0.13",
+    # tools/export_cards.py --apkg only
+    "genanki>=0.13.1",
 ]
 
 [project.urls]
@@ -136,108 +94,48 @@ Documentation = "https://github.com/matthewscottconroy/quantum-computing-study-s
 Changelog = "https://github.com/matthewscottconroy/quantum-computing-study-suite/blob/main/ROADMAP.md"
 
 [project.scripts]
-# All three targets take no required arguments and return either None or an
-# int exit status, which is exactly what a console_scripts wrapper wants:
-#   launch.main(argv=None) -> int     (GUI by default; --list/--status/<app> CLI)
-#   coach.main(argv=None) -> None
-#   dashboard.main() -> None
-quantum-study = "launch:main"
-quantum-coach = "coach:main"
-quantum-dashboard = "dashboard:main"
+# The launcher starts any app (`quantum-study exam`); each app is also
+# `python -m quantum_study.<app>`.
+quantum-study = "quantum_study.launch:main"
+quantum-coach = "quantum_study.coach:main"
+quantum-dashboard = "quantum_study.dashboard:main"
 
+[tool.setuptools.dynamic]
+version = { attr = "quantum_study.__version__" }
 
-# ---------------------------------------------------------------------------
-# setuptools: three loose modules, no packages
-# ---------------------------------------------------------------------------
-[tool.setuptools]
-# Naming py-modules and packages explicitly also switches off setuptools'
-# automatic discovery, which would otherwise try (and fail) to treat docs/,
-# labs/, notebooks/, projects/ and the ten app trees as packages.
-py-modules = ["launch", "coach", "dashboard"]
-# The shared package.  Listed leaf by leaf rather than with `find`, for the
-# same reason: discovery would sweep in the app trees.  Add a line here when
-# common/ gains a sub-package.
-packages = ["common", "common.ui"]
+[tool.setuptools.packages.find]
+include = ["quantum_study*"]
+# Each app's tests live beside it (quantum_study/<app>/tests/) and are not shipped.
+exclude = ["quantum_study.*.tests", "quantum_study.*.tests.*"]
 
 [tool.setuptools.package-data]
-# common/README.md is the migration contract (the import shim, the API surface
-# and the reconciled divergences); ship it with the code it documents.
-common = ["README.md"]
+"quantum_study.common" = ["README.md"]
 
-
-# ---------------------------------------------------------------------------
-# mypy — permissive baseline, so it can be turned on in CI without a rewrite
-# ---------------------------------------------------------------------------
+# mypy is advisory in CI until its baseline is clean; no error code is silenced
+# to get there.  python_version is unset on purpose: pinning it to the 3.11
+# floor makes mypy parse the installed numpy stubs under 3.11 rules and abort.
 [tool.mypy]
-# python_version is deliberately unset: mypy then targets the interpreter it
-# runs under.  Pinning it to the project floor (3.11) makes mypy parse the
-# *installed* third-party stubs under 3.11 syntax rules, and numpy's current
-# .pyi files use PEP 695 `type` statements — that is an immediate hard error
-# on a 3.12+ venv.  CI runs 3.12 and 3.14; check against what is installed.
-# PyQt6, qiskit, anthropic, rich, matplotlib &c. are checked as Any rather than
-# demanding stubs.
 ignore_missing_imports = true
-# No strict flags on purpose: no disallow_untyped_defs, no warn_return_any, no
-# strict_optional tightening.  Get this baseline to zero first, then tighten it
-# one flag at a time.
 warn_unused_configs = true
-# Baseline status at 0.2.0: NOT yet clean.  `make lint` reports a couple of
-# dozen errors across launch.py, coach.py, dashboard.py and tools/ — mostly
-# `union-attr` on PyQt6 accessors that return Optional, plus some `object`-typed
-# dict reads.  They are pre-existing and no error code is silenced to hide them,
-# so run `make lint` for the current number.  Treat the target as advisory until
-# it reaches zero; only then make it a CI gate.
-# `make lint` passes these paths explicitly; listing them here means a bare
-# `mypy` at the repo root checks the same set.  `common` is included from the
-# day it was added: it is new code with full annotations, and it is the one
-# part of the tree that ten other trees import, so it is the worst place for a
-# type error to go unnoticed.
-files = ["coach.py", "dashboard.py", "launch.py", "tools", "common"]
-# The ten app trees are excluded for now.  They are not importable side by side
-# (duplicate top-level core/, ui/, config.py — see the note at the top of this
-# file), so mypy would report "Duplicate module named ..." before it found a
-# single real error.  Checking them means one mypy invocation per app, with
-# mypy_path set to that app; worth doing, but not in this baseline.
+files = ["quantum_study", "tools"]
 exclude = '''(?x)
-    ^(?:
-        circuit-trainer
-      | exam-sim
-      | flashcard-drill
-      | math-quiz
-      | paper-drill
-      | problem-trainer
-      | qec-trainer
-      | qiskit-dojo
-      | quantum-quiz
-      | vqa-trainer
-      | \.venv
-      | build
-      | dist
-    )/
+    (?: ^|/ ) (?: tests | \.venv | build | dist ) /
 '''
 
-
-# ---------------------------------------------------------------------------
-# coverage.py — root suite only (the app suites each run in their own process)
-# ---------------------------------------------------------------------------
 [tool.coverage.run]
 branch = true
-# The three root scripts plus tools/.  Note the *module* names, not file
-# names: coverage resolves a `source` entry that is not an existing directory
-# by importing it, so "coach.py" would be looked up as a module called
-# "coach.py", never found, and silently reported as 0 files measured
-# ("CoverageWarning: Module coach.py was never imported").  Anything imported
-# from outside this list is not measured, so the ten app trees stay out of the
-# report even when a test shells into one.
-source = ["coach", "dashboard", "launch", "tools", "common"]
+source = ["quantum_study", "tools"]
 omit = [
     "tests/*",
     "*/tests/*",
     "*/__pycache__/*",
     ".venv/*",
+    # One-file-per-item content banks: data, not code.
+    "quantum_study/flashcard_drill/cards/*/*",
+    "quantum_study/exam_sim/bank/*/*",
+    "quantum_study/*/problems/*/*",
+    "quantum_study/qiskit_dojo/katas/*/*",
 ]
-# Keeps a coverage run under `tools/run_tests.sh` (many pytest processes) from
-# each clobbering the last .coverage file.
 parallel = true
 
 [tool.coverage.report]

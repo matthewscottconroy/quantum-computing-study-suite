@@ -48,6 +48,8 @@ from typing import Iterable, Iterator, Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 GRAPH_FILE = Path(__file__).resolve().parent / "concept_graph.json"
+#: The package that holds the ten apps (their banks are read with ast, not imported).
+APPS_DIR = ROOT / "quantum_study"
 DEFAULT_HTML = ROOT / "exports" / "concept_map.html"
 SCHEMA = "quantum-study/concept-graph@1"
 
@@ -57,7 +59,7 @@ SCHEMA = "quantum-study/concept-graph@1"
 # be exactly one parser for them in the repo.
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-import dashboard  # noqa: E402
+from quantum_study import dashboard  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -315,28 +317,28 @@ def _enum_values(path: Path, class_name: str) -> set[str]:
 
 
 def quiz_subjects(app_dir: str) -> dict[str, list[str]]:
-    return _module_assign(ROOT / app_dir / "core" / "topics.py", "TOPICS")
+    return _module_assign(APPS_DIR / app_dir.replace("-", "_") / "core" / "topics.py", "TOPICS")
 
 
 def app_categories() -> dict[str, set[str]]:
     """{dashboard app name: the categories that app actually writes}."""
     cats: dict[str, set[str]] = {
-        "Flashcard Drill": _kwarg_values(ROOT / "flashcard-drill" / "cards", "category"),
-        "QEC Trainer":     _kwarg_values(ROOT / "qec-trainer" / "problems", "category"),
-        "VQA Trainer":     _kwarg_values(ROOT / "vqa-trainer" / "problems", "category"),
-        "Qiskit Dojo":    (set(_module_assign(ROOT / "qiskit-dojo" / "katas" / "__init__.py",
+        "Flashcard Drill": _kwarg_values(APPS_DIR / "flashcard_drill" / "cards", "category"),
+        "QEC Trainer":     _kwarg_values(APPS_DIR / "qec_trainer" / "problems", "category"),
+        "VQA Trainer":     _kwarg_values(APPS_DIR / "vqa_trainer" / "problems", "category"),
+        "Qiskit Dojo":    (set(_module_assign(APPS_DIR / "qiskit_dojo" / "katas" / "__init__.py",
                                               "SECTION_ORDER"))
-                           | _kwarg_values(ROOT / "qiskit-dojo" / "katas", "section")),
-        "Exam Simulator": (set(_module_assign(ROOT / "exam-sim" / "config.py", "SECTIONS"))
-                           | _kwarg_values(ROOT / "exam-sim" / "bank", "section")),
+                           | _kwarg_values(APPS_DIR / "qiskit_dojo" / "katas", "section")),
+        "Exam Simulator": (set(_module_assign(APPS_DIR / "exam_sim" / "config.py", "SECTIONS"))
+                           | _kwarg_values(APPS_DIR / "exam_sim" / "bank", "section")),
         "Math Quiz":       set(quiz_subjects("math-quiz")),
         "Quantum Quiz":    set(quiz_subjects("quantum-quiz")),
-        "Circuit Trainer": _enum_values(ROOT / "circuit-trainer" / "core" / "models.py",
+        "Circuit Trainer": _enum_values(APPS_DIR / "circuit_trainer" / "core" / "models.py",
                                         "ProblemCategory"),
         # problems_history stores only {problem_id, kind}; the concept-level
         # vocabulary is the problem topics, plus the literal kind "derivation"
         # that derivation attempts are written with.
-        "Problem Trainer": (_kwarg_values(ROOT / "problem-trainer" / "problems", "topic")
+        "Problem Trainer": (_kwarg_values(APPS_DIR / "problem_trainer" / "problems", "topic")
                             | {"derivation"}),
     }
     return cats
@@ -363,7 +365,7 @@ def category_resolvers() -> dict[str, dict[str, str]]:
     table = {}
     pattern_id = re.compile(r"^\s*id\s*=\s*(['\"])(.*?)\1", re.M)
     pattern_topic = re.compile(r"^\s*topic\s*=\s*(['\"])(.*?)\1", re.M)
-    for path in _module_files(ROOT / "problem-trainer" / "problems"):
+    for path in _module_files(APPS_DIR / "problem_trainer" / "problems"):
         text = path.read_text(encoding="utf-8")
         mid, mtopic = pattern_id.search(text), pattern_topic.search(text)
         if mid and mtopic:

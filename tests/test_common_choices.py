@@ -10,7 +10,7 @@ from collections import Counter
 
 import pytest
 
-from common.choices import (
+from quantum_study.common.choices import (
     display_order,
     positional_reference,
     resolve_order,

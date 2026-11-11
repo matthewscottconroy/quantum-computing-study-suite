@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from common import datadir
+from quantum_study.common import datadir
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +102,8 @@ def test_app_file_names_match_the_apps_on_disk(monkeypatch, tmp_path):
     monkeypatch.setenv(datadir.ENV_VAR, str(tmp_path))
     repo = Path(__file__).resolve().parent.parent
     for app, kinds in datadir.APP_FILES.items():
-        assert (repo / app).is_dir(), f"{app} is not an app directory"
+        package = repo / "quantum_study" / app.replace("-", "_")
+        assert package.is_dir(), f"{app} has no package directory"
         for kind, name in kinds.items():
             assert datadir.app_file(app, kind) == tmp_path / name
             assert name.endswith(".json")
@@ -116,9 +117,11 @@ def test_app_file_rejects_unknown_app_and_kind():
 
 
 def test_apps_list_matches_the_repository():
-    """Ten apps, each with a main.py — the same check CI's APPS step makes."""
+    """Ten apps, each a package with a main.py; the id is the package name
+    with hyphens."""
     repo = Path(__file__).resolve().parent.parent
-    on_disk = sorted(p.parent.name for p in repo.glob("*/main.py"))
+    on_disk = sorted(p.parent.name.replace("_", "-")
+                     for p in (repo / "quantum_study").glob("*/main.py"))
     assert list(datadir.APPS) == on_disk
     assert len(datadir.APPS) == 10
 
@@ -133,7 +136,7 @@ def test_env_var_name_is_the_one_everything_else_uses():
     assert datadir.ENV_VAR == "QUANTUM_STUDY_DATA_DIR"
     repo = Path(__file__).resolve().parent.parent
     for name in ("coach.py", "dashboard.py", "launch.py"):
-        assert datadir.ENV_VAR in (repo / name).read_text(encoding="utf-8")
+        assert datadir.ENV_VAR in (repo / "quantum_study" / name).read_text(encoding="utf-8")
 
 
 def test_os_environ_is_read_not_a_snapshot(monkeypatch, tmp_path):

@@ -1,0 +1,291 @@
+"""Setup screen — choose mode, topic filter, and items for the session."""
+from __future__ import annotations
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
+    QRadioButton, QButtonGroup, QCheckBox, QListWidget, QListWidgetItem,
+    QAbstractItemView,
+)
+from PyQt6.QtCore import Qt, pyqtSignal
+from quantum_study.problem_trainer.problems import all_problems, all_topics
+from quantum_study.problem_trainer.derivations import all_derivations
+from quantum_study.problem_trainer.ui import theme
+from quantum_study.problem_trainer import persistence
+
+MODE_PROBLEMS    = "problems"
+MODE_DERIVATIONS = "derivations"
+
+
+class SetupScreen(QWidget):
+    # emits (mode, [items]) — items are Problem or Derivation objects
+    session_started     = pyqtSignal(str, list)
+    history_requested   = pyqtSignal()
+    reference_requested = pyqtSignal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._topic_cbs: dict[str, QCheckBox] = {}
+        self._build_ui()
+        self._refresh_list()
+        self.refresh_warnings()
+
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(48, 36, 48, 32)
+        root.setSpacing(18)
+
+        title = QLabel("Problem Trainer")
+        title.setObjectName("heading")
+        sub = QLabel(
+            "Long-form textbook problems with rubric-based AI grading, and guided "
+            "Socratic derivations — Nielsen & Chuang style, across the curriculum."
+        )
+        sub.setObjectName("subheading")
+        sub.setWordWrap(True)
+        root.addWidget(title)
+        root.addWidget(sub)
+
+        # Shown only when common.schema refused a write because a data file was
+        # stamped by a newer build of the suite.  A refused write is silent
+        # everywhere else by design (nothing may raise into a drill), so this
+        # is the one place it becomes visible.
+        self._warning_lbl = QLabel("")
+        self._warning_lbl.setObjectName("subheading")
+        self._warning_lbl.setWordWrap(True)
+        self._warning_lbl.setStyleSheet(
+            f"color: {theme.WARNING}; font-size: 12px; font-weight: bold;")
+        self._warning_lbl.hide()
+        root.addWidget(self._warning_lbl)
+
+        sep = QFrame(); sep.setObjectName("separator")
+        root.addWidget(sep)
+
+        content = QHBoxLayout(); content.setSpacing(28)
+        root.addLayout(content, 1)
+
+        # Left column: mode + topic filter
+        left = QVBoxLayout(); left.setSpacing(10)
+
+        mode_lbl = QLabel("Mode")
+        mode_lbl.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
+        left.addWidget(mode_lbl)
+
+        self._mode_group = QButtonGroup(self)
+        self._rb_problems = QRadioButton("Problem Sets — multi-part, rubric-graded")
+        self._rb_derivs   = QRadioButton("Guided Derivations — step-by-step Socratic")
+        self._rb_problems.setChecked(True)
+        for rb in (self._rb_problems, self._rb_derivs):
+            self._mode_group.addButton(rb)
+            left.addWidget(rb)
+        self._rb_problems.toggled.connect(self._on_mode_changed)
+
+        left.addSpacing(10)
+        self._topics_lbl = QLabel("Topics")
+        self._topics_lbl.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
+        left.addWidget(self._topics_lbl)
+
+        for topic in all_topics():
+            cb = QCheckBox(topic)
+            cb.setChecked(True)
+            color = theme.TOPIC_COLORS.get(topic, theme.ACCENT)
+            cb.setStyleSheet(
+                f"QCheckBox::indicator:checked {{ background: {color}; border-color: {color}; }}"
+            )
+            cb.stateChanged.connect(self._refresh_list)
+            self._topic_cbs[topic] = cb
+            left.addWidget(cb)
+
+        shortcuts = QHBoxLayout()
+        for label, val in [("All", True), ("None", False)]:
+            btn = QPushButton(label); btn.setObjectName("flat")
+            btn.clicked.connect(lambda _, v=val: self._set_all(v))
+            shortcuts.addWidget(btn)
+        shortcuts.addStretch()
+        left.addLayout(shortcuts)
+
+        left.addSpacing(10)
+        journal_lbl = QLabel("Study journal")
+        journal_lbl.setStyleSheet(
+            f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
+        left.addWidget(journal_lbl)
+
+        self._confidence_cb = QCheckBox("◔ Ask how sure I am before each answer")
+        self._confidence_cb.setAccessibleName("Ask for a confidence rating before each answer")
+        self._confidence_cb.setToolTip(
+            "Show the optional 1–4 confidence strip on every problem part and "
+            "derivation step. Pairing it with the result finds the topics you "
+            "are confidently wrong about.")
+        self._confidence_cb.setStyleSheet(f"QCheckBox {{ font-size: 12px; }}")
+        self._confidence_cb.stateChanged.connect(self._on_confidence_toggled)
+        left.addWidget(self._confidence_cb)
+        self.refresh_settings()
+
+        tip = QLabel(
+            "Grading and step-checking use Claude (Anthropic API key required).\n\n"
+            "No key? Every part and step still offers “Show model solution” — the "
+            "app works fully offline for study."
+        )
+        tip.setWordWrap(True)
+        tip.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 12px;")
+        left.addWidget(tip)
+        left.addStretch()
+        content.addLayout(left, 2)
+
+        # Right column: item list
+        right = QVBoxLayout(); right.setSpacing(8)
+        list_head = QHBoxLayout()
+        self._list_lbl = QLabel("")
+        self._list_lbl.setStyleSheet(f"font-weight: bold; font-size: 11px; color: {theme.TEXT_MUTED};")
+        list_head.addWidget(self._list_lbl)
+        list_head.addStretch()
+        self._flagged_cb = QCheckBox("⚑ Flagged for review only")
+        self._flagged_cb.setToolTip(
+            "Show only problems/derivations you flagged for review "
+            "(see History to manage flags)")
+        self._flagged_cb.setStyleSheet(
+            f"QCheckBox {{ font-size: 12px; color: {theme.WARNING}; }}"
+            f"QCheckBox::indicator:checked {{ background: {theme.WARNING}; border-color: {theme.WARNING}; }}")
+        self._flagged_cb.stateChanged.connect(self._refresh_list)
+        list_head.addWidget(self._flagged_cb)
+        right.addLayout(list_head)
+
+        self._list = QListWidget()
+        self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._list.itemSelectionChanged.connect(self._update_start_label)
+        self._list.itemDoubleClicked.connect(lambda _item: self._on_start())
+        right.addWidget(self._list, 1)
+
+        hint = QLabel("Select one or more (Ctrl/Shift-click). None selected = run all listed.")
+        hint.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-size: 11px;")
+        right.addWidget(hint)
+        content.addLayout(right, 3)
+
+        sep2 = QFrame(); sep2.setObjectName("separator")
+        root.addWidget(sep2)
+
+        btn_row = QHBoxLayout()
+        history_btn = QPushButton("View History")
+        history_btn.setObjectName("flat")
+        history_btn.clicked.connect(self.history_requested)
+        btn_row.addWidget(history_btn)
+        reference_btn = QPushButton("📖 Reference")
+        reference_btn.setObjectName("flat")
+        reference_btn.setToolTip("Browse the study docs in-app")
+        reference_btn.clicked.connect(self.reference_requested)
+        btn_row.addWidget(reference_btn)
+        btn_row.addStretch()
+        self._start_btn = QPushButton("Start Session")
+        self._start_btn.setObjectName("accent")
+        self._start_btn.clicked.connect(self._on_start)
+        btn_row.addWidget(self._start_btn)
+        root.addLayout(btn_row)
+
+    # ------------------------------------------------------------------
+
+    def current_mode(self) -> str:
+        return MODE_PROBLEMS if self._rb_problems.isChecked() else MODE_DERIVATIONS
+
+    def _on_mode_changed(self) -> None:
+        is_problems = self.current_mode() == MODE_PROBLEMS
+        self._topics_lbl.setVisible(is_problems)
+        for cb in self._topic_cbs.values():
+            cb.setVisible(is_problems)
+        self._refresh_list()
+
+    def _set_all(self, val: bool) -> None:
+        for cb in self._topic_cbs.values():
+            cb.setChecked(val)
+
+    def _selected_topics(self) -> list[str]:
+        return [t for t, cb in self._topic_cbs.items() if cb.isChecked()]
+
+    def flagged_only(self) -> bool:
+        return self._flagged_cb.isChecked()
+
+    def set_flagged_only(self, on: bool) -> None:
+        self._flagged_cb.setChecked(on)
+
+    def refresh_settings(self) -> None:
+        """Mirror the persisted confidence-prompt preference on the checkbox."""
+        try:
+            enabled = persistence.confidence_prompt_enabled()
+        except Exception:
+            enabled = True
+        self._confidence_cb.blockSignals(True)    # reading must never write
+        self._confidence_cb.setChecked(enabled)
+        self._confidence_cb.blockSignals(False)
+
+    def _on_confidence_toggled(self) -> None:
+        try:
+            persistence.set_confidence_prompt_enabled(self._confidence_cb.isChecked())
+        except Exception:
+            pass
+
+    def refresh_warnings(self) -> None:
+        """Surface a write this build refused to make, if there was one.
+
+        ``common.schema`` will not overwrite a file whose sidecar says it was
+        written by a newer build — that is how the newer build's fields get
+        deleted.  The write is skipped, recorded, and shown here rather than
+        being lost in silence.
+        """
+        try:
+            error = persistence.last_write_error()
+        except Exception:
+            error = None
+        self._warning_lbl.setText(f"⚠  {error}" if error else "")
+        self._warning_lbl.setVisible(error is not None)
+
+    def refresh_flag_filter(self) -> None:
+        """Re-apply the list when the flagged-only filter is active (flags may
+        have changed in History or a session); leaves selection alone otherwise."""
+        if self.flagged_only():
+            self._refresh_list()
+
+    def _flag_filter(self, items: list) -> tuple[list, str]:
+        if not self.flagged_only():
+            return items, ""
+        try:
+            ids = persistence.flagged_ids()
+        except Exception:
+            ids = set()
+        return [i for i in items if i.id in ids], " flagged"
+
+    def _refresh_list(self) -> None:
+        self._list.clear()
+        if self.current_mode() == MODE_PROBLEMS:
+            topics = self._selected_topics()
+            items = [p for p in all_problems() if p.topic in topics]
+            items, suffix = self._flag_filter(items)
+            self._list_lbl.setText(f"Problems ({len(items)}{suffix})")
+            for p in items:
+                parts = len(p.parts)
+                li = QListWidgetItem(f"{p.title}   —   {p.topic}, {parts} parts, "
+                                     f"{p.total_points} pts")
+                li.setData(Qt.ItemDataRole.UserRole, p)
+                self._list.addItem(li)
+        else:
+            items, suffix = self._flag_filter(all_derivations())
+            self._list_lbl.setText(f"Derivations ({len(items)}{suffix})")
+            for d in items:
+                li = QListWidgetItem(f"{d.title}   —   {len(d.steps)} steps")
+                li.setData(Qt.ItemDataRole.UserRole, d)
+                self._list.addItem(li)
+        self._update_start_label()
+
+    def _update_start_label(self) -> None:
+        n_sel = len(self._list.selectedItems())
+        n_all = self._list.count()
+        n = n_sel if n_sel else n_all
+        noun = "problem" if self.current_mode() == MODE_PROBLEMS else "derivation"
+        self._start_btn.setText(f"Start Session ({n} {noun}{'s' if n != 1 else ''})")
+        self._start_btn.setEnabled(n > 0)
+
+    def _on_start(self) -> None:
+        selected = self._list.selectedItems()
+        if selected:
+            items = [li.data(Qt.ItemDataRole.UserRole) for li in selected]
+        else:
+            items = [self._list.item(i).data(Qt.ItemDataRole.UserRole)
+                     for i in range(self._list.count())]
+        if items:
+            self.session_started.emit(self.current_mode(), items)

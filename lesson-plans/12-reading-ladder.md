@@ -9,7 +9,7 @@ the field from the EPR paradox to modern quantum LDPC hardware codes — and a
 **per-chapter reading list** keyed to the eight [docs/](../docs/) chapters,
 2–4 papers each, in recommended reading order. Every entry carries a
 difficulty rating, what to extract from it, and a note on drilling it with the
-[`paper-drill`](../paper-drill/) app.
+[`paper-drill`](../quantum_study/paper_drill/) app.
 
 **Difficulty scale:** ★ readable after the relevant docs chapter · ★★ needs
 real effort, work through it with pencil and paper · ★★★ hard; expect multiple
