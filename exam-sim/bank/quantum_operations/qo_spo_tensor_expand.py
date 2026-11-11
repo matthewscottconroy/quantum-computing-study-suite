@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print?\n\n```python\nfrom qiskit.quantum_info import SparsePauliOp\n\nprint(SparsePauliOp("X").tensor(SparsePauliOp("Z")).paulis[0],\n      SparsePauliOp("X").expand(SparsePauliOp("Z")).paulis[0])\n```',
     options=[
-        'XZ ZX — tensor() puts the caller on the high qubits, expand() puts it on the low qubits',
+        'XZ ZX — expand() reverses the order of tensor()',
         'ZX XZ — tensor() puts the caller on the low qubits',
         'XZ XZ — expand() is an alias for tensor()',
         'XX ZZ — the labels are broadcast, not concatenated',

@@ -6,7 +6,7 @@ QUESTION = Question(
     section='OpenQASM',
     question='What happens here?\n\n```python\nfrom qiskit import qasm2\n\nsrc = "OPENQASM 2.0; qreg q[1]; h q[0];"\nqc = qasm2.loads(src)\n```',
     options=[
-        'QASM2ParseError — without include "qelib1.inc"; the gate \'h\' is not defined',
+        "QASM2ParseError — the gate 'h' is not defined",
         'It parses fine — h is a built-in OpenQASM 2 gate',
         'ImportError — qasm2 was removed from Qiskit 2.x',
         'The h gate is skipped with a warning',

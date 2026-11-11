@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print?\n\n```python\nfrom qiskit.quantum_info import Operator, Statevector\n\nsv = Statevector.from_label("000").evolve(Operator.from_label("X"), qargs=[1])\nprint(sv.probabilities_dict())\n```',
     options=[
-        "{'010': 1.0} — qargs=[1] applies the 1-qubit operator to qubit 1, the middle bit",
+        "{'010': 1.0} — qargs=[1] targets qubit 1, the middle bit",
         "{'100': 1.0} — qargs indexes the bitstring from the left",
         "{'001': 1.0} — a 1-qubit operator always acts on qubit 0",
         'QiskitError — a 1-qubit Operator cannot evolve a 3-qubit Statevector',

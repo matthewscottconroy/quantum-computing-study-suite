@@ -9,7 +9,7 @@ QUESTION = Question(
         'It writes circuit.png',
         'It silently falls back to the text drawer',
         'It raises MissingOptionalLibraryError for pillow',
-        'It raises VisualizationError — the only valid outputs are text, latex, latex_source and mpl',
+        'It raises a VisualizationError',
     ],
     correct_index=3,
     explanation='There is no "png" drawer. To get a PNG use qc.draw("mpl", filename="circuit.png"): the mpl drawer saves through matplotlib. filename= is honoured by the drawers that produce images, but it does not make an invalid output mode legal.',

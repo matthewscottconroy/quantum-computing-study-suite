@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print?\n\n```python\nimport numpy as np\nfrom qiskit.quantum_info import Statevector, state_fidelity\n\na = Statevector([1 / np.sqrt(2), 1 / np.sqrt(2)])\nb = Statevector([1j / np.sqrt(2), 1j / np.sqrt(2)])\nprint(round(state_fidelity(a, b), 6), a == b)\n```',
     options=[
-        '1.0 False — fidelity ignores global phase, but == compares amplitudes elementwise',
+        '1.0 False — fidelity ignores global phase, == does not',
         '0.0 False — the two states are orthogonal because one is imaginary',
         '1.0 True — multiplying by i changes nothing that Statevector records',
         '0.5 False — the overlap |⟨a|b⟩| is 1/√2',

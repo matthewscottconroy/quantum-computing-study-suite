@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Visualization',
     question='plot_bloch_multivector is applied to the Bell state (|00⟩ + |11⟩)/√2. What do the two Bloch spheres show?',
     options=[
-        "Both vectors have length zero (points at the sphere's center) — each qubit alone is maximally mixed",
+        "Both vectors have length zero: a point at each sphere's center",
         "Both vectors point to +z, since '00' is the most likely outcome",
         'One vector points +z and the other −z, showing the correlation',
         'The function raises an error for entangled states',

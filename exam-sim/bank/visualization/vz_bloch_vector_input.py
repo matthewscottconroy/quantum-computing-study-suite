@@ -8,7 +8,7 @@ QUESTION = Question(
     options=[
         'It draws |+⟩ on the Bloch sphere',
         'It draws an arrow of length zero at the centre of the sphere',
-        'It raises an error — plot_bloch_vector wants Bloch coordinates [x, y, z], not a state object',
+        'It raises an error — it expects [x, y, z] coordinates',
         'It returns None after emitting a deprecation warning',
     ],
     correct_index=2,

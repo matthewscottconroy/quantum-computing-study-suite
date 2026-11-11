@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='The backend is a 5-qubit line with couplings (0,1), (1,2), (2,3), (3,4). What does this print?\n\n```python\nfrom qiskit import QuantumCircuit\nfrom qiskit.transpiler import generate_preset_pass_manager\n\nqc = QuantumCircuit(3)\nqc.cx(0, 2)\n\npm0 = generate_preset_pass_manager(optimization_level=0, backend=backend)\npm1 = generate_preset_pass_manager(optimization_level=1, backend=backend)\nprint(pm0.run(qc).count_ops()["cx"], pm1.run(qc).count_ops()["cx"])\n```',
     options=[
-        '4 1 — level 0 uses a trivial layout so routing inserts a SWAP (3 extra CX); level 1 picks a layout where the pair is already adjacent',
+        "4 1 — level 0's trivial layout needs a SWAP; level 1 picks an adjacent pair",
         '1 1 — both levels produce the same circuit because routing is layout-independent',
         '1 4 — higher optimization levels add SWAPs to spread the circuit over more qubits',
         '4 4 — every preset level maps logical qubit i to physical qubit i',

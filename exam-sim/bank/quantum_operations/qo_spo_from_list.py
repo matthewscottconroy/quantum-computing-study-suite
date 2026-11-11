@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print?\n\n```python\nfrom qiskit.quantum_info import SparsePauliOp\n\nH = SparsePauliOp.from_list([("ZZ", 0.5), ("XX", -1.2)])\nprint(H.num_qubits, len(H), H.coeffs[1])\n```',
     options=[
-        '2 2 (-1.2+0j) — two qubits, two terms, and coefficients are stored as complex numbers',
+        '2 2 (-1.2+0j) — two terms, with coefficients stored as complex',
         '2 2 -1.2 — coefficients keep the float type they were given',
         '4 2 (-1.2+0j) — num_qubits counts the characters across all labels',
         '2 4 (-1.2+0j) — len() counts the Pauli characters, not the terms',

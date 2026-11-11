@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='What does this print in Qiskit 2.x?\n\n```python\nfrom qiskit import QuantumCircuit\nfrom qiskit.circuit import Parameter\n\ntheta = Parameter("t")\nqc = QuantumCircuit(1)\nqc.rz(theta, 0)\nbound = qc.bind_parameters({theta: 1.0})\n```',
     options=[
-        "AttributeError: 'QuantumCircuit' object has no attribute 'bind_parameters' — use assign_parameters",
+        "AttributeError: 'QuantumCircuit' object has no attribute 'bind_parameters'",
         'It prints nothing and works; bind_parameters is an alias for assign_parameters',
         'DeprecationWarning, then a correctly bound circuit',
         'TypeError — bind_parameters takes a sequence of floats, not a dict',

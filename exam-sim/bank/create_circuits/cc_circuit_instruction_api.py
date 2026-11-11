@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Create circuits',
     question='A circuit is built and one entry inspected:\n\n```python\nfrom qiskit import QuantumCircuit\n\nqc = QuantumCircuit(2)\nqc.h(0)\nqc.cx(0, 1)\ninstr = qc.data[1]\n```\n\nWhich access pattern is deprecated legacy behaviour in Qiskit 2.x?',
     options=[
-        'instr[0] — treating the CircuitInstruction as an (operation, qubits, clbits) tuple',
+        'instr[0] — indexing the instruction like a legacy tuple',
         'instr.operation — the operation stored in the instruction',
         'instr.qubits — the qubits the instruction acts on',
         'instr.clbits — the classical bits the instruction acts on',

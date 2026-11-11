@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='The backend has 5 qubits. What does this print?\n\n```python\nfrom qiskit import QuantumCircuit\nfrom qiskit.transpiler import generate_preset_pass_manager\n\nqc = QuantumCircuit(2)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure_all()\n\npm = generate_preset_pass_manager(optimization_level=1, backend=backend)\nprint(pm.run(qc).num_qubits)\n```',
     options=[
-        '5 — the ISA circuit is widened to the full backend register, with the unused qubits as idle ancillas',
+        '5 — the ISA circuit is widened to the full backend register',
         '2 — transpilation never changes the number of qubits',
         '3 — routing adds one ancilla per SWAP inserted',
         'It raises TranspilerError because the circuit is narrower than the backend',

@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print?\n\n```python\nfrom qiskit import QuantumCircuit\nfrom qiskit.quantum_info import Statevector, partial_trace, entropy\n\nqc = QuantumCircuit(2)\nqc.h(0)\nqc.cx(0, 1)\nbell = Statevector(qc)\nprint(entropy(bell), entropy(partial_trace(bell, [0])))\n```',
     options=[
-        '0 1.0 — the joint pure state has zero entropy, while each qubit alone has 1 bit',
+        '0 1.0 — the joint state is pure, while each qubit alone has 1 bit',
         '1.0 1.0 — entanglement gives the whole state one bit of entropy too',
         '0 0 — entropy is zero for any state produced by a unitary circuit',
         '1.0 0.5 — the entropy of a subsystem is half the joint entropy',

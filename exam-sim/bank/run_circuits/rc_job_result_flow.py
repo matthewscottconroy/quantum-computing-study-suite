@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='Put these calls in the right order to get measurement counts from an AerSimulator:\n\n```python\nsim = AerSimulator()\n```',
     options=[
-        'job = sim.run(qc, shots=1024); result = job.result(); counts = result.get_counts()',
+        'counts = sim.run(qc, shots=1024).result().get_counts()',
         'result = sim.run(qc); counts = result.get_counts()',
         'job = sim.execute(qc); counts = job.get_counts()',
         'counts = sim.run(qc, shots=1024).get_counts()',

@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print?\n\n```python\nfrom qiskit.quantum_info import PauliList\n\npl = PauliList(["XZ", "IY", "ZZ"])\nprint(len(pl), pl.num_qubits, pl[1])\n```',
     options=[
-        '3 2 IY — a PauliList is a length-3 collection of 2-qubit Paulis, and indexing gives a Pauli',
+        '3 2 IY — three 2-qubit Paulis, and indexing returns one',
         '2 3 IY — len() reports the qubit count and num_qubits the number of terms',
         '3 2 XZ — indexing is 1-based for PauliList',
         '6 2 IY — len() counts the individual Pauli characters',

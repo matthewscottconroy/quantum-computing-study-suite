@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='What happens?\n\n```python\nfrom qiskit import QuantumCircuit\nfrom qiskit_aer import AerSimulator\n\nqc = QuantumCircuit(2)          # no classical bits\nqc.h(0)\nqc.cx(0, 1)\nresult = AerSimulator().run(qc, shots=100).result()\ncounts = result.get_counts()\n```',
     options=[
-        'get_counts() raises QiskitError — the circuit produced no counts because it has no measurements',
+        'get_counts() raises QiskitError — the circuit produced no counts',
         "counts is {'00': 50, '11': 50} — the simulator measures automatically",
         "counts is {'00': 100} — unmeasured qubits read as 0",
         'run() raises an error immediately when given an unmeasured circuit',

@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Visualization',
     question="A colleague on a minimal server install (no matplotlib) wants to inspect a circuit's structure. Which drawer works?",
     options=[
-        "print(qc.draw('text')) — the text drawer has no plotting dependencies",
+        "print(qc.draw('text')) — it needs no plotting library",
         "qc.draw('mpl') — matplotlib is bundled inside qiskit",
         "qc.draw('latex') — it renders in the terminal",
         'Circuits cannot be inspected without matplotlib',

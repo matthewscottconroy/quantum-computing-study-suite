@@ -7,7 +7,7 @@ QUESTION = Question(
     question='What happens?\n\n```python\nfrom qiskit_ibm_runtime import EstimatorV2\n\nestimator = EstimatorV2(mode=backend)\nestimator.options.resilience_level = 3\n```',
     options=[
         'It is accepted and switches on probabilistic error cancellation',
-        'It raises a validation error — EstimatorV2 accepts resilience_level 0, 1 or 2 only',
+        'It raises a validation error — the valid levels are 0, 1 and 2',
         'It is silently clamped to 2',
         'It is accepted and switches on zero-noise extrapolation plus PEC',
     ],

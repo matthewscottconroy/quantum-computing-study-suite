@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Sampler',
     question='For a BitArray from a 1-bit classical register with 5 shots, what is bitarray.array.shape and dtype?',
     options=[
-        '(5, 1) and uint8 — one row per shot, bits packed eight to a byte',
+        '(5, 1) and uint8 — one packed row per shot',
         '(5,) and bool — one boolean per shot',
         '(1, 5) and uint8 — one row per classical bit',
         '(5, 1) and float64 — probabilities per shot',

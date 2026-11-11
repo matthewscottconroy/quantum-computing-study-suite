@@ -7,7 +7,7 @@ QUESTION = Question(
     question='What happens?\n\n```python\nqc  = QuantumCircuit(2)      # backend has 5 qubits\nisa = pm.run(qc)\nestimator.run([(isa, SparsePauliOp("ZZ"))]).result()\n```',
     options=[
         'It works — the unused backend qubits are simply ignored',
-        'ValueError: the number of qubits of the circuit (5) does not match the number of qubits of the ()-th observable (2)',
+        'ValueError: the observable has 2 qubits, the circuit has 5',
         'QiskitError: cannot apply instruction with classical bits',
         'It works but every expectation value comes back as nan',
     ],

@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Results analysis',
     question='What does this print?\n\n```python\nfrom qiskit_aer import AerSimulator\n\nresult = AerSimulator().run([qc_a, qc_b], shots=100).result()\nprint(type(result.get_counts()).__name__)\n```',
     options=[
-        'list — one Counts object per submitted circuit; index it or call result.get_counts(0)',
+        'list — get_counts() returns one Counts object per submitted circuit',
         'Counts — the histograms of all circuits are merged into one dictionary',
         'dict — get_counts() always returns a plain dict of bitstrings to integers',
         'PrimitiveResult — Aer returns the V2 primitive container',

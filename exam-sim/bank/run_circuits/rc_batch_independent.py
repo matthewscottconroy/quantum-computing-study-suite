@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='You have 30 independent circuits, all known in advance, and you want the fastest total turnaround. Which mode fits and why?',
     options=[
-        'Batch mode — independent jobs are submitted together so their classical processing overlaps, with minimal delay between them',
+        'Batch mode — independent jobs are submitted together and run back to back',
         'Session mode — batch is only for jobs that must run in a fixed order',
         'Job mode — batching independent circuits is not supported by the primitives',
         'Batch mode, because it is the only mode that lets a single job carry more than one PUB',

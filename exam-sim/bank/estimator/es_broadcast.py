@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Estimator',
     question='What is the shape/content of `evs`?\n\n```python\nqc = QuantumCircuit(1)\nqc.h(0)\nobs = [SparsePauliOp("X"), SparsePauliOp("Z")]\nevs = StatevectorEstimator().run([(qc, obs)]).result()[0].data.evs\n```',
     options=[
-        'An array of two values: [1.0, 0.0] — one expectation value per observable',
+        'An array of two values: [1.0, 0.0]',
         'A single averaged value 0.5',
         'It raises an error — one pub may only carry one observable',
         'A 2x2 matrix of covariances',

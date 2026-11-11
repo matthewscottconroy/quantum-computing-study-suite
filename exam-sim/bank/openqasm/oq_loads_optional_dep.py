@@ -8,7 +8,7 @@ QUESTION = Question(
     options=[
         'loads() needs qiskit-ibm-runtime',
         'The OpenQASM 3 importer was removed in Qiskit 2.0',
-        'The OpenQASM 3 PARSER ships separately: qasm3.loads/load require the optional qiskit-qasm3-import package',
+        'loads() needs the optional qiskit-qasm3-import package',
         'loads() needs a backend to validate the program against',
     ],
     correct_index=2,

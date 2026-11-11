@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Results analysis',
     question="A 2-qubit circuit applies X to qubit 1 only, then measure_all(). Every shot returns the key '10'. What does this bitstring tell you?",
     options=[
-        'The leftmost bit is qubit 1 and the rightmost is qubit 0 (little-endian keys)',
+        'The leftmost bit is qubit 1; qubit 0 is on the right',
         'The leftmost bit is qubit 0 — qubit 0 was flipped',
         "The result is corrupted; it should read '01'",
         'Keys are ordered by measurement time, not by qubit index',

@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Sampler',
     question='A V1-era code sample reads `dist = job.result().quasi_dists[0]`. What is the V2 equivalent for a sampler pub whose circuit used measure_all()?',
     options=[
-        'counts = job.result()[0].data.meas.get_counts() — V2 returns raw counts, not quasi-probabilities',
+        'counts = job.result()[0].data.meas.get_counts() — V2 returns raw counts',
         'dist = job.result()[0].quasi_dists — the attribute simply moved onto the pub result',
         'dist = job.result().quasi_dists() — it became a method',
         'V2 samplers return probabilities directly via result[0].probabilities',

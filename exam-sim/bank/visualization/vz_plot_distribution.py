@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Visualization',
     question='What is the difference between plot_histogram and plot_distribution in qiskit.visualization?',
     options=[
-        'plot_histogram shows raw counts; plot_distribution normalizes to quasi-probabilities that sum to 1',
+        'plot_distribution normalizes the counts to probabilities',
         'plot_distribution is 3D, plot_histogram is 2D',
         'plot_histogram is deprecated in favor of plot_distribution',
         'They are aliases of the same function',

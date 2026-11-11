@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='What does this print for a queued Runtime job?\n\n```python\njob = sampler.run([isa_circuit])\nprint(job.status())\n```',
     options=[
-        'QUEUED — RuntimeJobV2.status() returns a plain string, one of INITIALIZING, QUEUED, RUNNING, CANCELLED, DONE, ERROR',
+        'QUEUED — RuntimeJobV2.status() returns a plain string',
         'JobStatus.QUEUED — the qiskit.providers.jobstatus.JobStatus enum member',
         'True — status() reports whether the job is still pending',
         "A dict such as {'status': 'QUEUED', 'position': 4}",

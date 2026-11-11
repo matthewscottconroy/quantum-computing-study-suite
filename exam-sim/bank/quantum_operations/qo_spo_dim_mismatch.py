@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What happens here?\n\n```python\nfrom qiskit.quantum_info import SparsePauliOp\n\nop = SparsePauliOp("X") + SparsePauliOp("XY")\n```',
     options=[
-        'QiskitError — addition requires operators on the same number of qubits',
+        'QiskitError — the operators act on different numbers of qubits',
         "It succeeds — the 1-qubit term is padded with identities to 'IX'",
         "It succeeds and returns a 3-qubit operator labelled 'XXY'",
         'It succeeds but only after calling .simplify() on the result',

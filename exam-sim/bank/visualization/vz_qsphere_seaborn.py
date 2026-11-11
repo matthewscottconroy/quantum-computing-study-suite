@@ -7,7 +7,7 @@ QUESTION = Question(
     question="On a colleague's machine plot_state_city(sv) works but plot_state_qsphere(sv) raises MissingOptionalLibraryError. Which package is missing?",
     options=[
         'pylatexenc',
-        'seaborn — the qsphere is the one state plotter that needs it on top of matplotlib',
+        'seaborn',
         'graphviz',
         'qiskit-aer',
     ],

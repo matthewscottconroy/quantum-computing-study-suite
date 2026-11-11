@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Sampler',
     question='Porting V1 code, you write `evs = job.result().values` after a SamplerV2 run. What happens?',
     options=[
-        'AttributeError — .values is an Estimator V1 idiom; a sampler returns measurement samples, reached through result[0].data.<creg>',
+        'AttributeError — a sampler result has no .values attribute',
         'It returns a numpy array of the sampled bit probabilities',
         'It returns the list of counts dictionaries, one per PUB',
         'It works, but only when every circuit uses measure_all()',

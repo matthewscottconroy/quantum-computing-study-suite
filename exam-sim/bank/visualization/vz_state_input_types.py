@@ -7,7 +7,7 @@ QUESTION = Question(
     question='What happens?\n\n```python\nfrom qiskit.visualization import plot_state_city\n\ncounts = {"00": 512, "11": 512}\nplot_state_city(counts)\n```',
     options=[
         'It plots the counts as a 3-D bar chart',
-        'It raises an error — the state plotters need a Statevector, DensityMatrix or array, not counts',
+        'It raises an error: counts are not a state',
         'It normalises the counts into a density matrix first',
         'It returns None and draws nothing',
     ],

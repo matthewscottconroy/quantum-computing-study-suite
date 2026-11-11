@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Sampler',
     question='A circuit with NO classical registers and no measurements is passed to StatevectorSampler.run([qc]). What happens?',
     options=[
-        "The job runs, but the pub result's data is empty — samplers only return measured classical data",
+        "The job runs, but the pub result's data is empty",
         'The sampler measures every qubit automatically in the Z basis',
         'It raises a CircuitError before running',
         'The sampler returns the full statevector instead',

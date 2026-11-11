@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Results analysis',
     question='A 3-qubit circuit with measure_all() was sampled for 100 shots. What does this print?\n\n```python\nba = result[0].data.meas\nprint(ba.array.shape, ba.to_bool_array().shape)\n```',
     options=[
-        '(100, 1) (100, 3) — .array is bit-PACKED into uint8 bytes; to_bool_array() unpacks one bit per column',
+        '(100, 1) (100, 3) — .array packs the 3 bits into one uint8 byte',
         '(100, 3) (100, 3) — .array already stores one column per measured bit',
         '(3, 100) (100, 3) — .array is transposed relative to to_bool_array()',
         '(100,) (100, 3) — .array holds one integer outcome per shot',

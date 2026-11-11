@@ -7,7 +7,7 @@ QUESTION = Question(
     question='What happens?\n\n```python\nfrom qiskit.visualization import plot_circuit_layout\n\nqc = QuantumCircuit(3)\nqc.h(0)\nqc.cx(0, 1)\nplot_circuit_layout(qc, backend)\n```',
     options=[
         'It shows the trivial layout 0 → 0, 1 → 1, 2 → 2',
-        "QiskitError: 'Circuit has no layout. Perhaps it has not been transpiled.'",
+        'It raises a QiskitError: the circuit has no layout',
         'It transpiles the circuit for you, then plots the result',
         'It plots every backend qubit in the same colour',
     ],

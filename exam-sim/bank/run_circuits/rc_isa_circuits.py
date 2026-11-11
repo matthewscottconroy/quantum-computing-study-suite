@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='Before submitting a circuit to an IBM Quantum backend through the Runtime primitives (SamplerV2 / EstimatorV2), what must you do to the circuit?',
     options=[
-        "Transpile it to the backend's ISA (native gates and connectivity), e.g. with generate_preset_pass_manager(backend=backend)",
+        "Transpile it to the backend's ISA (native gates and connectivity)",
         'Nothing — the Runtime service transpiles every circuit server-side automatically',
         'Convert it to OpenQASM 2 first',
         'Add save_statevector() so the primitive can compute results',

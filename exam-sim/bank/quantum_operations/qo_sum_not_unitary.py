@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print?\n\n```python\nfrom qiskit.quantum_info import SparsePauliOp\n\nprint(SparsePauliOp(["Z", "X"]).to_operator().is_unitary())\n```',
     options=[
-        'False — Z + X has eigenvalues ±√2, so it is an observable, not a gate',
+        'False — Z + X has eigenvalues ±√2, not modulus 1',
         'True — any sum of Pauli operators is unitary',
         'True — Z + X is the Hadamard gate',
         'QiskitError — is_unitary() is only defined for circuits',

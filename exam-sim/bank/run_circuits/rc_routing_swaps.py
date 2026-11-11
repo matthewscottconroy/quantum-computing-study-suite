@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='A circuit applies cx(0, 2) but the target device only couples qubits (0,1) and (1,2) in a line. What does the transpiler do?',
     options=[
-        'Inserts SWAP operations (decomposed to CX gates) to route the interaction, increasing the entangling-gate count',
+        'Inserts SWAPs to route the interaction, adding entangling gates',
         'Raises an error — the circuit cannot run on that device',
         'Applies the CX between qubits 0 and 1 instead, since 2 is unreachable',
         'Splits the CX into two smaller CX gates acting on adjacent pairs',

@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Create circuits',
     question='What does this print?\n\n```python\nfrom qiskit import QuantumCircuit\n\nqc = QuantumCircuit(2)\nqc.h(0)\nqc.measure_all()\nprint(qc.size(), len(qc.data))\n```',
     options=[
-        '3 4 — measure_all() also inserts a barrier, which len(qc.data) counts but size() does not',
+        '3 4 — the barrier is in qc.data but not counted by size()',
         '4 4 — size() counts the barrier like any other instruction',
         '3 3 — measure_all() adds only the two measurements',
         '4 3 — the barrier replaces one of the measurements',

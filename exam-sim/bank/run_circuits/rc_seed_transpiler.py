@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='Two colleagues transpile the same circuit for the same backend at optimization_level=3 and get different CX counts. What is the fix?',
     options=[
-        'Pass the same seed_transpiler=<int> to generate_preset_pass_manager (or transpile) — the layout and routing passes are stochastic',
+        'Pass the same seed_transpiler=<int> — layout and routing are stochastic',
         'Pass the same seed_simulator=<int> — the variation comes from the sampler, not the compiler',
         'Set optimization_level=0, the only deterministic preset level',
         'Call transpile() twice and keep the second result, which is always canonical',

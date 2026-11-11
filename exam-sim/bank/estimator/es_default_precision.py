@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Estimator',
     question='For `qc` preparing H|0⟩, what are `a` and `b`?\n\n```python\nest = StatevectorEstimator(default_precision=0.2, seed=1)\na = est.run([(qc, "Z")]).result()[0].data.evs\nb = est.run([(qc, "Z")], precision=0.0).result()[0].data.evs\n```',
     options=[
-        'a carries Gaussian noise of scale 0.2; b is exactly 0.0 because the per-run precision overrides the constructor default',
+        'a carries noise of scale 0.2; b is exactly 0.0 — the run() value wins',
         'Both are exactly 0.0 — StatevectorEstimator ignores precision entirely',
         'Both carry noise of scale 0.2 — the constructor default always wins',
         'b raises ValueError: precision must be greater than zero',

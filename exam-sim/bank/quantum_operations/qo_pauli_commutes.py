@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print?\n\n```python\nfrom qiskit.quantum_info import Pauli\n\nprint(Pauli("XX").commutes(Pauli("ZZ")), Pauli("XI").commutes(Pauli("ZI")))\n```',
     options=[
-        'True False — XX and ZZ anticommute on both qubits, and two sign flips cancel',
+        'True False — two anticommuting positions cancel',
         'False False — X and Z never commute, on any number of qubits',
         'True True — multi-qubit Paulis always commute',
         'False True — commutes() compares only qubit 0',

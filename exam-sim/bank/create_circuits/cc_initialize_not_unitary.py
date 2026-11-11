@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Create circuits',
     question='What happens on the last line?\n\n```python\nfrom qiskit import QuantumCircuit\nfrom qiskit.quantum_info import Operator\n\nqc = QuantumCircuit(1)\nqc.initialize([0, 1], 0)\nop = Operator(qc)\n```',
     options=[
-        'A QiskitError — initialize() inserts a reset, which is not unitary, so the circuit has no Operator',
+        'A QiskitError — initialize() adds a reset, which is not unitary',
         'It returns the X matrix, since the circuit maps |0⟩ to |1⟩',
         'It returns the 2×2 identity, because initialize only sets a simulator state',
         'A CircuitError — Operator() requires a transpiled circuit',

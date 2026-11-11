@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print?\n\n```python\nfrom qiskit.quantum_info import SparsePauliOp\n\na = SparsePauliOp("X").compose(SparsePauliOp("Y"))\nb = SparsePauliOp("X").dot(SparsePauliOp("Y"))\nprint(a.coeffs[0], b.coeffs[0])\n```',
     options=[
-        '-1j 1j — compose() applies the argument AFTER the caller (Y·X), dot() applies it before (X·Y)',
+        '-1j 1j — compose() is Y·X and dot() is X·Y',
         '1j 1j — compose() and dot() are aliases for the same product',
         '1j -1j — compose() is X·Y and dot() is Y·X',
         '-1j -1j — Pauli products always pick up a −i phase',
