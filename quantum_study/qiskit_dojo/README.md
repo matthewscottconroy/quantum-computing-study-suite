@@ -40,7 +40,7 @@ Setup is covered in [GETTING_STARTED.md](../../GETTING_STARTED.md).
      (`ANTHROPIC_API_KEY` env var or `~/.config/quantum-study/api_key.txt`);
      everything else works with no key and no network.
    - **⚑ Flag for review** — toggles the current kata on the shared review
-     list (`dojo_flagged.json`, see Persistence). Click again to unflag.
+     list (`dojo_flagged.json`, see Data files). Click again to unflag.
      The button shows the saved state whenever a kata opens, so a kata
      flagged in an earlier session lights up immediately.
    - **Confidence strip** — *"How sure are you this passes?"*, four

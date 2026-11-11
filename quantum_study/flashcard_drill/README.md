@@ -275,7 +275,7 @@ day's workload — and every card is introduced instead of starving behind revie
 
 ## Free-Drill Weighting
 
-Session history is read from `flashcard_history.json` (see Data Persistence) every time
+Session history is read from `flashcard_history.json` (see Data files) every time
 a free-drill deck is built. Each past session is weighted by an exponential decay with a 14-day half-life,
 and the weight for each card is computed as:
 

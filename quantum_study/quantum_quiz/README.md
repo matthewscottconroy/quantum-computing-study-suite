@@ -12,7 +12,7 @@ python launch.py quiz                 # from the repository root (or: quantum-st
 python -m quantum_study.quantum_quiz
 ```
 
-Needs a Claude API key (`ANTHROPIC_API_KEY`, or `~/.config/quantum-study/api_key.txt`): the questions and the grading come from Claude. Without one, only the Reference browser and the history screen work.
+Needs a Claude API key (`ANTHROPIC_API_KEY`, or `~/.config/quantum-study/api_key.txt`): its core loop calls Claude (question generation, grading, or both). Without one, only the Reference browser, the history screen and browsing work.
 Setup is covered in [GETTING_STARTED.md](../../GETTING_STARTED.md).
 
 ## Features
