@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Sampler',
     question='Which statement about StatevectorSampler is correct?',
     options=[
-        'It simulates the exact statevector and samples it, so circuits need no transpilation and results carry no hardware noise',
+        'It samples the exact statevector, so results carry no hardware noise',
         'It returns exact probabilities rather than shot counts, so the shots argument is ignored',
         'It requires ISA circuits, just like the Runtime SamplerV2',
         'It is a drop-in for the removed V1 Sampler and returns quasi_dists',

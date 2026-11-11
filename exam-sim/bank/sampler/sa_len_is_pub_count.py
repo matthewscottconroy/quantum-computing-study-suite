@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Sampler',
     question='`values` has shape (50, 2) and `qc_b` has two parameters. What does this print?\n\n```python\nresult = sampler.run([qc_a, (qc_b, values)], shots=128).result()\nprint(len(result), result[1].data.c.shape)\n```',
     options=[
-        '2 (50,) — one pub result per PUB; the 50-point sweep widens the BitArray inside pub 1',
+        '2 (50,) — one pub result per PUB; the sweep sets the shape',
         '51 () — every parameter set becomes its own pub result',
         '2 (50, 128) — shots become the trailing axis of the BitArray shape',
         '1 (50,) — PUBs submitted in one run() are merged into a single result',

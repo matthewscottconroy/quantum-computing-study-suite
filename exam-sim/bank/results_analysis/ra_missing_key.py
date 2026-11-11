@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Results analysis',
     question="An ideal Bell-state experiment returns counts = {'00': 508, '11': 516}. Evaluating counts['01'] raises KeyError. Why?",
     options=[
-        "get_counts() only includes outcomes that actually occurred; use counts.get('01', 0) for safe access",
+        'get_counts() only lists outcomes that actually occurred',
         'It is a bug — all 2ⁿ bitstrings should always be present',
         "'01' is physically impossible in every 2-qubit circuit",
         'The counts dictionary is keyed by integers, not strings',

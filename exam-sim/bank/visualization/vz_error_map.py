@@ -8,7 +8,7 @@ QUESTION = Question(
     options=[
         'Nothing — it is an alias kept for backwards compatibility',
         'The layout the transpiler picked for a particular circuit',
-        'Calibration data: qubits and links coloured by error rate, plus readout-error bars',
+        'Calibration data: qubits and links coloured by error rate',
         'The pulse schedule of each native gate',
     ],
     correct_index=2,

@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='What happens here?\n\n```python\nfrom qiskit_ibm_runtime import SamplerV2\n\nsampler = SamplerV2(mode="ibm_torino")\n```',
     options=[
-        'ValueError — mode must be a Backend, Session, Batch or None, not a backend name string',
+        'ValueError — mode must be a Backend, Session, Batch or None, not a string',
         'It works: the string is resolved to a backend through the default saved account',
         'It works, but the first run() call raises because no service was supplied',
         'TypeError — the first positional parameter of SamplerV2 is backend, not mode',

@@ -7,7 +7,7 @@ QUESTION = Question(
     question='What happens?\n\n```python\nfrom qiskit import QuantumCircuit, qasm2, qasm3\nfrom qiskit.circuit import Parameter\n\ntheta = Parameter("theta")\nqc = QuantumCircuit(1)\nqc.rx(theta, 0)\n\nprint(qasm3.dumps(qc))\nprint(qasm2.dumps(qc))\n```',
     options=[
         'Both exporters emit rx(theta) q[0]; with a matching parameter declaration',
-        'The OpenQASM 3 export declares input float[64] theta; while qasm2.dumps raises QASM2ExportError',
+        'qasm3 declares input float[64] theta; qasm2.dumps raises an error',
         'Both raise — parameters must be bound before any export',
         'Both silently substitute theta = 0',
     ],

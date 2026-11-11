@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Sampler',
     question='What does this do in Qiskit 2.x?\n\n```python\nfrom qiskit.primitives import Sampler\n```',
     options=[
-        'ImportError — the V1 Sampler was removed in Qiskit 2.0; use StatevectorSampler (or BackendSamplerV2)',
+        'ImportError — the V1 Sampler was removed in Qiskit 2.0',
         'It imports an alias of StatevectorSampler',
         'It works but every call emits a PendingDeprecationWarning',
         'It imports the abstract base class shared by all samplers',

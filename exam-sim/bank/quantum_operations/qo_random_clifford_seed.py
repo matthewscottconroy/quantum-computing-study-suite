@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print?\n\n```python\nfrom qiskit.quantum_info import random_clifford\n\na = random_clifford(2, seed=42)\nb = random_clifford(2, seed=42)\nprint(type(a).__name__, a == b)\n```',
     options=[
-        'Clifford True — random_clifford samples the Clifford group and the seed makes it reproducible',
+        'Clifford True — the seed makes the sampled element reproducible',
         'QuantumCircuit True — random_clifford returns a circuit, not a tableau',
         'Clifford False — the seed only fixes the qubit count, not the sampled element',
         'Operator True — random_clifford returns a unitary matrix',

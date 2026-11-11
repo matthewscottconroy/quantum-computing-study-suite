@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print?\n\n```python\nimport numpy as np\nfrom qiskit.quantum_info import DensityMatrix, purity\n\nprint(purity(DensityMatrix(np.eye(2) / 2)))\n```',
     options=[
-        '(0.5+0j) — purity is Tr(ρ²), which is 1/d = 0.5 for the maximally mixed qubit',
+        '(0.5+0j) — Tr(ρ²) = 1/d for the maximally mixed state',
         '(1+0j) — every valid density matrix has purity 1',
         '(0+0j) — the maximally mixed state has zero purity',
         '(2+0j) — purity is the inverse of the participation ratio',

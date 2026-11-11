@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='Which statement about the routing stage of a preset pass manager is correct?',
     options=[
-        'SabreSwap is the default routing pass at every preset optimization level, and its search is stochastic, so seed_transpiler is needed for reproducible output',
+        'SabreSwap is the default routing pass at every level, and its search is stochastic',
         'Routing is skipped at optimization_level=0 because no optimization is requested',
         'Routing runs only when the backend declares a symmetric coupling map',
         'Routing is deterministic, so two runs with identical inputs always give identical SWAP placement',

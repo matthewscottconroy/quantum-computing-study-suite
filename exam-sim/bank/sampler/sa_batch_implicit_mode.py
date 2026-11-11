@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Sampler',
     question='What does the sampler in this block run against?\n\n```python\nfrom qiskit_ibm_runtime import Batch, SamplerV2 as Sampler\n\nwith Batch(backend=backend) as batch:\n    sampler = Sampler()\n    job = sampler.run([isa_circuit])\n```',
     options=[
-        'The enclosing batch — with mode=None the primitive picks up the batch/session opened by the context manager',
+        'The enclosing batch, which mode=None picks up from the context',
         'Nothing: mode is required, so Sampler() raises ValueError',
         'The least busy backend, chosen from the default saved account',
         'A local StatevectorSampler, because no backend was passed',

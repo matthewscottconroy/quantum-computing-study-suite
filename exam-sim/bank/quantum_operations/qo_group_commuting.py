@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print, and why is the method useful?\n\n```python\nfrom qiskit.quantum_info import SparsePauliOp\n\nH = SparsePauliOp(["XX", "YY", "ZZ", "IZ"])\nprint(len(H.group_commuting()))\n```',
     options=[
-        '2 — the terms split into {IZ, ZZ} and {XX, YY}, each group shareable in one measurement basis',
+        '2 — they split into {IZ, ZZ} and {XX, YY}',
         '4 — every term must be measured on its own',
         '1 — all four terms commute with each other',
         '3 — only the two Z-type terms can be grouped',

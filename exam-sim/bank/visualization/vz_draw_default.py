@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Visualization',
     question='What does `qc.draw()` return when called with no arguments?',
     options=[
-        "A TextDrawing (ASCII-art rendering) — 'text' is the default output",
+        'A TextDrawing (ASCII-art rendering)',
         'A matplotlib Figure',
         'It opens an interactive circuit editor window',
         'A LaTeX string',

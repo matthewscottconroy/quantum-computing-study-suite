@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Results analysis',
     question="A 1024-shot run of a supposedly deterministic circuit returns `{'0': 1024}`. What is the right conclusion about P('1')?",
     options=[
-        "P('1') is consistent with zero but not proven zero — the 95 % upper bound is about 3/1024 ≈ 0.003",
+        "P('1') is not proven zero — the 95 % upper bound is about 3/1024",
         "P('1') = 0 exactly, since √(p̂(1 − p̂)/N) evaluates to 0",
         "P('1') = 1/1024, because an unobserved outcome is assigned one pseudo-count",
         'The result is invalid: get_counts() must list every possible bitstring',

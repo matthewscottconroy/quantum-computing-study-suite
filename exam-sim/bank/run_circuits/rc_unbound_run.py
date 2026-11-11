@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='What happens when you submit a circuit that still has unbound parameters to AerSimulator.run()?',
     options=[
-        'The run fails — parameters must be bound (assign_parameters) before backend.run()',
+        'The run fails — parameters must be bound first',
         'The simulator samples a random value for each parameter',
         'All parameters default to 0',
         'The job silently returns empty counts',

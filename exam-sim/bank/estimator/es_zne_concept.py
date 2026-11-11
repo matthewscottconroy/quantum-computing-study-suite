@@ -7,7 +7,7 @@ QUESTION = Question(
     question='What does zero-noise extrapolation (ZNE) actually do?',
     options=[
         'It inverts the noise channel exactly, giving an unbiased estimate at exponential sampling cost',
-        'It runs the circuit at several AMPLIFIED noise levels and extrapolates the results back to the zero-noise limit',
+        'It runs the circuit at several amplified noise levels and extrapolates back to zero noise',
         'It discards any shot whose bitstring violates a known symmetry of the problem',
         'It randomises the measurement basis so that readout errors average out',
     ],

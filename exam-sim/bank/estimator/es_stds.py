@@ -8,7 +8,7 @@ QUESTION = Question(
     options=[
         'stds holds the standard deviation of the observable eigenvalues, independent of shots',
         'stds repeats the target precision that was requested for the job',
-        'stds is an array shaped like evs holding each value\'s standard error; StatevectorEstimator fills it with zeros',
+        "stds is shaped like evs and holds each value's standard error",
         'stds is only present when resilience_level is 0',
     ],
     correct_index=2,

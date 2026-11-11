@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='Which description of the three local execution paths is correct?',
     options=[
-        'StatevectorSampler samples exactly from the ideal statevector; AerSimulator.run() is a shot-based backend that can carry a noise model; BackendSamplerV2 wraps any BackendV2 in the V2 sampler interface',
+        'StatevectorSampler is ideal; AerSimulator can carry a noise model; BackendSamplerV2 wraps a backend',
         'All three are noiseless and differ only in their result classes',
         'StatevectorSampler and BackendSamplerV2 both require ISA circuits; only AerSimulator accepts arbitrary gates',
         'AerSimulator returns a PrimitiveResult, while the two samplers return a Result with get_counts()',

@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='You build a circuit with h and cx, skip transpilation, and call SamplerV2(mode=ibm_backend).run([qc]). What happens?',
     options=[
-        'An IBMInputValueError is raised client-side saying the instruction is not supported by the target',
+        'An IBMInputValueError is raised client-side, before any job is queued',
         'The job is submitted and the service transpiles the circuit for you',
         'The job is submitted and fails on the server with a QiskitError after queueing',
         'It runs: h and cx are universal, so every backend accepts them',

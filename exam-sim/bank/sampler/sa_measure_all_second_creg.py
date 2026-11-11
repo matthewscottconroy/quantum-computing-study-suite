@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Sampler',
     question='What does this print?\n\n```python\nfrom qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister\nfrom qiskit.primitives import StatevectorSampler\n\nqc = QuantumCircuit(QuantumRegister(1, "q"), ClassicalRegister(1, "c"))\nqc.x(0)\nqc.measure(0, 0)\nqc.measure_all()\n\nprint(list(StatevectorSampler().run([qc], shots=8).result()[0].data.keys()))\n```',
     options=[
-        "['c', 'meas'] — measure_all() appended a second classical register called 'meas'",
+        "['c', 'meas'] — measure_all() appended a second register",
         "['c'] — measure_all() reuses the existing classical register",
         "['meas'] — measure_all() replaces the existing register",
         "['c0', 'c1'] — registers are renamed positionally in the DataBin",

@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Results analysis',
     question='Which statement about quasi-probability distributions is TRUE?',
     options=[
-        'Their values can be negative, which is why error-mitigated output is reported as quasi-probabilities rather than counts',
+        'Their values can be negative, which error mitigation often produces',
         'They are just counts divided by shots, so every value lies in [0, 1]',
         'They are what SamplerV2 returns from result[0].data.meas.quasi_dists',
         'They always sum to a number greater than 1 because of readout error',

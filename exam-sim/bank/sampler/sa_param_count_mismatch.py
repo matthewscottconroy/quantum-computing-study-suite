@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Sampler',
     question='What happens here?\n\n```python\nfrom qiskit import QuantumCircuit\nfrom qiskit.circuit import Parameter\nfrom qiskit.primitives import StatevectorSampler\n\nt, u = Parameter("t"), Parameter("u")\nqc = QuantumCircuit(1, 1)\nqc.ry(t, 0)\nqc.rz(u, 0)\nqc.measure(0, 0)\n\nStatevectorSampler().run([(qc, [0.1])], shots=4).result()\n```',
     options=[
-        'ValueError — the trailing dimension of the parameter array must equal the number of circuit parameters (2), not 1',
+        'ValueError — the parameter array has the wrong trailing size',
         'It runs, leaving u unbound at its default value of 0',
         'It runs, binding 0.1 to both t and u by broadcasting the scalar',
         'It runs and produces a BitArray of shape (1,)',

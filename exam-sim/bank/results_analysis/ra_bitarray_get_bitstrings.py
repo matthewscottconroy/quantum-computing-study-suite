@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Results analysis',
     question='You need the per-shot outcome sequence (not the histogram) from a V2 sampler result of 1024 shots. Which line gives it?\n\n```python\nba = result[0].data.meas\n```',
     options=[
-        'outcomes = ba.get_bitstrings()   # list of 1024 bitstrings, one per shot, in shot order',
+        'outcomes = ba.get_bitstrings()   # list of 1024 bitstrings, one per shot',
         'outcomes = ba.bitstrings()       # list of 1024 bitstrings, one per shot',
         'outcomes = list(ba.get_counts()) # list of 1024 bitstrings, one per shot',
         'outcomes = ba.get_counts(memory=True)',

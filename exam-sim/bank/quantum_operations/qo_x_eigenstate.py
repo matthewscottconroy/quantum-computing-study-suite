@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print?\n\n```python\nfrom qiskit import QuantumCircuit\nfrom qiskit.quantum_info import Statevector\n\na = QuantumCircuit(1)\na.h(0)\nb = QuantumCircuit(1)\nb.h(0)\nb.x(0)\nprint(Statevector(a) == Statevector(b))\n```',
     options=[
-        'True — |+⟩ is a +1 eigenstate of X, so the extra X changes nothing',
+        'True — |+⟩ is a +1 eigenstate of X',
         'False — X flips the state to |−⟩',
         'False — X reverses the order of the amplitudes',
         'True — X is the identity on any single-qubit state',

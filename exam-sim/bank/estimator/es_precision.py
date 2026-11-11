@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Estimator',
     question='By default (no precision given), what does StatevectorEstimator return for ⟨Z⟩ of H|0⟩, and what changes if you pass precision=0.1 to run()?',
     options=[
-        'Exactly 0.0 by default; with precision=0.1 the value carries simulated shot noise of that scale',
+        'Exactly 0.0 by default; precision=0.1 adds noise of that scale',
         'A shot-noise estimate by default; precision=0.1 makes it exact',
         'Always exactly 0.0 — precision is ignored by statevector simulation',
         'It raises an error unless precision is specified',

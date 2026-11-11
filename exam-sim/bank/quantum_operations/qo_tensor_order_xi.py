@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Quantum operations',
     question='What does this print?\n\n```python\nfrom qiskit.quantum_info import Operator, Statevector\n\nop = Operator.from_label("X").tensor(Operator.from_label("I"))\nprint(Statevector.from_label("00").evolve(op).probabilities_dict())\n```',
     options=[
-        "{'10': 1.0} — a.tensor(b) puts `a` on the HIGHER qubits, so X lands on qubit 1",
+        "{'10': 1.0} — tensor() puts the caller on the higher qubit (q1)",
         "{'01': 1.0} — the left operand of tensor() always acts on qubit 0",
         "{'00': 1.0} — X ⊗ I is the identity on a two-qubit register",
         'QiskitError — Operator.from_label only accepts multi-qubit labels',

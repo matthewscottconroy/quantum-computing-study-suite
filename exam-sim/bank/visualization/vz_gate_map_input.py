@@ -9,7 +9,7 @@ QUESTION = Question(
         'Nothing — it draws the circuit as a graph',
         'A VisualizationError about missing qubit coordinates',
         'Nothing — it draws an empty 5-qubit lattice',
-        'An AttributeError — plot_gate_map takes a BACKEND, not a circuit',
+        'An AttributeError — the argument must be a backend',
     ],
     correct_index=3,
     explanation='plot_gate_map(backend) reads the device coupling map and qubit coordinates to draw the physical qubit lattice, so it needs a BackendV2; a QuantumCircuit has no coupling_map attribute. To see where a circuit landed on the device, use plot_circuit_layout(transpiled_circuit, backend).',

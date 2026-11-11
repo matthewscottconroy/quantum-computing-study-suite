@@ -7,7 +7,7 @@ QUESTION = Question(
     question='What happens?\n\n```python\nplot_histogram(counts, sort="hamming")\n```',
     options=[
         'The bars are ordered by Hamming weight, lowest first',
-        'VisualizationError — sort="hamming" also requires target_string=',
+        'VisualizationError — target_string= is missing',
         'TypeError — sort accepts only "asc" and "desc"',
         'The bars are ordered by count, descending',
     ],

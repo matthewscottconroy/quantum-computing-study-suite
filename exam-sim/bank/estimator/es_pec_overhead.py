@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Estimator',
     question='A team switches from ZNE to probabilistic error cancellation (options.resilience.pec_mitigation = True). What is the main trade-off?',
     options=[
-        'PEC gives an unbiased estimate, but its sampling overhead grows exponentially with circuit size and noise strength',
+        'PEC is unbiased, but its sampling overhead grows exponentially',
         'PEC is cheaper than ZNE but only works for diagonal (Z-only) observables',
         'PEC mitigates readout error only, so gate errors survive',
         'PEC needs no noise characterisation, unlike ZNE',

@@ -9,7 +9,7 @@ QUESTION = Question(
         'The first 5 bitstrings in sorted order; the rest are discarded',
         'Exactly 5 bars, rescaled so they sum to the shot total',
         'An error — number_to_keep must be at least the number of outcomes',
-        'The 5 largest bars plus one extra bar labelled "rest" holding everything else',
+        'The 5 largest bars, plus one bar labelled "rest" for the others',
     ],
     correct_index=3,
     explanation='number_to_keep keeps the n largest values per dataset and lumps the remainder into a single "rest" bar, so no counts vanish from the picture. It is the standard way to make a wide histogram readable; sort= still decides the order of the bars that survive.',

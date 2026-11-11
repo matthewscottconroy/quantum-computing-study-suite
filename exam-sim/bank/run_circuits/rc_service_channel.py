@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='What happens here with qiskit-ibm-runtime 0.4x?\n\n```python\nfrom qiskit_ibm_runtime import QiskitRuntimeService\n\nservice = QiskitRuntimeService(channel="ibm_quantum", token=TOKEN)\n```',
     options=[
-        'ValueError — "ibm_quantum" was retired; the valid channels are "ibm_quantum_platform" and "ibm_cloud"',
+        'ValueError — the "ibm_quantum" channel was retired',
         'It works, but prints a DeprecationWarning',
         'It works: "ibm_quantum" is still the default channel',
         'ImportError — QiskitRuntimeService moved to qiskit_ibm_provider',

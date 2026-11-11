@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Results analysis',
     question='An estimate from 1000 shots has a statistical (shot-noise) uncertainty of about 0.016. Roughly how many shots are needed to halve that uncertainty?',
     options=[
-        '4000 — the standard error falls as 1/√N, so cutting it in half costs 4× the shots',
+        '4000 — the standard error falls as 1/√N, so halving it costs 4×',
         '2000 — the error is inversely proportional to the number of shots',
         '1414 — the error falls as 1/N², so √2 as many shots suffice',
         'It cannot be reduced by more shots; only error mitigation helps',

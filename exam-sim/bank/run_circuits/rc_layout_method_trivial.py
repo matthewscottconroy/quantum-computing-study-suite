@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='On a 5-qubit line backend, why does this produce 4 CX gates for a circuit containing only cx(0, 2)?\n\n```python\npm = generate_preset_pass_manager(optimization_level=1,\n                                  backend=backend,\n                                  layout_method="trivial")\nprint(pm.run(qc).count_ops()["cx"])   # 4\n```',
     options=[
-        'layout_method="trivial" forces virtual qubit i onto physical qubit i, so 0 and 2 are not adjacent and routing inserts a SWAP (3 CX) on top of the original one',
+        'layout_method="trivial" maps virtual qubit i to physical i, so 0 and 2 need a SWAP (3 CX)',
         'layout_method="trivial" disables optimization entirely, so the CX is duplicated once per stage',
         'Trivial layout decomposes every CX into four CZ-equivalent CX gates',
         'The trivial layout reserves physical qubit 1 as an ancilla, forcing a longer route',

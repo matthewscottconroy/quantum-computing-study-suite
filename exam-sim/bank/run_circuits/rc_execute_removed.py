@@ -6,7 +6,7 @@ QUESTION = Question(
     section='Run circuits',
     question='A tutorial written for an old Qiskit version contains:\n\n```python\nfrom qiskit import execute\n\njob = execute(qc, backend, shots=1024)\n```\n\nWhat happens in Qiskit 2.x?',
     options=[
-        'ImportError — execute() was removed; transpile the circuit and call backend.run() (or use a primitive) instead',
+        'ImportError — execute() was removed from Qiskit',
         'It works but emits a DeprecationWarning',
         'It works only if the backend is a simulator',
         'ImportError — execute() moved to qiskit.tools.execute',
