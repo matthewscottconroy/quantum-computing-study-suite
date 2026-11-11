@@ -30,6 +30,20 @@ if str(APP_ROOT) not in sys.path:
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+# Never let a test - or a subprocess it starts - fall through to the real
+# ~/.local/share/quantum-study/.  The per-test fixtures below narrow this to a
+# fresh tmp_path, but they are opt-in, and a test that forgot one used to write
+# straight into the developer's own study journal (a blank or missing
+# QUANTUM_STUDY_DATA_DIR means "use the real directory").  Always override,
+# never inherit, and do it before any app module is imported.
+import atexit as _atexit      # noqa: E402
+import shutil as _shutil      # noqa: E402
+import tempfile as _tempfile  # noqa: E402
+
+_SESSION_DATA_DIR = _tempfile.mkdtemp(prefix="problem-trainer-tests-")
+os.environ["QUANTUM_STUDY_DATA_DIR"] = _SESSION_DATA_DIR
+_atexit.register(_shutil.rmtree, _SESSION_DATA_DIR, ignore_errors=True)
+
 _PERSISTENCE_PATHS = {
     "DATA_DIR": "",
     "HISTORY_FILE": "problems_history.json",

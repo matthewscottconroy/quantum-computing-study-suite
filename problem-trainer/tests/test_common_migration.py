@@ -59,8 +59,16 @@ def test_the_shim_appends_so_a_root_module_can_never_shadow_an_app_module():
     assert sys.path.index(str(REPO_ROOT)) > sys.path.index(str(APP_ROOT))
 
 
-def test_persistence_imports_standalone_by_path_with_only_the_app_dir_on_syspath():
-    """What tests/test_journal_concurrency.py does to every app, verbatim."""
+def test_persistence_imports_standalone_by_path_with_only_the_app_dir_on_syspath(tmp_path):
+    """What tests/test_journal_concurrency.py does to every app, verbatim.
+
+    The subprocess writes a row, so it gets its own data directory.  It used
+    to inherit QUANTUM_STUDY_DATA_DIR - or get a blank one when the variable
+    was unset, which means the *real* directory: every direct run of this
+    suite added a fake 'probe' mistake and confidence rating to the
+    developer's own journal, and the coach then prescribed reviewing it.
+    """
+    data_dir = tmp_path / "quantum-study"
     code = (
         "import importlib.util, sys, json\n"
         f"sys.path.insert(0, {str(APP_ROOT)!r})\n"
@@ -71,10 +79,10 @@ def test_persistence_imports_standalone_by_path_with_only_the_app_dir_on_syspath
         "m.log_confidence('probe', 'Gates', 3, False)\n"
         "print(json.dumps([e['id'] for e in m.app_mistakes()]))\n"
     )
-    proc = _run(code, QUANTUM_STUDY_DATA_DIR=os.environ["QUANTUM_STUDY_DATA_DIR"]
-                if "QUANTUM_STUDY_DATA_DIR" in os.environ else "")
+    proc = _run(code, QUANTUM_STUDY_DATA_DIR=str(data_dir))
     assert proc.returncode == 0, proc.stderr
     assert "probe" in json.loads(proc.stdout.strip().splitlines()[-1])
+    assert (data_dir / "mistakes.json").is_file(), "the row went somewhere else"
 
 
 def test_the_app_starts_as_a_script_with_no_api_key(tmp_path):
