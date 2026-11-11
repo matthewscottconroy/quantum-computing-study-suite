@@ -2,7 +2,7 @@
 """Quantum Study Suite launcher.
 
 GUI (default)          python launch.py
-Launch one app         python launch.py <app>       name, directory, or unique prefix
+Launch one app         python launch.py <app>       name, alias, or unique prefix
                                                     (dojo, exam, flash, quiz, math,
                                                     circuit, qec, vqa, paper, problem)
 List the apps          python launch.py --list
@@ -10,7 +10,7 @@ Environment status     python launch.py --status
 
 Single file, stdlib + PyQt6.  PyQt6 is imported lazily so every CLI path
 works even when it is not installed.  Each app is started as a detached
-subprocess (``sys.executable main.py`` with cwd = the app directory) whose
+subprocess (``sys.executable -m quantum_study.<app>``) whose
 stdin is /dev/null and whose stdout/stderr go to ``<data dir>/logs/<app>.log``
 (never to the launcher's own pipes), so several trainers can run side by
 side, outlive the launcher window, and ``python launch.py flash | cat``
@@ -348,7 +348,7 @@ def missing_key_note(app: App) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def format_app_table() -> str:
-    header = ("#", "App", "Alias", "Directory", "API key", "Description")
+    header = ("#", "App", "Alias", "Name", "API key", "Description")
     rows = [
         (str(i), a.name, a.alias, a.dir, _API_KEY_CELL[a.api_key], a.description)
         for i, a in enumerate(APPS, 1)
