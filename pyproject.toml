@@ -88,6 +88,8 @@ classifiers = [
 
 # Mirrors requirements.txt.  Keep the two in step: requirements.txt is what
 # setup.sh and CI install, this table is what `pip install -e .` resolves.
+# tests/test_packaging.py fails if either list (or the [dev] extra below and
+# requirements-dev.txt) drifts from the other.
 dependencies = [
     # Desktop UI (all ten apps)
     "PyQt6>=6.6",
@@ -121,6 +123,9 @@ dev = [
     "nbclient>=0.10",
     "ipykernel>=6.29",
     "jupyterlab>=4.2",
+    # Flashcard export (tools/export_cards.py --apkg); --json and --html need
+    # nothing beyond the standard library
+    "genanki>=0.13",
 ]
 
 [project.urls]
