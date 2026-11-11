@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is the computational advantage of the Heisenberg picture (stabilizer tableau) for simulating stabilizer circuits?',
     choices=[
-        'Track O(n) Pauli generators instead of 2^n amplitudes, enabling efficient classical simulation',
+        'Track O(n) Pauli generators instead of 2^n amplitudes',
         'It allows simulation of non-Clifford gates without overhead',
         'It reduces circuit depth by a factor of n',
         'It eliminates the need for ancilla qubits during syndrome extraction',

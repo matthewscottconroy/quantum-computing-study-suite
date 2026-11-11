@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='Why is the surface code considered the leading candidate for NISQ-era and near-term fault-tolerant quantum computing?',
     choices=[
-        'High threshold (~1%), only nearest-neighbor 2D connectivity required, and local stabilizer measurements',
+        'A ~1% threshold with only nearest-neighbour 2D connectivity',
         'It requires the fewest physical qubits of any known code',
         'It supports transversal T gates, avoiding magic state distillation',
         'It has been proven optimal by the quantum Hamming bound',

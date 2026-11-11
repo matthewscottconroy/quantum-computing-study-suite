@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='The surface code uses two types of stabilizers. What are they?',
     choices=[
-        'X-type plaquette stabilizers (XXXX) and Z-type vertex stabilizers (ZZZZ)',
+        'X-type plaquettes (XXXX) and Z-type vertex checks (ZZZZ)',
         'ZZ stabilizers and XX stabilizers in a 1D chain',
         'Only Z stabilizers (it is a CSS code with one type)',
         'YY and XX stabilizers on alternating rows',

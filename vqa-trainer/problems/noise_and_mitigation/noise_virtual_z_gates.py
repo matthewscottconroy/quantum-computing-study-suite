@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question="What are 'virtual Z gates' and why do they have effectively zero error on superconducting hardware?",
     choices=[
-        'Phase shifts implemented by updating classical pulse frame phases rather than applying microwave pulses; no physical gate is applied so there is no decoherence or gate error',
+        'Phase shifts made by updating the classical pulse frame; no physical pulse, so no gate error',
         "Z gates implemented by ancilla qubits that 'virtually' absorb the Z error from neighboring qubits",
         'Z rotations applied at zero pulse amplitude, causing no energy input but still consuming gate time',
         'Z gates implemented via feedforward from measurement results — virtual because they are conditional',

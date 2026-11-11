@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='Expressibility of a parameterised ansatz is measured by how well it can approximate:',
     choices=[
-        'The full unitary group U(2ⁿ) — i.e. any n-qubit state',
+        'The full unitary group U(2ⁿ)',
         'The Clifford group only',
         'A specific target state',
         'All product states',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is the difference between the real and imaginary parts of the quantum geometric tensor?',
     choices=[
-        'Real part: quantum Fisher information (Fubini-Study metric), used in QNG; imaginary part: Berry curvature, related to geometric phases',
+        'Real part: quantum Fisher information (the metric); imaginary part: Berry curvature',
         'Real part: classical Fisher information about measurement outcomes; imaginary part: quantum coherence contribution',
         'Real part: gradient of the cost function; imaginary part: Hessian of the cost function',
         'Both parts are equal for real-valued parameterised quantum circuits',

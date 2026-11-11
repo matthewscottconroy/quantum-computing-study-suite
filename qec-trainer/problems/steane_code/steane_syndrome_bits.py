@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='When a single X error occurs on qubit 3 of the Steane code, how many syndrome bits are produced and what do they indicate?',
     choices=[
-        '3 syndrome bits from Z-type stabilizers; their binary value encodes the qubit number (3 = 011 in binary)',
+        '3 syndrome bits that spell the qubit number',
         '6 syndrome bits, one per stabilizer generator',
         '1 syndrome bit indicating an error occurred',
         '7 syndrome bits, one per physical qubit',

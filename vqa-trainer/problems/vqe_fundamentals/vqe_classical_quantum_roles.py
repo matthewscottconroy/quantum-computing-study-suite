@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='In VQE, who is responsible for optimising the circuit parameters — the quantum computer or the classical computer?',
     choices=[
-        'The classical computer optimises; the quantum computer evaluates the energy',
+        'The classical computer; the quantum one evaluates the energy',
         'The quantum computer optimises using quantum gradient descent',
         'Both computers share the optimisation equally',
         'Neither — parameters are fixed by physical symmetry',

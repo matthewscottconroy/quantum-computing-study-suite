@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is the risk of using an ansatz with too many parameters relative to the problem?',
     choices=[
-        'Barren plateaus: gradients become exponentially small in the number of parameters',
+        'Barren plateaus: gradients become exponentially small',
         'The ansatz cannot represent the ground state',
         'Circuit depth becomes constant',
         'The cost function develops many degenerate global minima',

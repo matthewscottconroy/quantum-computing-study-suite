@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question="What is the 'noise learning' step required before applying Probabilistic Error Cancellation (PEC)?",
     choices=[
-        'Characterising the noise channel of each gate via process tomography or randomized benchmarking to obtain the quasi-probability decomposition coefficients {cᵢ}',
+        "Characterising each gate's noise channel to obtain the quasi-probability coefficients {cᵢ}",
         'Training a classical neural network on noisy circuit outputs to learn the noise-to-noiseless mapping',
         'Running the target circuit many times to build a statistical model of the output distribution',
         'Performing readout calibration to learn the measurement error matrix before applying PEC corrections',

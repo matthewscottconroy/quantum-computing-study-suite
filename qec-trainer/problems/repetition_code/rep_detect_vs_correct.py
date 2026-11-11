@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='A distance-2 code can detect 1 error but not correct it. A distance-3 code can correct 1 error. Why the difference?',
     choices=[
-        'Distance 3 has unique syndromes for each single error; distance 2 only knows an error occurred but not where',
+        'Distance 3 gives each single error its own syndrome',
         'Distance 3 uses more qubits, giving it more syndrome bits',
         'Distance 2 cannot distinguish X from Z errors, while distance 3 can',
         'Distance 3 is transversal; distance 2 is not',

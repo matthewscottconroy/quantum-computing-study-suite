@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='How is a Pauli stabilizer measured fault-tolerantly?',
     choices=[
-        'Couple the stabilizer to an ancilla qubit via CNOT/CZ gates, then measure the ancilla',
+        'Couple the stabilizer to an ancilla with CNOT/CZ gates, then measure the ancilla',
         'Measure each physical qubit directly and compute the parity classically',
         'Apply the stabilizer operator then measure in the eigenbasis',
         'Use a quantum Fourier transform to extract the eigenvalue',

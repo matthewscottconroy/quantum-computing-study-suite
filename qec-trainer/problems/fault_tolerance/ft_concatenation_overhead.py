@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is the physical qubit overhead for level-l concatenation using an [[n,1,d]] inner code?',
     choices=[
-        'nˡ physical qubits per logical qubit',
+        'nˡ physical qubits',
         'n·l physical qubits',
         '2^l physical qubits',
         'n^(l/2) physical qubits',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is dual-rail encoding and what error does it detect?',
     choices=[
-        'A qubit encoded as |0̄⟩=|01⟩ and |1̄⟩=|10⟩; it detects photon loss (erasure) errors',
+        'A qubit encoded as |0̄⟩=|01⟩ and |1̄⟩=|10⟩; detects photon-loss errors',
         'Two copies of a qubit in parallel for bit-flip protection',
         'A code using two rails of stabilizers for X and Z separately',
         'A qubit encoded as |0̄⟩=|00⟩ and |1̄⟩=|11⟩; detects phase errors',

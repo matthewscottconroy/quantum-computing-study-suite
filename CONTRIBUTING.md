@@ -340,6 +340,15 @@ it works offline. Any numeric claim in `question`/`explanation` (a syndrome, a d
 a threshold) must be checked by a script before you commit it; the 2026 audit found the
 old wrong answers precisely in un-scripted problems.
 
+Writing the four choices: they are shuffled every time a problem is shown
+(`common.choices`), so the order in the file does not matter, but the right choice must
+not be findable without knowing the answer. `tests/test_option_shuffle.py` enforces three
+rules. No choice may refer to another by letter or position ("Both A and C", "all of the
+above"). The right choice may not be more than 15 characters longer than every distractor
+— write it at the length of the others and put the justification in `explanation`. And
+across the bank no length rank (shortest … longest) may hold the answer more than 40% of
+the time, so do not always make it the second-longest either.
+
 ### VQA problem — `vqa-trainer/problems/<category_dir>/<id>.py`
 
 Same `Problem` shape as QEC plus a numeric mode:
@@ -464,7 +473,10 @@ silently skips a file that fails to import; `test_every_question_file_loads` rep
 real exception. Options are shuffled every time a question is shown (`common.choices`), so
 where the correct option sits in the file does not matter — but no option may refer to
 another by letter or position ("Both A and C", "all of the above"); the bank test rejects
-those. Questions must be **original** study material — never
+those. It also fails if the correct option is the longest one too often (it was in 60% of
+the bank, because it alone carried its justification after a dash): keep the options the
+same length and put the reasoning in `explanation`. Questions must be **original** study
+material — never
 reproduce real exam content — and distractors should encode real misconceptions (bit
 ordering, retired APIs, ISA requirements).
 

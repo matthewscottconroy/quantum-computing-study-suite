@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is the key property that makes cat qubits attractive for hardware-efficient QEC?',
     choices=[
-        'Exponential bias: Z (phase-flip) errors are exponentially suppressed vs X (bit-flip) errors',
+        'Their noise is exponentially biased toward X',
         'They require no error correction at all',
         'Cat qubits are topologically protected by anyons',
         'They implement T gates transversally',

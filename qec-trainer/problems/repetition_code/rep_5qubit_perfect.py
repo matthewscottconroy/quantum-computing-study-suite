@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question="The [[5,1,3]] code is called the 'perfect' single-error-correcting quantum code. Why?",
     choices=[
-        'It saturates the quantum Hamming bound: fewest qubits possible to encode 1 qubit with d=3',
+        'It saturates the quantum Hamming bound for d=3',
         'It can correct all errors perfectly with zero overhead',
         'It is a CSS code with perfect transversal gates',
         'It uses exactly 5 stabilizer generators',

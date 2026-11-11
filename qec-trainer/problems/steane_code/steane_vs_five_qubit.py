@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='The [[5,1,3]] perfect code uses fewer qubits than the [[7,1,3]] Steane code. Why might one prefer the Steane code?',
     choices=[
-        'The Steane code has transversal H, S, and CNOT (full Clifford group); the [[5,1,3]] code has no transversal non-trivial Clifford gates',
+        'It has transversal H, S and CNOT; the [[5,1,3]] code does not',
         'The Steane code can correct more errors per physical qubit',
         'The Steane code has a lower encoding rate, making it more efficient',
         'The [[5,1,3]] code has no fault-tolerant gate set at all',

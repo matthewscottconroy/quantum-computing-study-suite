@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='How does identity block initialisation help avoid barren plateaus at the start of training?',
     choices=[
-        'Initialising parameters so each block acts as the identity ensures O(1) gradient variance at initialisation',
+        'Initialising each block as the identity gives O(1) gradient variance at the start',
         'Setting all parameters to zero makes the cost function a constant, which is easy to optimise',
         'Identity blocks produce maximally entangled states that maximise gradient variance',
         'It avoids barren plateaus by removing all entangling gates from the initial circuit',

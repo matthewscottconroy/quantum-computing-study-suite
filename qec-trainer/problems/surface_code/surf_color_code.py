@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='The color code is defined on a 3-colorable lattice. What is its key advantage over the surface code?',
     choices=[
-        'The color code supports a transversal T gate (on 3D color codes), which the surface code lacks',
+        'A transversal T gate (in 3D color codes), which the surface code lacks',
         'The color code has a higher fault-tolerant threshold than the surface code',
         'The color code requires fewer physical qubits per logical qubit',
         'The color code has only Z-type stabilizers, simplifying syndrome measurement',

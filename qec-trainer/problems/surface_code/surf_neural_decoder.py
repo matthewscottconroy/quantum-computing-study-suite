@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='Neural network decoders for the surface code offer what potential advantage over MWPM?',
     choices=[
-        'They can learn the noise model from data and potentially approach maximum likelihood performance for complex or correlated noise',
+        'They can learn correlated noise directly from data',
         'They run faster than MWPM for all noise models',
         'They eliminate the need for repeated syndrome measurement rounds',
         'They can correct errors beyond the code distance',

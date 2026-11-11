@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='In the CSS construction, given classical codes C₁ ⊇ C₂, where do the logical X and logical Z operators come from?',
     choices=[
-        'Logical X from cosets of C₁/C₂ (representatives of C₁ not in C₂); logical Z from cosets of C₂⊥/C₁⊥',
+        'Logical X from cosets C₁/C₂; logical Z from C₂⊥/C₁⊥',
         'Logical X from C₂ directly; logical Z from C₁⊥',
         'Both logical X and Z from the minimum-weight codewords of C₁',
         'Logical X from C₁⊥; logical Z from C₂⊥',

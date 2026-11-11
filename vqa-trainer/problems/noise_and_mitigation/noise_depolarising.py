@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='What is a depolarising noise channel with error probability p?',
     choices=[
-        'With probability p applies X, Y, or Z each with probability p/3, and with probability (1-p) does nothing: ρ → (1-p)ρ + (p/3)(XρX + YρY + ZρZ)',
+        'With probability p applies X, Y or Z, each equally likely',
         'With probability p flips the qubit (applies X only)',
         'Adds Gaussian noise to the rotation angle of every gate',
         'With probability p measures the qubit and resets it to |0⟩',

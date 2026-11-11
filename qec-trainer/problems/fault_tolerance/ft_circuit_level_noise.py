@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='A circuit-level noise model for fault-tolerant analysis includes which error sources?',
     choices=[
-        'Gate errors (1- and 2-qubit), state preparation errors, measurement errors, and idle (waiting) qubit errors',
+        'Gate, state-preparation, measurement and idle errors',
         'Only two-qubit gate errors — single-qubit gates are assumed perfect',
         'Only measurement errors — gates are assumed unitary',
         'Gate errors and measurement errors, but not idle errors',

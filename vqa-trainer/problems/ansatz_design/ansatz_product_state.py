@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='What is a product-state (zero-entanglement) ansatz and when does it fail for VQE?',
     choices=[
-        'A tensor product of independent single-qubit states; fails when the true ground state is entangled (strongly correlated systems)',
+        'A tensor product of single-qubit states; it fails when the ground state is entangled',
         'An ansatz with product-form gates (CNOT followed by single-qubit rotations) that still generates entanglement',
         'A classical shadow protocol that approximates quantum states as products',
         'Any ansatz with no parameterised gates — a fixed product state input',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='An error E is detectable by a stabilizer code iff:',
     choices=[
-        'E anticommutes with at least one stabilizer generator',
+        'E anticommutes with some stabilizer',
         'E commutes with all stabilizer generators',
         'E is a Pauli X operator',
         'E has weight greater than d/2',

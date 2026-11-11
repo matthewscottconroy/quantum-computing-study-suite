@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='What is an erasure error, and how does it differ from a Pauli (depolarizing) error?',
     choices=[
-        'An erasure is a loss event where the qubit location is known; a Pauli error is unknown in location',
+        'An erasure is a loss at a known location; the location of a Pauli error is unknown',
         'An erasure replaces the qubit with |0⟩; a Pauli error replaces it with |1⟩',
         'An erasure destroys all quantum information; a Pauli error is always correctable',
         'Erasure errors only affect phase; Pauli errors only affect amplitude',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='For a random parameterised quantum circuit, what is the expected value of a gradient component E[∂C/∂θ]?',
     choices=[
-        '0 — the gradient has zero mean, not just small variance (the barren plateau problem is about variance, not bias)',
+        '0 — the problem is the variance, not the mean',
         '2^{-n} — exponentially small but nonzero',
         '1/p where p is the number of parameters',
         'The mean equals the gradient variance',

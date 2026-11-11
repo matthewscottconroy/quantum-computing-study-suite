@@ -8,15 +8,15 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='The quantum Singleton bound for an [[n,k,d]] code states:',
     choices=[
-        'k ≤ n − 4(d−1), i.e., k ≤ n − 4t for t = d−1 errors detected',
+        'k ≤ n − 2(d−1)',
         'k ≤ n − 2d',
-        'n ≥ 4k + d',
+        'n ≥ 4k + d − 1',
         'd ≤ n/2',
     ],
     correct_index=0,
-    explanation='The quantum Singleton bound (quantum analogue of the classical Singleton bound) states that for an [[n,k,d]] code: k ≤ n − 4(d−1). Equivalently, for correcting t errors (d = 2t+1), k ≤ n − 4t. For the 3-qubit code: k=1, n=3, d=3, and the bound gives k ≤ 3 − 4·1 = −1, which the code violates — meaning the 3-qubit repetition code is not a quantum code correcting t=1 arbitrary errors (it only corrects bit-flips, not arbitrary single-qubit errors).',
+    explanation='The quantum Singleton bound states that an [[n,k,d]] code satisfies n − k ≥ 2(d−1), i.e. k ≤ n − 2(d−1) — twice the classical overhead n − k ≥ d − 1. For a code correcting t arbitrary errors (d = 2t+1) this reads k ≤ n − 4t. The [[5,1,3]] code saturates it: 5 − 1 = 4 = 2·2. The 3-qubit repetition code has n − k = 2 < 4, so it cannot be a distance-3 quantum code, and indeed it corrects only bit flips: a single Z already acts as a logical operator, so its distance as a quantum code is 1.',
     hints=[
-        'The quantum Singleton bound is analogous to the classical one, with factor 4 instead of 2.',
+        'It is the classical Singleton bound n − k ≥ d − 1 with the overhead doubled.',
     ],
     grade_mode=GradeMode.AUTO,
 )

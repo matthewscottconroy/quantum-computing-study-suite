@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question="What makes a gate operation 'fault-tolerant'?",
     choices=[
-        'A single fault anywhere in the operation creates at most one correctable error per output code block',
+        'One fault causes at most one error per code block',
         'The gate is implemented with zero physical errors',
         'The gate uses only ancilla qubits, never data qubits',
         'The gate requires no classical control signals',

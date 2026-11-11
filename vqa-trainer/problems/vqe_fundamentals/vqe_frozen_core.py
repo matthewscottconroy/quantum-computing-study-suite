@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is the frozen core approximation in VQE-based quantum chemistry?',
     choices=[
-        'Core electrons are treated classically at the mean-field level, not included in the quantum simulation',
+        'Core electrons are handled at mean-field level, outside the simulation',
         'The quantum circuit parameters are frozen after the first optimisation step',
         'Only the highest energy orbitals are excluded from the simulation',
         'The Hamiltonian is approximated by freezing off-diagonal elements',

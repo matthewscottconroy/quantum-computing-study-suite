@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question="Why can't we measure the data qubits directly to detect errors in a quantum repetition code?",
     choices=[
-        'Direct measurement collapses the logical superposition, destroying the encoded quantum state',
+        'Direct measurement collapses the encoded superposition',
         'Direct measurement is too slow to be practical',
         'The ancilla qubits would need to be re-initialized after every measurement',
         'Data qubits are not accessible in a physical quantum device',

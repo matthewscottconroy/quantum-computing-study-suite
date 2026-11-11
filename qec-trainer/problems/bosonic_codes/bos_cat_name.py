@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question="Why are cat qubits called 'cat' qubits?",
     choices=[
-        "The codewords |C±_α⟩ = |α⟩ ± |−α⟩ are macroscopic superpositions analogous to Schrödinger's cat (alive + dead)",
+        "|α⟩ ± |−α⟩ is a macroscopic superposition, like Schrödinger's cat",
         "The acronym CAT stands for 'Coherent Amplitude Transfer'",
         'The coherent state amplitude traces a cat-ear shape in phase space',
         'They were first demonstrated using an optical lattice shaped like a cat',

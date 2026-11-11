@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='Cerezo et al. (2021) showed a connection between barren plateaus and quantum entanglement. What is it?',
     choices=[
-        'States with high entanglement entropy across a bipartition exhibit barren plateaus for global cost functions',
+        'States with high entanglement entropy exhibit barren plateaus',
         'Entangled states always avoid barren plateaus',
         'Barren plateaus only occur for separable (product) states',
         'Entanglement does not affect the gradient landscape',

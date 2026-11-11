@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question="What is 'parameter concentration' in QAOA and why does it benefit practical implementation?",
     choices=[
-        'Optimal parameters {γ*,β*} are approximately instance-independent for large random instances of the same problem class, enabling parameter transfer',
+        'Optimal {γ*,β*} barely change between large random instances, so they can be reused',
         'QAOA parameters concentrate near zero, making small-angle approximations accurate',
         'All p layers converge to the same γ and β values, reducing effective parameter count to 2',
         'Parameters concentrate after many optimisation steps, meaning convergence is guaranteed',

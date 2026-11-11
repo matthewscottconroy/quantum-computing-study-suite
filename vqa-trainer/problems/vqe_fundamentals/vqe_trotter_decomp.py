@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is the Suzuki-Trotter decomposition used for in quantum simulation?',
     choices=[
-        'Approximating e^{-i(A+B)t} ≈ e^{-iAt}e^{-iBt} to implement time evolution as a product of simpler unitaries',
+        'Approximating e^{-i(A+B)t} ≈ e^{-iAt}e^{-iBt} as a product of simpler steps',
         'Decomposing a Hamiltonian into a sum of Pauli strings for measurement',
         'Splitting VQE circuit layers into odd and even sublayers to parallelise execution',
         'Extrapolating Trotter errors to zero to recover exact dynamics',

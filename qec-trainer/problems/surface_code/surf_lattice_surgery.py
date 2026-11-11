@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is lattice surgery in the context of surface codes?',
     choices=[
-        'Fault-tolerant 2-qubit logical gates implemented by merging and splitting surface code patches',
+        'Logical gates done by merging and splitting code patches',
         'A method to repair damaged qubits in the lattice',
         'An algorithm for decoding syndrome data using graph matching',
         'The process of growing a surface code to higher distance',

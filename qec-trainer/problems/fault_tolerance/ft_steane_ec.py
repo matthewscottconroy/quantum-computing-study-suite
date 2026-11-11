@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='In Steane error correction (for CSS codes), ancilla states are prepared in code states rather than single qubits. What is the advantage?',
     choices=[
-        'Multiple stabilizers can be measured in parallel, reducing circuit depth vs. one-ancilla-at-a-time methods',
+        'Several stabilizers can be measured in parallel, which reduces circuit depth',
         'Code-state ancillas are always error-free, eliminating measurement noise',
         'It allows non-Clifford gates to be applied fault-tolerantly without magic states',
         'It reduces the number of physical qubits required for ancilla preparation',

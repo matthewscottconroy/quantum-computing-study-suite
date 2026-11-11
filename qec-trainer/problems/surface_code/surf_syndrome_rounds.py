@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='How many rounds of syndrome measurement are needed for reliable decoding in a distance-d surface code?',
     choices=[
-        'd rounds (to suppress measurement errors as well as physical errors)',
+        'd rounds (to suppress measurement errors as well)',
         '1 round (a single perfect measurement suffices)',
         'd² rounds',
         '2 rounds (one for X, one for Z stabilizers)',

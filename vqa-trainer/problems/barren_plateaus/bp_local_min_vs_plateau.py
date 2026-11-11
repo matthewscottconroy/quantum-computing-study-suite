@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question="What distinguishes a 'local minimum' from a 'barren plateau' in the VQA optimisation landscape?",
     choices=[
-        'A local minimum has gradient ≈ 0 but non-zero curvature (Hessian > 0); a barren plateau has gradient ≈ 0 and Hessian ≈ 0 over exponentially large regions',
+        'A local minimum has zero gradient but real curvature; a plateau has neither over a large region',
         'Local minima are caused by hardware noise; barren plateaus are caused by circuit depth',
         'Barren plateaus are local minima at the edges of the parameter space; local minima are interior critical points',
         'They are the same phenomenon — a local minimum is just a very narrow barren plateau',

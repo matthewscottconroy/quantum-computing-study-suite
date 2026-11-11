@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is a quantum convolutional neural network (QCNN) ansatz and what are its key structural properties?',
     choices=[
-        'A hierarchical ansatz with convolutional (translationally invariant) layers followed by pooling (qubit reduction) layers, giving O(log n) depth and O(log n) parameters',
+        'A hierarchical ansatz of convolutional layers and pooling layers that discard qubits, O(log n) deep',
         'A quantum circuit that implements a classical convolutional neural network by encoding image data into qubit amplitudes',
         'An ansatz where each gate is a quantum analogue of a convolutional filter applied in Fourier space',
         'A hardware-efficient ansatz with n/2 parameters arranged in a 2D grid matching CNN architecture',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is the natural metric for gradient descent on VQA parameter spaces, and why is it not Euclidean?',
     choices=[
-        'The Fubini-Study metric on the quantum state manifold — Euclidean parameter steps do not correspond to equal distances in Hilbert space',
+        'The Fubini-Study metric — equal parameter steps are not equal distances in Hilbert space',
         "The Hessian of the cost function — Newton's method is the natural second-order method",
         'The L1 norm of the parameter vector — promotes sparsity in the gate angles',
         'There is no natural non-Euclidean metric; Euclidean gradient descent is optimal for circuits',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is the QAOA adiabatic limit and what does it imply about approximation quality?',
     choices=[
-        'As p→∞ with optimal parameters, QAOA reproduces the adiabatic algorithm and converges to the exact ground state of the cost Hamiltonian',
+        'As p→∞ with optimal parameters, QAOA reproduces the adiabatic algorithm and its ground state',
         'For very large p, QAOA parameters concentrate to fixed values independent of the problem instance',
         'The adiabatic limit means QAOA requires O(1/Δ²) layers where Δ is the spectral gap',
         'At large p, QAOA approximation ratio saturates at the classical Goemans-Williamson bound',

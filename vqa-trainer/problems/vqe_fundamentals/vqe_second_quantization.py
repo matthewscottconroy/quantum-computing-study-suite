@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='What is second quantization and why is it used to represent quantum chemistry Hamiltonians in VQE?',
     choices=[
-        'An operator formalism using creation/annihilation operators that naturally handles variable particle numbers and maps to qubit operators via JW or BK',
+        'A formalism of creation/annihilation operators that maps to qubit operators via JW or BK',
         'A method of quantising the nuclear degrees of freedom after first quantising electrons',
         'A classical approximation that replaces wavefunctions with occupation number vectors',
         'A technique to convert the Hamiltonian from real space to momentum space',

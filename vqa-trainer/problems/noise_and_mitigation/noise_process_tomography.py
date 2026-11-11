@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='What is quantum process tomography (QPT) and what is its resource cost?',
     choices=[
-        'Full characterisation of a quantum channel via 4ⁿ input states and 4ⁿ measurement settings; scales exponentially in qubit count',
+        'Full characterisation of a channel from 4ⁿ inputs and 4ⁿ measurements — exponential cost',
         'Measuring the output of a single fixed input state to characterise the gate fidelity',
         'A classical simulation technique that reconstructs the quantum channel from process matrices',
         'Tomography of the quantum process using only Clifford circuits, scaling polynomially',

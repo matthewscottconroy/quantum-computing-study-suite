@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='The T gate is NOT transversal for the Steane code. Why is this significant?',
     choices=[
-        'By Eastin-Knill, no code has a transversal universal gate set',
+        'By Eastin-Knill, no code is transversally universal',
         'T gates are not unitary',
         'The Steane code has distance too small for T',
         'T requires ancilla qubits which are not available',

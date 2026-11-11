@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='Consider the state α|000⟩ + β|111⟩. If a Z error acts on qubit 1, what is the resulting state, and why does the 3-qubit bit-flip code fail to detect it?',
     choices=[
-        'α|000⟩ − β|111⟩; both stabilizers Z₁Z₂ and Z₂Z₃ still give +1, so syndrome is (0,0)',
+        'α|000⟩ − β|111⟩; syndrome is (0,0), so it goes undetected',
         '−α|000⟩ + β|111⟩; syndrome is (1,0) so it is detected',
         'α|100⟩ + β|011⟩; syndrome is (1,1) indicating qubit 2 errored',
         'α|000⟩ + β|111⟩ unchanged; Z commutes with X stabilizers',

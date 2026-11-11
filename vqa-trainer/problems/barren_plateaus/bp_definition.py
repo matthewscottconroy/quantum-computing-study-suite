@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='A barren plateau in a VQA landscape is characterised by:',
     choices=[
-        'Gradients exponentially small in the number of qubits',
+        'Gradients that vanish exponentially',
         'Many local minima of equal energy',
         'The cost function being constant',
         'Circuit depth exceeding qubit count',

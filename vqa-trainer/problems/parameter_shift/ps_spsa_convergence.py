@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What convergence guarantee does SPSA have under standard conditions?',
     choices=[
-        'Converges to a local minimum almost surely if the learning rate aₙ and perturbation cₙ satisfy Σaₙ=∞, Σaₙ²/cₙ²<∞, and cₙ→0',
+        'Converges to a local minimum almost surely, given decaying step and perturbation sizes',
         'Converges to the global minimum in O(1/ε²) steps for any Lipschitz-continuous cost function',
         'Converges at the same rate as the exact gradient descent given enough iterations',
         'SPSA has no convergence guarantee for non-convex cost functions like VQA landscapes',

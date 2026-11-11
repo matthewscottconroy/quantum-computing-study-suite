@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is the Quantum Subspace Expansion (QSE) technique in VQE?',
     choices=[
-        'Expand the ansatz with excitation operators and diagonalise the resulting small Hamiltonian classically',
+        'Expand the VQE state with excitation operators and diagonalise classically',
         'Increase the circuit depth by appending extra UCCSD layers after VQE converges',
         'Use the VQE state as a starting point for full configuration interaction (FCI)',
         'Partition the Hamiltonian into blocks and solve each block with VQE independently',

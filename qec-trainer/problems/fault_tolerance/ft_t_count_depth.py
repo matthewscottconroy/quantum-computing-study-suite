@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='Why do T-count and T-depth matter for fault-tolerant quantum computing resource estimates?',
     choices=[
-        'T gates are the only non-Clifford gates; each T requires expensive magic state distillation, so T-count dominates qubit and time overhead',
+        'Each T gate needs costly magic-state distillation, so T-count dominates the overhead',
         'T gates are more error-prone than Clifford gates due to their non-unitary nature',
         'T-depth determines code distance requirements; T-count sets the number of logical qubits',
         'Clifford gates are free in all fault-tolerant schemes; only T gates consume resources',

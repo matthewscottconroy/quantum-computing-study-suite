@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='How does imaginary-time gradient descent differ from real gradient descent for VQAs?',
     choices=[
-        'Imaginary-time evolution e^{-τH}|ψ⟩ monotonically decreases the energy, projecting to the ground state; it is projected onto the variational manifold to give McLachlan variational principle',
+        'Imaginary-time evolution e^{-τH}|ψ⟩ lowers the energy monotonically, projected onto the ansatz manifold',
         'Imaginary-time gradient descent uses complex-valued parameters to navigate the cost landscape with faster convergence',
         'Imaginary-time gradient descent is the same as gradient descent with a complex learning rate iη instead of η',
         'Imaginary-time evolution is used only for thermal state preparation, not ground state optimisation',

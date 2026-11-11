@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='Why can GKP codes implement the T gate more naturally than qubit codes?',
     choices=[
-        'GKP codes can implement T via a non-Clifford displacement in phase space that is naturally available in the continuous-variable setting, without magic state distillation',
+        'A non-Clifford displacement native to continuous variables gives T without distillation',
         'GKP codes have transversal T because the lattice structure satisfies the triply-even property',
         'T gates are Clifford operations in the GKP framework',
         'GKP codes use photon counting to implement T without ancilla states',

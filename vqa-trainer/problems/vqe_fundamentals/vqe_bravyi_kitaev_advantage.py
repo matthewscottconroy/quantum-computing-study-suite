@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='The Bravyi-Kitaev (BK) transformation is preferred over Jordan-Wigner when:',
     choices=[
-        'Locality matters — BK gives O(log n) weight Pauli strings vs O(n) for JW',
+        'Locality matters — BK strings have O(log n) weight',
         'The molecule has more than 10 electrons',
         'You want to preserve the Jordan-Wigner string structure',
         'BK always gives fewer Pauli terms in the Hamiltonian',

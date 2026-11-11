@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='Estimating ⟨H⟩ = Σᵢ cᵢ⟨Pᵢ⟩ with S shots per Pauli term. The variance of the energy estimate scales as:',
     choices=[
-        'O(1/S) per term, O(M/S) total for M terms',
+        'O(M/S)',
         'O(1/S²)',
         'O(√S)',
         'O(M²/S)',

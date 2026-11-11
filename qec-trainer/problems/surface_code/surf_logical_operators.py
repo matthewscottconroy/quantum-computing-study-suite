@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='In a distance-d surface code, logical operators are:',
     choices=[
-        'String operators of weight d stretching from one boundary to the opposite boundary',
+        'Weight-d strings joining opposite boundaries',
         'Single-qubit Pauli operators on the corner qubit',
         'Products of all Z stabilizers in the code',
         'Random weight-1 operators on any data qubit',

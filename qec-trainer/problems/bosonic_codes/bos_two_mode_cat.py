@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='A two-mode cat code uses two oscillator modes. What is the key advantage over a single-mode cat code?',
     choices=[
-        'The two-mode code can correct both photon loss AND dephasing errors, while a single-mode cat code only exponentially suppresses one type',
+        'It can correct both photon loss and dephasing, not just suppress one',
         'Two modes double the encoding rate — two logical qubits in two oscillators',
         'Two-mode codes require fewer ancilla qubits for syndrome measurement',
         'The two-mode code has a higher threshold under depolarizing noise',

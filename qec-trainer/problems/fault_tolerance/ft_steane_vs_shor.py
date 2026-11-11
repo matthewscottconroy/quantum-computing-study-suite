@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='Shor error correction uses one ancilla per stabilizer; Steane error correction uses full code-state ancilla blocks. What is the key trade-off?',
     choices=[
-        'Steane is faster (parallel syndrome extraction) but requires more qubits; Shor uses fewer qubits per round but needs more sequential steps',
+        'Steane is faster but needs more qubits; Shor uses fewer but takes more steps',
         'Shor is universally better — it uses fewer resources in all metrics',
         'Steane requires magic state preparation; Shor does not',
         'Both methods have identical resource requirements for CSS codes',

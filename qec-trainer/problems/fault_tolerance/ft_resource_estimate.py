@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='A rough estimate for the number of physical qubits required per logical qubit for a useful fault-tolerant computation (e.g., chemistry simulation) on a surface code is:',
     choices=[
-        '~1000 physical qubits per logical qubit (10³), dominated by magic state factory overhead',
+        '~1000 physical qubits per logical qubit, dominated by magic-state factories',
         '~10 physical qubits per logical qubit (the code distance squared)',
         '~10⁶ per logical qubit — beyond any near-term device',
         '~100 physical qubits, achievable with current superconducting hardware',

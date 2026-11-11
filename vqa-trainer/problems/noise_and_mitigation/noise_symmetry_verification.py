@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is symmetry verification (symmetry expansion) as an error mitigation technique?',
     choices=[
-        'Discard (or post-select) measurement outcomes that violate known symmetries of the Hamiltonian, projecting to the physical subspace',
+        'Discard measurement outcomes that violate known symmetries of the Hamiltonian (post-selection)',
         'Add symmetry-breaking noise terms to the Hamiltonian and extrapolate to zero breaking',
         'Verify the symmetry of the ansatz circuit by comparing it to its transpose',
         'Use the symmetry group to reduce the Pauli decomposition of H before measurement',

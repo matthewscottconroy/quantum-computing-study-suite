@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question="What is 'virtual distillation' (exponential error suppression) by Huggins et al. (2021)?",
     choices=[
-        'Uses M copies of the noisy state ρ to estimate expectation values of ρ^M/Tr(ρ^M), exponentially suppressing errors with M',
+        'Uses M copies of ρ to estimate expectation values in ρ^M/Tr(ρ^M), suppressing errors with M',
         'Applies virtual Z gates to distil coherent errors from incoherent (depolarising) errors',
         'A post-processing technique that distils the signal from noisy energy estimates using classical filtering',
         'Runs the VQE circuit M times and takes the median of the M energy estimates',

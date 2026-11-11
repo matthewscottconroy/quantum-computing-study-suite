@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='At p=1, how does the QAOA state relate to the adiabatic algorithm, and what limits its performance for general graphs?',
     choices=[
-        'p=1 QAOA captures only 1-local correlations (each qubit sees its immediate neighbours), missing multi-hop structure needed for dense or clustered graphs',
+        "p=1 QAOA sees only each qubit's immediate neighbours, missing multi-hop structure",
         'p=1 QAOA is equivalent to one step of the adiabatic algorithm and always achieves the GW bound',
         'p=1 QAOA has zero overlap with the adiabatic path because the Trotter error is too large',
         'p=1 QAOA is limited by the speed of the classical optimiser, not the quantum circuit',

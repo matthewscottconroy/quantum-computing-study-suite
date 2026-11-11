@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='In a CSS code, applying H to every physical qubit swaps the X and Z stabilizer groups. For the Steane code, what does this mean for the logical state?',
     choices=[
-        'The logical |0̄⟩ and |+̄⟩ states are swapped, implementing logical H̄ — this works because the Steane code is self-dual (H_X = H_Z)',
+        'It implements logical H̄, because the code is self-dual (H_X = H_Z)',
         'The code is mapped to a different code and logical information is lost',
         'Only the Z-stabilizers are affected; X-stabilizers are unchanged by H',
         'H⊗7 implements logical S̄ by rotating the stabilizer structure',

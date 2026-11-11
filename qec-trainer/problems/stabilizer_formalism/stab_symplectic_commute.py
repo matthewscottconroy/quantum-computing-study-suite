@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='Two Pauli strings P=(a|b) and Q=(c|d) commute iff their symplectic inner product is zero. The symplectic inner product is:',
     choices=[
-        'a·d ⊕ b·c (mod 2), where · is bitwise AND and ⊕ is XOR',
+        'a·d ⊕ b·c (mod 2)',
         'a·c ⊕ b·d (mod 2)',
         'a·c + b·d (mod 2)',
         '(a+b)·(c+d) (mod 2)',

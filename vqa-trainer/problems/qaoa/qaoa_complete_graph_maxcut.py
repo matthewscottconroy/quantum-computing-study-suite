@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='For the MaxCut problem on a complete graph Kₙ with n even, what is the maximum cut size?',
     choices=[
-        'n²/4 — partition into two equal halves, each of size n/2, cutting all n/2 × n/2 edges between the halves',
+        'n²/4 — split the nodes into two equal halves',
         'n(n-1)/2 — the total number of edges in Kₙ',
         'n-1 — a spanning tree cut',
         '2n — two edges per node',

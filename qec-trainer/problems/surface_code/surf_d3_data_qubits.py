@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='How many data qubits are in a distance-3 surface code?',
     choices=[
-        '9 (d² = 3² = 9)',
+        '9',
         '6',
         '12',
         '16',

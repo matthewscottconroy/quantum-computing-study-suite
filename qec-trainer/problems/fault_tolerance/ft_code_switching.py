@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is code switching (code conversion) in fault-tolerant quantum computation?',
     choices=[
-        'Transitioning a logical qubit from one code to another to access different transversal gate sets',
+        'Moving a logical qubit between codes to reach other transversal gates',
         'Switching between error correction and error detection codes at runtime',
         'Converting a physical qubit error into a syndrome measurement outcome',
         'Using different codes on different qubits in the same circuit',

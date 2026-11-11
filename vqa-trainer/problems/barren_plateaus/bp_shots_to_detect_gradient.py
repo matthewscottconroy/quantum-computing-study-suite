@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='If Var[∂C/∂θ] ∝ 2^{-n}, approximately how many shots are needed to detect the gradient signal at SNR=1 for n=30 qubits?',
     choices=[
-        '~10⁹ shots — approximately 2^30 measurements needed to resolve signal from noise',
+        '~10⁹ shots — about 2^30 measurements',
         '~30 shots — one per qubit',
         '~1000 shots — standard quantum circuit overhead',
         '~10⁶ shots — square-root scaling with qubit count',

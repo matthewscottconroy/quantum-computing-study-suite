@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='How can QAOA be interpreted as Trotterised quantum annealing?',
     choices=[
-        'QAOA layers approximate discrete time steps of adiabatic evolution from B to C, with {βⱼ, γⱼ} encoding the annealing schedule',
+        'QAOA layers are discrete time steps of adiabatic evolution from B to C; {βⱼ, γⱼ} set the schedule',
         'QAOA uses quantum annealing hardware (D-Wave) with a Trotterised digital gate sequence',
         'Trotterisation converts the QAOA cost unitary into a sum of local terms matching quantum annealing',
         'QAOA approximates finite-temperature quantum annealing using imaginary-time Trotterisation',

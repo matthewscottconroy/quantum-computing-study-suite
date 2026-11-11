@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='How is a logical CNOT implemented between two surface code patches using lattice surgery?',
     choices=[
-        'Merge the two patches along a shared boundary by measuring joint stabilizers, then split them — the merge/split sequence implements the CNOT',
+        'Merge the two patches by measuring joint stabilizers on a shared boundary, then split',
         'Apply transversal CNOT qubit-by-qubit between corresponding qubits of the two patches',
         'Measure the logical Z of the control and classically control the logical X of the target',
         'Teleport one logical qubit to be adjacent to the other, then apply a transversal gate',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='A logical X operator L_X for a stabilizer code must satisfy:',
     choices=[
-        'Commutes with all stabilizers but is not in the stabilizer group',
+        'Commutes with all stabilizers but is not one of them',
         'Anticommutes with all stabilizers',
         'Is the product of all stabilizer generators',
         'Has eigenvalue −1 on all code states',

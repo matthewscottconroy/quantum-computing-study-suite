@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='What do the relaxation times T1 and T2 characterise in a qubit?',
     choices=[
-        'T1: energy relaxation (|1⟩→|0⟩ decay); T2: phase coherence (includes T1 and pure dephasing)',
+        'T1: energy relaxation (|1⟩→|0⟩); T2: phase coherence',
         'T1: phase coherence; T2: energy relaxation',
         'T1: gate error rate; T2: readout error rate',
         'T1 and T2 are both measures of gate fidelity at different temperatures',

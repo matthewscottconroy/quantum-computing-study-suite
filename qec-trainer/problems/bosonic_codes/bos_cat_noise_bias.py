@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='Cat qubits have exponentially biased noise. Under photon loss noise, which error type is exponentially suppressed and which is polynomial?',
     choices=[
-        'Phase-flip (Z) errors are exponentially suppressed in |α|²; bit-flip (X) errors grow only polynomially in |α|²',
+        'Phase-flip (Z) errors are exponentially suppressed in |α|²; bit-flip (X) errors grow polynomially',
         'Bit-flip (X) errors are exponentially suppressed; phase-flip (Z) errors grow polynomially',
         'Both X and Z errors are exponentially suppressed for large |α|',
         'Both errors grow linearly in |α|² with no bias',

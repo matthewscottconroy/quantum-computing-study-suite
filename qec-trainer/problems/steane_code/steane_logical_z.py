@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is the minimum weight of the logical Z̄ operator for the Steane code?',
     choices=[
-        'Weight 3 (Z on 3 specific qubits forming a codeword of the Hamming code)',
+        'Weight 3 (Z on three qubits)',
         'Weight 7 (Z on all 7 qubits)',
         'Weight 1 (Z on any single qubit)',
         'Weight 4 (Z on 4 qubits)',

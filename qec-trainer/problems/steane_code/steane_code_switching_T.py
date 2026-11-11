@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='Code switching between [[7,1,3]] and [[15,1,3]] allows implementation of which gate?',
     choices=[
-        'T gate — the [[15,1,3]] Reed-Muller code has a transversal T, while [[7,1,3]] does not',
+        'T gate — [[15,1,3]] has a transversal T but [[7,1,3]] does not',
         'CNOT — neither code has transversal CNOT so switching is needed',
         'H gate — [[15,1,3]] has transversal H but [[7,1,3]] does not',
         'S gate — code switching provides a more efficient S implementation',

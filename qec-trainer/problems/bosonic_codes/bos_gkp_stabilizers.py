@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question="The GKP code's stabilizers are displacement operators in phase space. What are they?",
     choices=[
-        'S_q = e^{i2√π q̂} and S_p = e^{i2√π p̂} — displacements by 2√π in position and momentum',
+        'e^{i2√π q̂} and e^{i2√π p̂} — shifts by 2√π',
         'â†â (photon number) and â (annihilation operator)',
         'e^{iπ q̂²} and e^{iπ p̂²} — squeezing operators',
         'X⊗n and Z⊗n analogues for the oscillator',

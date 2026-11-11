@@ -8,9 +8,9 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='The code space of the 3-qubit bit-flip code is:',
     choices=[
-        'span{|000⟩, |111⟩} — all states α|000⟩ + β|111⟩',
+        'Every state α|000⟩ + β|111⟩',
         'span{|000⟩, |001⟩, |010⟩, |011⟩}',
-        'Only the state |000⟩ + |111⟩)/√2',
+        'Only the state (|000⟩ + |111⟩)/√2',
         'The full 3-qubit Hilbert space',
     ],
     correct_index=0,

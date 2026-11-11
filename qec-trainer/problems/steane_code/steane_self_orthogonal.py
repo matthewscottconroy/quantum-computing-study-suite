@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='The Steane code is based on a self-orthogonal code (C ⊆ C⊥). What does self-orthogonal mean for the [7,4,3] Hamming code in this context?',
     choices=[
-        'Every codeword of the [7,3,4] dual code is orthogonal to every codeword of the [7,4,3] code: ∀c₁∈C, ∀c₂∈C⊥, c₁·c₂=0',
+        'The dual lies inside the code: C⊥ ⊆ C',
         'The code is its own dual: C = C⊥',
         'The parity check matrix is symmetric',
         'All codewords have even Hamming weight',

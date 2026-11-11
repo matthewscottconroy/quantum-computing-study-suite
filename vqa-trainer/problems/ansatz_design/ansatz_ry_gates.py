@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='Why are single-qubit Ry(θ) gates particularly common in VQA ansätze?',
     choices=[
-        'They are native on most hardware, generate real amplitudes with Hadamard, and have simple parameter shift gradients',
+        'They are native on most hardware and have simple gradients',
         'They are the only gates with continuous parameters',
         'They always preserve the particle number symmetry of the Hamiltonian',
         'They have zero gate error on all current devices',

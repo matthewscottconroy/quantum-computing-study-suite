@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is the quantum equation of motion (qEOM) approach for excited states in VQE?',
     choices=[
-        'Uses the VQE ground state to set up a linear-response eigenvalue problem that gives excitation energies from small extra quantum circuits',
+        'Uses the VQE ground state to set up a linear-response eigenproblem for excitation energies',
         'Evolves the VQE state forward in imaginary time to access higher energy states',
         'Applies the Heisenberg equation of motion to compute real-time dynamics from a VQE initial state',
         'Solves the time-dependent Schrödinger equation variationally to extract excited-state frequencies',
