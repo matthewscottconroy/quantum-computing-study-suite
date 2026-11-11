@@ -6,3 +6,16 @@ __pycache__/
 exports/
 # GitHub Pages staging directory (.github/workflows/pages.yml builds into it).
 _site/
+
+# Tool output that was once committed by accident.
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.pytest_cache/
+# pdflatex transcript left behind by a failed qc.draw("latex")
+latex_error.log
