@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QElapsedTimer
 import common_path  # noqa: F401  (puts the repo root on sys.path)
 
+from common.choices import display_order
 from common.ui.widgets import LoadingOverlay
 
 from core.models import Problem, GradeMode
@@ -23,6 +24,9 @@ class ProblemScreen(QWidget):
         self._problem: Problem | None = None
         self._overlay = LoadingOverlay(self)
         self._hints_shown = 0
+        # Shuffled per showing: _order[row] is the bank index of the choice in
+        # that row (common.choices). Rows are lettered A-D by position.
+        self._order: list[int] = []
         self._elapsed_timer = QElapsedTimer()
         self._tick_timer = QTimer(self)
         self._tick_timer.setInterval(1000)
@@ -161,10 +165,11 @@ class ProblemScreen(QWidget):
         if problem.grade_mode == GradeMode.AUTO and problem.choices:
             self._mc_widget.show()
             self._freeform_widget.hide()
-            for i, rb in enumerate(self._radio_btns):
-                rb.setChecked(False)
-                if i < len(problem.choices):
-                    rb.setText(f"{chr(65+i)}.  {problem.choices[i]}")
+            self._order = display_order(len(problem.choices))
+            self._clear_choice()
+            for row, rb in enumerate(self._radio_btns):
+                if row < len(self._order):
+                    rb.setText(f"{chr(65+row)}.  {problem.choices[self._order[row]]}")
                     rb.show()
                 else:
                     rb.hide()
@@ -186,6 +191,14 @@ class ProblemScreen(QWidget):
         if remaining > 0:
             self._hint_btn.setText(f"Hint ({remaining} left)")
 
+    def _clear_choice(self) -> None:
+        """Uncheck every row. An exclusive group refuses to uncheck its checked
+        button, so the previous problem's row would otherwise stay selected."""
+        self._btn_group.setExclusive(False)
+        for rb in self._radio_btns:
+            rb.setChecked(False)
+        self._btn_group.setExclusive(True)
+
     def _validate_mc(self) -> None:
         self._submit_btn.setEnabled(self._btn_group.checkedId() >= 0)
 
@@ -203,7 +216,12 @@ class ProblemScreen(QWidget):
         self._confidence.lock()
         elapsed = int(self._elapsed_timer.elapsed() // 1000)
         if self._problem.grade_mode == GradeMode.AUTO and self._problem.choices:
-            answer = chr(65 + self._btn_group.checkedId())
+            # The signal carries the *bank* letter (A = choices[0]), which is
+            # what grade_mc and everything stored expect - not the row letter.
+            row = self._btn_group.checkedId()
+            if not 0 <= row < len(self._order):
+                return
+            answer = chr(65 + self._order[row])
         else:
             answer = self._text_edit.toPlainText().strip()
         self.answer_submitted.emit(self._problem, answer, self._hints_shown, elapsed)

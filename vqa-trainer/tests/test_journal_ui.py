@@ -38,8 +38,12 @@ def _start(win) -> None:
 
 
 def _answer(win, letter: str) -> None:
-    idx = "ABCD".index(letter)
-    win._problem._radio_btns[idx].setChecked(True)
+    """Answer with the *bank* letter (A = choices[0]).
+
+    The rows are shuffled when shown, so click whichever row holds it.
+    """
+    row = win._problem._order.index("ABCD".index(letter))
+    win._problem._radio_btns[row].setChecked(True)
     win._problem._validate_mc()
     assert win._problem._submit_btn.isEnabled()
     win._problem._submit_btn.click()
@@ -59,8 +63,9 @@ def test_wrong_answer_journals_a_mistake_and_a_cause(win, isolated_data_dir):
     assert entry["app"] == "vqa-trainer"
     assert entry["category"] == "QAOA"
     assert entry["question"].startswith("Which operator does QAOA apply first")
-    assert entry["your_answer"] == "B. The mixer U_B"
-    assert entry["correct_answer"] == "A. The cost operator U_C"
+    # as text, with no letter: a letter would name a row, and rows are shuffled
+    assert entry["your_answer"] == "The mixer U_B"
+    assert entry["correct_answer"] == "The cost operator U_C"
     assert entry["cause"] is None and entry["note"] == ""
     assert entry["resolved"] is False
     assert isinstance(entry["timestamp"], float)

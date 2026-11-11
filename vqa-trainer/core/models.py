@@ -66,7 +66,9 @@ def answer_texts(attempt: Attempt) -> tuple[str, str]:
     """(your answer, correct answer) as short display strings.
 
     Pure and Qt-free, so the mistake journal records what the learner actually
-    chose ("B. Hardware-efficient ansatz") rather than a bare letter.
+    chose ("Hardware-efficient ansatz") rather than a bare letter. No letter
+    prefix: attempt.answer is a *bank* letter and the rows are shuffled when
+    shown, so the letter is not the one the learner saw.
     """
     problem = attempt.problem
     given = (attempt.answer or "").strip()
@@ -75,12 +77,12 @@ def answer_texts(attempt: Attempt) -> tuple[str, str]:
     if problem.grade_mode is GradeMode.MC and problem.choices:
         idx = {"A": 0, "B": 1, "C": 2, "D": 3}.get(given.upper(), -1)
         if 0 <= idx < len(problem.choices):
-            given = f"{chr(65 + idx)}. {problem.choices[idx]}"
+            given = problem.choices[idx]
         elif not given:
             given = "(no answer)"
         ci = problem.correct_index
         if 0 <= ci < len(problem.choices):
-            correct = f"{chr(65 + ci)}. {problem.choices[ci]}"
+            correct = problem.choices[ci]
     elif problem.grade_mode is GradeMode.AUTO and not correct:
         correct = "" if problem.correct_value is None else f"{problem.correct_value:.4g}"
 

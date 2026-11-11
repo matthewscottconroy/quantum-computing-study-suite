@@ -46,9 +46,13 @@ def _start(win, problem):
 
 
 def _answer(win, letter: str, confidence: int | None = None):
+    """Answer with the *bank* letter (A = choices[0]).
+
+    The rows are shuffled when shown, so click whichever row holds it.
+    """
     screen = win._problem
-    idx = "ABCD".index(letter)
-    screen._radio_btns[idx].setChecked(True)
+    row = screen._order.index("ABCD".index(letter))
+    screen._radio_btns[row].setChecked(True)
     screen._validate_mc()
     if confidence is not None:
         screen._confidence.set_rating(confidence)
@@ -82,8 +86,10 @@ def test_wrong_answer_logs_a_mistake_with_a_cause_then_resolves(win, isolated_da
         "app": "qec-trainer",
         "category": "Repetition Code",
         "question": "What is the distance of the 3-qubit repetition code?",
-        "your_answer": "B",
-        "correct_answer": "C. 3",
+        # the chosen and the right choice as text: a letter would name a row,
+        # and the rows are shuffled
+        "your_answer": "2",
+        "correct_answer": "3",
         "cause": None,
         "note": "",
         "timestamp": row["timestamp"],
@@ -124,7 +130,7 @@ def test_skipping_both_prompts_still_logs_the_mistake_and_nothing_else(win, isol
     _start(win, _mc())
     _answer(win, "A")                       # no confidence, no cause
     rows = persistence.load_mistakes()
-    assert len(rows) == 1 and rows[0]["cause"] is None and rows[0]["your_answer"] == "A"
+    assert len(rows) == 1 and rows[0]["cause"] is None and rows[0]["your_answer"] == "1"
     assert persistence.load_confidence() == []
     assert not (isolated_data_dir / "confidence.json").exists()
 

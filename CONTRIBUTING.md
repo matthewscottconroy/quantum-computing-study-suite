@@ -432,7 +432,7 @@ QUESTION = Question(
     section='Create circuits',         # one of the 8 keys of config.SECTIONS
     question='What does this print?\n\n```python\n...\n```',   # fenced code blocks render
     options=[ 'A ...', 'B ...', 'C ...', 'D ...' ],             # exactly 4, distinct
-    correct_index=0,                   # index into options — vary it across new questions (see below)
+    correct_index=0,                   # index into options; any position — they are shuffled when shown
     explanation='assign_parameters() returns a new bound circuit by default ...',
     difficulty='medium',               # 'easy' | 'medium' | 'hard'
 )
@@ -461,9 +461,10 @@ matching file name, directory and prefix, exactly four distinct options, `correc
 in range, an explanation of at least 40 characters, balanced ``` fences, and no two
 questions with identical text or the same code snippet with the same answer. The loader
 silently skips a file that fails to import; `test_every_question_file_loads` reports the
-real exception. One test is currently `xfail`: most of the bank stores the correct answer
-at index 0 and the UI shows options in stored order — so put the correct option somewhere
-other than `A` in anything new. Questions must be **original** study material — never
+real exception. Options are shuffled every time a question is shown (`common.choices`), so
+where the correct option sits in the file does not matter — but no option may refer to
+another by letter or position ("Both A and C", "all of the above"); the bank test rejects
+those. Questions must be **original** study material — never
 reproduce real exam content — and distractors should encode real misconceptions (bit
 ordering, retired APIs, ISA requirements).
 

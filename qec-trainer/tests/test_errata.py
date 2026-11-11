@@ -242,7 +242,8 @@ def test_reporting_from_a_live_session_does_not_disturb_the_drill(
         win._problems = [_attempt().problem]
         win._idx = 0
         win._show_current_problem()
-        win._problem._radio_btns[0].setChecked(True)
+        # a wrong answer: bank choice 0, in whichever row the shuffle put it
+        win._problem._radio_btns[win._problem._order.index(0)].setChecked(True)
         win._problem._validate_mc()
         win._problem._on_submit()
         assert win._stack.currentIndex() == PAGE_RESULT

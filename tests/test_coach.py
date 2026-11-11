@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import subprocess
 import sys
 import time
@@ -339,6 +340,59 @@ class TestDiagnostic:
         assert set(counts) == set(coach.RUNG_ORDER)
         assert min(counts.values()) >= 2
         assert len({q["q"] for q in qs}) == 20
+
+    def test_no_choice_refers_to_another_by_position(self):
+        from common.choices import positional_reference
+        for q in coach.DIAGNOSTIC_QUESTIONS:
+            for choice in q["choices"]:
+                assert positional_reference(choice) is None, (q["q"], choice)
+
+    def _run(self, monkeypatch, data_dir, pick_row):
+        """Run the interactive diagnostic; pick_row(shown_choices) -> row."""
+        shown: list[list[str]] = []
+        current: list[str] = []
+
+        def fake_line(console, text, style=""):
+            stripped = text.strip()
+            if len(stripped) > 2 and stripped[0] in "abcd" and stripped[1] == ")":
+                current.append(stripped[3:])
+
+        def fake_input(prompt=""):
+            choices = list(current)
+            current.clear()
+            shown.append(choices)
+            return "abcd"[pick_row(choices)]
+
+        monkeypatch.setattr(coach, "_line", fake_line)
+        monkeypatch.setattr(coach, "_heading", lambda console, text: None)
+        monkeypatch.setattr("builtins.input", fake_input)
+        state: dict = {}
+        coach.run_diagnostic(state)
+        rungs = state["diagnostic"]["rungs"]
+        return shown, sum(r["correct"] for r in rungs.values())
+
+    def test_choices_are_shown_shuffled_and_complete(self, monkeypatch, data_dir):
+        shown, _ = self._run(monkeypatch, data_dir, lambda choices: 0)
+        assert len(shown) == 20
+        for q, choices in zip(coach.DIAGNOSTIC_QUESTIONS, shown):
+            assert sorted(choices) == sorted(q["choices"])
+        stored = [q["choices"] for q in coach.DIAGNOSTIC_QUESTIONS]
+        assert shown != stored, "all 20 questions came out in stored order"
+
+    def test_picking_the_right_text_scores_wherever_it_is_shown(
+            self, monkeypatch, data_dir):
+        answers = iter(q["choices"][q["answer"]] for q in coach.DIAGNOSTIC_QUESTIONS)
+        _, correct = self._run(monkeypatch, data_dir,
+                               lambda choices: choices.index(next(answers)))
+        assert correct == 20
+
+    def test_one_letter_throughout_no_longer_places_you_at_the_top(
+            self, monkeypatch, data_dir):
+        """14 of the 20 keys are stored at index 1: 'b' throughout used to score
+        14/20.  Shuffled, it is chance - 5 +- 1.9, seeded so it cannot flake."""
+        random.seed(20261111)
+        _, correct = self._run(monkeypatch, data_dir, lambda choices: 1)
+        assert correct < 12, correct
 
     def test_all_correct(self):
         rungs = coach.score_diagnostic([q["answer"] for q in coach.DIAGNOSTIC_QUESTIONS])

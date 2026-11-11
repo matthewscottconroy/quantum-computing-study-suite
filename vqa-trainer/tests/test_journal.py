@@ -231,7 +231,9 @@ def test_answer_texts_expands_letters_into_choice_text():
                 choices=["cost layer", "mixer layer", "c", "d"], correct_index=0,
                 explanation="because", grade_mode=GradeMode.MC)
     given, correct = answer_texts(Attempt(p, "B", 0, Verdict.INCORRECT, "fb"))
-    assert given == "B. mixer layer" and correct == "A. cost layer"
+    # attempt.answer is a bank letter; the journal gets the text it stands
+    # for, with no letter, because the rows are shuffled when shown
+    assert given == "mixer layer" and correct == "cost layer"
     blank, _ = answer_texts(Attempt(p, "", 0, Verdict.INCORRECT, "fb"))
     assert blank == "(no answer)"
 

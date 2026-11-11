@@ -32,6 +32,7 @@ Layout
 ``common.journal``    mistakes.json / confidence.json — the shared journal.
 ``common.flags``      <prefix>_flagged.json — the flag-for-review store.
 ``common.errata``     prefilled GitHub issue URLs for wrong study items.
+``common.choices``    shuffled display order for multiple-choice options.
 ``common.ui.*``       Qt-dependent pieces: theme, widgets, Reference screen.
 
 Nothing outside ``common.ui`` imports PyQt6, so ``coach.py``, ``dashboard.py``
@@ -41,6 +42,6 @@ from __future__ import annotations
 
 #: Version of the *shared API*, not of the suite.  Bump the minor when a
 #: function is added, the major when one changes shape or disappears.
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 __all__ = ["__version__"]

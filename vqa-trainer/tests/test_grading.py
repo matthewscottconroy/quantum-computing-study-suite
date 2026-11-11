@@ -29,7 +29,10 @@ def test_grade_mc_accepts_correct_and_rejects_wrong():
     for ans in ("A", "D", "Z", ""):
         a = grade_mc(_mc(), ans)
         assert a.verdict is Verdict.INCORRECT and a.score == 0
-        assert "B: RIGHT" in a.feedback
+        # named by its text: the rows are shuffled, so a letter would point
+        # at whatever happened to be shown in that row
+        assert "The right answer was: RIGHT" in a.feedback
+        assert "B: RIGHT" not in a.feedback
 
 
 def test_grade_numeric_exact_within_tolerance():

@@ -5,6 +5,10 @@ from PyQt6.QtWidgets import (
     QRadioButton, QButtonGroup, QTextBrowser,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.choices import display_order
+
 from core.models import Question
 import persistence
 from persistence import load_missed, resolve_missed, record_miss
@@ -24,6 +28,10 @@ class ReviewScreen(QWidget):
         self._idx = 0
         self._answered = False
         self._confidence_value: int | None = None
+        # Shuffled per showing: _order[row] is the bank index in that row.
+        # A missed question re-shown in bank order would be answerable from
+        # memory of where the right option sat.
+        self._order: list[int] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -133,14 +141,16 @@ class ReviewScreen(QWidget):
         self._section_lbl.setStyleSheet(
             f"font-size: 11px; font-weight: bold; color: {color};")
         self._question_browser.setHtml(question_html(q.question))
+        self._order = display_order(len(q.options))
         self._btn_group.setExclusive(False)
-        for i, rb in enumerate(self._radio_btns):
+        for row, rb in enumerate(self._radio_btns):
+            shown = row < len(self._order)
+            text = q.options[self._order[row]] if shown else ""
             rb.setChecked(False)
             rb.setEnabled(True)
-            rb.setText(f"{chr(65 + i)}.  {q.options[i]}" if i < len(q.options) else "")
-            rb.setAccessibleName(
-                f"Option {chr(65 + i)}: {q.options[i]}" if i < len(q.options) else "")
-            rb.setVisible(i < len(q.options))
+            rb.setText(f"{chr(65 + row)}.  {text}" if shown else "")
+            rb.setAccessibleName(f"Option {chr(65 + row)}: {text}" if shown else "")
+            rb.setVisible(shown)
         self._btn_group.setExclusive(True)
         self._feedback_lbl.setText("")
         self._confidence_value = None
@@ -156,9 +166,14 @@ class ReviewScreen(QWidget):
         self._submit_btn.setEnabled(False)
         self._next_btn.setEnabled(False)
 
+    def _chosen_bank_index(self) -> int | None:
+        """The bank index of the checked option (rows are shuffled), or None."""
+        row = self._btn_group.checkedId()
+        return self._order[row] if 0 <= row < len(self._order) else None
+
     def _on_submit(self) -> None:
-        chosen = self._btn_group.checkedId()
-        if chosen < 0 or self._answered:
+        chosen = self._chosen_bank_index()
+        if chosen is None or self._answered:
             return
         self._answered = True
         q = self._queue[self._idx]
@@ -209,7 +224,7 @@ class ReviewScreen(QWidget):
         try:
             if not persistence.update_mistake_cause(q.id, cause, note):
                 persistence.log_mistake(persistence.mistake_entry_for(
-                    q, self._btn_group.checkedId(), cause=cause, note=note))
+                    q, self._chosen_bank_index(), cause=cause, note=note))
         except Exception:
             pass
 
