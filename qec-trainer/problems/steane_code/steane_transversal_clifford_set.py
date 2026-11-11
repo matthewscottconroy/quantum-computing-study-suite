@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='The transversal gate set {H̄, S̄, CNOT̄} for the Steane code is significant because:',
     choices=[
-        'It generates the full Clifford group, giving fault-tolerant Clifford computation without ancilla overhead',
+        'It generates the whole Clifford group transversally',
         'It includes T̄, making the gate set universal',
         'It is the minimal generating set for all unitary operations',
         'It allows the code to exceed the Eastin-Knill bound',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='Since T is not transversal for the Steane code, how is it implemented fault-tolerantly?',
     choices=[
-        'Magic state distillation and injection: prepare |T⟩ = T|+⟩ and consume it via gate teleportation',
+        'Prepare a magic state |T⟩ and consume it by gate teleportation',
         'Code switching to a code where T is transversal, then switching back',
         'Applying T directly to all 7 physical qubits simultaneously',
         'Decomposing T into a product of Clifford gates',

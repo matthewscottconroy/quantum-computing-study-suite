@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='Why is magic state distillation needed for universal fault-tolerant computation?',
     choices=[
-        'T gates are not transversal for most codes; magic states provide a fault-tolerant workaround',
+        'T gates are not transversal for most codes; magic states supply them',
         'Magic states eliminate the need for error correction',
         'T gates require two-qubit entanglement unavailable in codes',
         'Distillation reduces circuit depth exponentially',

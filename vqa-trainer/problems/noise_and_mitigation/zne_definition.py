@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='Zero-Noise Extrapolation (ZNE) works by:',
     choices=[
-        'Running circuits at amplified noise levels and extrapolating to zero noise',
+        'Running at amplified noise levels and extrapolating to zero',
         'Cancelling noise channels using their inverses',
         'Using classical post-processing to remove shot noise',
         'Applying error correction codes with ancilla qubits',

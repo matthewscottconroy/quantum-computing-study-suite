@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question="What is the 'error-in-variables' model for noisy gradient estimation in VQAs?",
     choices=[
-        'Treating shot noise as additive measurement noise on the gradient: g_measured = g_true + ε where ε ~ N(0,σ²/S) with S shots',
+        'Treating shot noise as additive noise on the gradient: g_measured = g_true + ε',
         'Modelling gate errors as small rotations applied to the true parameter values',
         'Accounting for readout errors by adding a bias term to the cost function gradient',
         'A Bayesian model where the true parameters are unknown and estimated from noisy circuit outputs',

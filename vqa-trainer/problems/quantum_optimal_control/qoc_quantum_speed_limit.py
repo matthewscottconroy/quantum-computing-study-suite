@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is the quantum speed limit (QSL)?',
     choices=[
-        'The minimum time T_QSL to implement a target unitary given constraints on the control field amplitude; bounded by T_QSL ≥ π/(2·max_energy_scale)',
+        'The minimum time needed to implement a target unitary under bounded control fields',
         'The maximum rate at which quantum information can be transferred between qubits',
         'The minimum number of gates required to implement a target unitary up to a given fidelity',
         'The speed of light applied to quantum communication — sets the bound on quantum channel capacity',

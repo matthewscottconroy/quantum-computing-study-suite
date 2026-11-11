@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is a quantum kernel method as an ansatz-free alternative to VQAs?',
     choices=[
-        "Uses a parameterised feature map circuit φ(x) to compute the kernel k(x,x') = |⟨φ(x)|φ(x')⟩|² and trains a classical SVM — no variational optimisation needed",
+        "A feature-map circuit computes k(x,x') = |⟨φ(x)|φ(x')⟩|² and a classical SVM is trained on it",
         'Replaces the variational ansatz with a fixed kernel circuit that computes inner products between classical data vectors',
         'A method where the quantum computer learns the kernel function by optimising circuit parameters',
         'A classical kernel SVM that uses quantum-inspired tensor network feature maps',

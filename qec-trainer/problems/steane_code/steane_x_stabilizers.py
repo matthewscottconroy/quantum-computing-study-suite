@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='The Steane code has 3 X-type stabilizers derived from the Hamming [7,4,3] parity check matrix rows. Which of the following is one valid X-type generator?',
     choices=[
-        'XIXIXIX (X on qubits 1,3,5,7 — corresponding to Hamming parity check row [1,0,1,0,1,0,1])',
+        'XIXIXIX (X on qubits 1, 3, 5 and 7)',
         'XXXXXXX (X on all 7 qubits)',
         'XXXXIII (X on first 4 qubits only)',
         'XZXZXZX (alternating X and Z)',

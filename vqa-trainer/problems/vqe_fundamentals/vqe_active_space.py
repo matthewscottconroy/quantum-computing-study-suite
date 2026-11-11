@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is the active space approximation in the context of VQE for quantum chemistry?',
     choices=[
-        'Restricting the simulation to a subset of orbitals near the Fermi level to reduce qubit count',
+        'Restricting the simulation to orbitals near the Fermi level to save qubits',
         'Simulating only the valence electrons on the quantum computer',
         'Using only single-excitation operators in the ansatz',
         'Truncating the Pauli decomposition to the most significant terms',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='In surface code decoding, d rounds of syndrome measurement create a 3D syndrome history. What shape is the decoding graph?',
     choices=[
-        'A d×d×d cube (space × space × time), where syndrome defects are vertices matched in 3D',
+        'A 3D graph (space × space × time) whose syndrome defects are matched',
         'A 2D grid extended only in space — time is averaged out',
         'A 1D chain encoding the time sequence of syndrome changes',
         'A d×d plane per time step, decoded independently each round',

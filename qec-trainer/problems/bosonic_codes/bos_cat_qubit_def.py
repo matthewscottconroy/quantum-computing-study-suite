@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='A cat qubit encodes a logical qubit using which states of a harmonic oscillator?',
     choices=[
-        'Superpositions of two coherent states |α⟩ and |−α⟩: |0̄⟩ ∝ |α⟩+|−α⟩ and |1̄⟩ ∝ |α⟩−|−α⟩',
+        'Superpositions of two coherent states, |α⟩ ± |−α⟩',
         'The Fock states |0⟩ and |1⟩ of the oscillator',
         'Squeezed vacuum states displaced in opposite directions',
         'Two-mode entangled states of the oscillator with its environment',

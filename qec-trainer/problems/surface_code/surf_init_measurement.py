@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='To initialize a surface code in the logical |0̄⟩ state, what is done?',
     choices=[
-        'Initialize all data qubits in |0⟩, then measure Z-stabilizers (they are automatically +1); X-stabilizers are randomized and measured/corrected',
+        'Set all data qubits to |0⟩, then measure stabilizers',
         'Apply the encoding circuit to a physical |0⟩ qubit',
         'Prepare a cat state and fan it out to all data qubits',
         'Perform a logical Z̄ measurement to project into |0̄⟩',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='The SSVQE (Subspace-Search VQE) algorithm targets excited states. How does it work?',
     choices=[
-        'Minimises a weighted sum of energies for a set of orthogonal ansatz states to find multiple eigenstates',
+        'Minimises a weighted sum of energies over a set of orthogonal ansatz states',
         'Adds a penalty term for the ground state to push the optimisation to higher energies',
         'Uses the variational principle applied to the square of the Hamiltonian',
         'Performs VQE then applies a quantum phase kick to access excited states',

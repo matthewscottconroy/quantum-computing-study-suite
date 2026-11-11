@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='What does the threshold theorem guarantee?',
     choices=[
-        'If physical error rate < threshold, arbitrarily long computations are possible with poly overhead',
+        'Below threshold, arbitrarily long computation is possible',
         'Physical error rate can be made exactly zero',
         'All errors become detectable at the threshold',
         'Clifford gates become universal below the threshold',

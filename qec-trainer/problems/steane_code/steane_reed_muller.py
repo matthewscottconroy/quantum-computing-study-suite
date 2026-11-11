@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is the relationship between the Steane [[7,1,3]] code and Reed-Muller codes?',
     choices=[
-        'The Steane code is equivalent to the punctured first-order Reed-Muller code RM(1,3); the [[15,1,3]] Reed-Muller code is its larger relative with transversal T',
+        'It is equivalent to the punctured Reed-Muller code RM(1,3)',
         'The Steane code is a subcode of the Reed-Solomon code',
         'Reed-Muller codes are classical; Steane code has no classical analogue',
         'The Steane code uses Reed-Muller decoding algorithms',

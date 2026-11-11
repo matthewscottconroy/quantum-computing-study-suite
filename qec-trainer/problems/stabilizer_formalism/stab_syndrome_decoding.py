@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='Minimum weight decoding and maximum likelihood decoding differ for stabilizer codes. What is the key distinction?',
     choices=[
-        'Minimum weight picks the lowest-weight error consistent with the syndrome; maximum likelihood picks the most probable error given the noise model',
+        'Minimum weight picks the lightest error; maximum likelihood the most probable one',
         'Maximum weight decoding maximizes the number of corrected qubits',
         'They are equivalent for depolarizing noise but differ only for biased noise',
         'Minimum weight is used for Z errors; maximum likelihood for X errors',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='Quantum Natural Gradient (QNG) improves on vanilla gradient descent for VQAs by:',
     choices=[
-        'Correcting for the geometry of parameter space using the quantum Fisher information (Fubini-Study metric)',
+        'Correcting for the geometry of parameter space with the quantum Fisher information',
         'Automatically adjusting the learning rate based on shot noise estimates',
         'Computing gradients using the parameter shift rule in parallel across all parameters',
         'Replacing the gradient with a second-order (Newton) step using the classical Hessian',

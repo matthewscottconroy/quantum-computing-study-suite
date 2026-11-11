@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is a degenerate quantum code? Can the repetition code perspective illustrate this?',
     choices=[
-        'A code where distinct errors produce the same syndrome and same logical effect — they are equivalent',
+        'A code where distinct errors share a syndrome and a logical effect',
         'A code with fewer syndromes than error types, causing uncorrectable errors',
         'A code whose stabilizer group contains operators of all weights',
         'A code that corrects fewer errors than the Hamming bound predicts',

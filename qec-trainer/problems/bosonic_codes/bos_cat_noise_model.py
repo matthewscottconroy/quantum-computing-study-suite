@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='For a cat qubit with coherent amplitude |α|², the bit-flip probability under single-photon loss rate κ over time t scales approximately as:',
     choices=[
-        'p_X ≈ κt|α|²/2 — proportional to the mean photon number (polynomial in |α|²)',
+        'p_X ≈ κt|α|²/2 — linear in the mean photon number',
         'p_X ≈ e^{-κt|α|²} — exponentially suppressed',
         'p_X ≈ (κt)² |α|⁴ — quadratic in both time and photon number',
         'p_X ≈ κt — independent of |α|',

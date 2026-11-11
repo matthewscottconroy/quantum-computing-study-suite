@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='For CSS codes, the logical CNOT between two code blocks is implemented transversally. Why is this fault-tolerant?',
     choices=[
-        'Each qubit in block A interacts only with the corresponding qubit in block B — a single gate fault creates at most one error in each block',
+        'Qubit i of block A only touches qubit i of block B: one fault, one error per block',
         'CNOT is a Clifford gate and therefore inherently fault-tolerant',
         'The transversal CNOT is equivalent to a classical CNOT and introduces no quantum errors',
         'CSS codes have distance ≥ 3, making any single gate fault correctable automatically',

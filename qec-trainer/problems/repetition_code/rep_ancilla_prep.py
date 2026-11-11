@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='In the 3-qubit bit-flip code, ancilla qubits for syndrome measurement are prepared in which state?',
     choices=[
-        '|0⟩ — the ancilla starts in |0⟩, a CNOT fan-in collects parity, then the ancilla is measured',
+        '|0⟩ — CNOTs from the data qubits collect their parity onto it',
         '|+⟩ — the ancilla is in a superposition to measure X-type stabilizers',
         '|1⟩ — so a no-error result flips it back to |0⟩',
         '|Bell⟩ — an entangled pair for distributed syndrome extraction',

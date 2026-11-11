@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question="What is the 'loss of light' (or 'concentration of measure') geometric picture for barren plateaus?",
     choices=[
-        "In high-dimensional Hilbert space, random states concentrate near the 'equator' of the hypersphere; all states look the same and cost functions lose contrast",
+        'In high-dimensional Hilbert space random states concentrate, so cost functions lose all contrast',
         'Barren plateaus occur when the quantum state becomes maximally dark (zero amplitude) in the computational basis',
         'The gradient signal is lost because measurement operators have low rank in the barren plateau region',
         'High-dimensional random walks concentrate exponentially near the starting point, causing slow gradient descent',

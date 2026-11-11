@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question="What is the 'overparameterisation' regime for VQAs, and how does it affect the optimisation landscape?",
     choices=[
-        'When the number of parameters exceeds a threshold (~2^n), the landscape has few spurious local minima and gradient-based methods converge reliably',
+        'Beyond a threshold number of parameters, spurious local minima thin out and training converges',
         'When parameters exceed qubit count, barren plateaus become more severe due to increased expressibility',
         'Overparameterisation means the ansatz can represent more states than the Hilbert space allows',
         'The overparameterised regime always leads to overfitting of the training Hamiltonian',

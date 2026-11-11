@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='Why does the quantum Hamming bound require at least n=5 physical qubits to encode 1 qubit and correct 1 error?',
     choices=[
-        'Each of the 1+3n single-qubit errors (none, or X, Y, Z on one of n qubits) needs its own syndrome, so 2^(n−1) ≥ 1+3n; n=5 is the smallest solution (16 = 16)',
+        'Every one of the 1+3n single-qubit errors needs its own syndrome, so 2^(n−1) ≥ 1+3n, first true at n=5',
         'A code on n qubits needs n stabilizer generators, and five generators are needed to locate an error',
         'The bound is 2^n ≥ 1+3n, and n=5 is the smallest n that satisfies it',
         'Only the n bit-flip errors need distinct syndromes, so 2^(n−1) ≥ 1+n, which first holds at n=5',

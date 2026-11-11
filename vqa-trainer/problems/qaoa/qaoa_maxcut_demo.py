@@ -8,13 +8,13 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='Which combinatorial optimisation problem is QAOA most commonly demonstrated on?',
     choices=[
-        'MaxCut — partitioning graph nodes into two sets to maximise the number of cut edges',
+        'The MaxCut problem',
         'Travelling Salesman Problem',
         'Knapsack Problem',
         'Graph 3-Colouring',
     ],
     correct_index=0,
-    explanation='MaxCut is the canonical benchmark for QAOA because its cost Hamiltonian C = Σ_{(u,v)∈E} (1-ZᵤZᵥ)/2 maps directly to a diagonal operator in the computational basis, making the problem unitary U_C(γ) a simple product of ZZ-rotation gates. It also has known classical approximation bounds (Goemans-Williamson 0.878) against which QAOA can be compared.',
+    explanation='In full: MaxCut — partitioning graph nodes into two sets to maximise the number of cut edges. MaxCut is the canonical benchmark for QAOA because its cost Hamiltonian C = Σ_{(u,v)∈E} (1-ZᵤZᵥ)/2 maps directly to a diagonal operator in the computational basis, making the problem unitary U_C(γ) a simple product of ZZ-rotation gates. It also has known classical approximation bounds (Goemans-Williamson 0.878) against which QAOA can be compared.',
     hints=[
         'The answer involves partitioning nodes of a graph.',
     ],

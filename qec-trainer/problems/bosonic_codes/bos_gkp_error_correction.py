@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='How does the GKP code correct errors?',
     choices=[
-        'Small displacement errors in q̂ and p̂ are corrected by projecting the state back onto the nearest lattice point using homodyne measurement and displacement correction',
+        'Small shifts in q̂ and p̂ are measured (homodyne) and displaced back to the nearest lattice point',
         'Photon loss is directly reversed by applying the creation operator â†',
         'Errors are corrected by measuring the photon number and applying a rotation',
         'Phase-space displacements are undone by a second displacement in the opposite direction without measurement',

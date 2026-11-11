@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='How is gate teleportation used to implement a T gate fault-tolerantly?',
     choices=[
-        'Prepare the magic state |T⟩ = T|+⟩, then consume it via Bell measurement + Clifford correction to apply T to the data qubit',
+        'Prepare |T⟩ = T|+⟩, then consume it with a measurement and a Clifford correction',
         'Teleport the data qubit to a location where T is transversal, apply T, then teleport back',
         'Measure the data qubit in the T-basis and apply a correction based on the outcome',
         'Use two CNOT gates and an ancilla to synthesize T from Clifford gates',

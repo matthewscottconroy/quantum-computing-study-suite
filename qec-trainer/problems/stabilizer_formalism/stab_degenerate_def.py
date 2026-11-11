@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='A stabilizer code is degenerate if:',
     choices=[
-        'Some correctable errors act identically on the codespace (have the same syndrome AND same effect), making them equivalent',
+        'Distinct correctable errors act identically on the codespace',
         'The code distance is less than its error correction capacity',
         'The stabilizer group contains non-Pauli elements',
         'Multiple logical qubits share the same stabilizer generators',

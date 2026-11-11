@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question="In a 'brick-layer' (alternating-layer) entangling pattern, how are CNOTs arranged across even and odd layers for n qubits on a linear chain?",
     choices=[
-        'Even layers: CNOTs on pairs (0,1),(2,3),(4,5)...; odd layers: CNOTs on pairs (1,2),(3,4),(5,6)...; the two patterns tile like a brick wall',
+        'Even layers: CNOTs on (0,1),(2,3),…; odd layers: CNOTs on (1,2),(3,4),… — like a brick wall',
         'Even layers: CNOT on all pairs; odd layers: no CNOTs',
         'Even layers: CNOTs from qubit 0 to all others; odd layers: CNOTs from qubit 1 to all others',
         "All layers use the same CNOT pattern — the 'brick' refers only to the shape of rotation blocks",

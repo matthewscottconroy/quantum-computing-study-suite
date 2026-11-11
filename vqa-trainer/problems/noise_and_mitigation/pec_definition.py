@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='Probabilistic Error Cancellation (PEC) achieves error mitigation by:',
     choices=[
-        'Representing ideal gates as quasi-probability distributions over noisy operations',
+        'Writing ideal gates as quasi-probability sums of noisy ops',
         'Repeating circuits and averaging out stochastic noise',
         'Applying Clifford twirling to convert noise to depolarising',
         'Using ancilla qubits to detect and correct errors',

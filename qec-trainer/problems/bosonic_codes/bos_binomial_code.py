@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='The binomial code is a bosonic code that protects against photon loss. For a code protecting against up to L photon losses, the codewords use Fock states:',
     choices=[
-        'Spaced L+1 apart in photon number: |0̄⟩ uses Fock states |0⟩, |L+1⟩, |2(L+1)⟩, … with binomial coefficients',
+        'Fock states L+1 apart: |0⟩, |L+1⟩, |2(L+1)⟩, …',
         'Only the vacuum |0⟩ and single-photon |1⟩ states',
         'Coherent superpositions of all Fock states up to |L⟩',
         'Only even Fock states for bit-flip protection',

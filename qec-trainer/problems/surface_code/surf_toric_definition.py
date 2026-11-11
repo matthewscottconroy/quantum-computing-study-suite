@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='The toric code (Kitaev 2003) is defined on a square lattice with periodic boundary conditions. How many logical qubits does it encode?',
     choices=[
-        '2 logical qubits — one for each non-contractible loop direction on the torus',
+        '2 logical qubits — one per non-contractible loop of the torus',
         '1 logical qubit — same as the planar surface code',
         '4 logical qubits — one per corner of the lattice',
         '0 logical qubits — it is a stabilizer state, not a code',

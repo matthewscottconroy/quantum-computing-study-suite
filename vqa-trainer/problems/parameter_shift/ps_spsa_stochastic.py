@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question="What is the 'stochastic' version of the parameter shift / gradient estimation used in SPSA, and what is its key efficiency?",
     choices=[
-        'Perturbs all parameters simultaneously with a random ±1 vector, requiring only 2 circuit evaluations regardless of parameter count',
+        'Perturbs all parameters at once with a random ±1 vector, so only 2 circuit evaluations are needed',
         'Randomly selects one parameter per step and applies the shift rule to only that parameter',
         'Uses random initialisation of parameters combined with the standard shift rule',
         'Applies random Pauli gates before each parameter shift to reduce shot noise',

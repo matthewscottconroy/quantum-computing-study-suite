@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is the CRAB (Chopped RAndom Basis) algorithm for optimal control?',
     choices=[
-        'Parameterises control pulses as a sum of random Fourier modes {sin(ωₖt), cos(ωₖt)} with randomly chosen frequencies ωₖ, then optimises the mode amplitudes with a gradient-free method',
+        'Writes the pulse as a sum of randomly chosen Fourier modes and optimises their amplitudes',
         'Chops the pulse into random time windows and optimises each independently via GRAPE',
         'Uses a random basis of quantum gates instead of a fixed gate set for circuit compilation',
         'A derivative-free method that randomly samples pulse shapes and keeps the best-performing ones',

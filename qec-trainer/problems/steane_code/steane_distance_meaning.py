@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='What does the distance d=3 mean for the Steane [[7,1,3]] code?',
     choices=[
-        'Any error of weight ≤1 can be corrected; errors of weight 2 can be detected but not corrected',
+        'Any single error can be corrected; any two can be detected',
         'The code can correct up to 3 errors simultaneously',
         'The minimum circuit depth for encoding is 3',
         'The code uses exactly 3 stabilizer measurement rounds',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='Pauli twirling converts an arbitrary noise channel into:',
     choices=[
-        'A Pauli channel (stochastic mixture of Pauli errors)',
+        'A Pauli channel (a mixture of Pauli errors)',
         'A depolarising channel with strength 0',
         'A unitary rotation',
         'A purely dephasing (Z-only) channel',

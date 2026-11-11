@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='The 3-qubit repetition code can correct how many erasures vs how many Pauli errors?',
     choices=[
-        'Up to 2 erasures (known location) but only 1 Pauli error (unknown location)',
+        '2 erasures but only 1 Pauli error',
         '1 erasure and 1 Pauli error simultaneously',
         '3 erasures but 0 Pauli errors',
         '1 erasure and 0 Pauli errors',

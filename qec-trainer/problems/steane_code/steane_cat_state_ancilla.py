@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is the cat state method for fault-tolerant ancilla preparation in Steane code syndrome measurement?',
     choices=[
-        'Prepare (|0...0⟩ + |1...1⟩)/√2 as ancilla, verify it with a flag qubit, then use it for transversal stabilizer measurement',
+        'Prepare (|0…0⟩ + |1…1⟩)/√2, verify it, then use it for the measurement',
         'Prepare individual |0⟩ ancillas and apply a CNOT chain',
         'Use cat states to distill magic states for the T gate',
         'Prepare the full encoded |0̄⟩ ancilla and verify it with another code block',

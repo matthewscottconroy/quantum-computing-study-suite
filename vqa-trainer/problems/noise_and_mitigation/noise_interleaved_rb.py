@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='How does interleaved randomized benchmarking (IRB) extract the error rate of a specific gate?',
     choices=[
-        "Runs standard RB and RB with the target gate interleaved between each random Clifford; the ratio of decay rates gives the target gate's error",
+        'Compares the decay rate of standard RB with that of RB with the target gate interleaved',
         'Removes the target gate from the random sequence and measures how much fidelity improves',
         'Applies the target gate many times in sequence and measures cumulative fidelity loss',
         "Compares the target gate's decay curve directly to the decay curve of an ideal gate",

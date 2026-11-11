@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is the quantum Fisher information matrix (QFIM) and what role does it play in quantum natural gradient?',
     choices=[
-        'The QFIM F_{ij} = Re[⟨∂ᵢψ|∂ⱼψ⟩ - ⟨∂ᵢψ|ψ⟩⟨ψ|∂ⱼψ⟩] is the Fubini-Study metric on the state manifold; QNG uses F as a preconditioner for gradient descent',
+        'The QFIM is the Fubini-Study metric on the state manifold; QNG uses it as a preconditioner',
         'The QFIM is the Hessian of the cost function with respect to circuit parameters',
         'The QFIM measures the Fisher information about classical noise parameters in the quantum channel',
         'The QFIM is the covariance matrix of gradient estimates from repeated circuit measurements',

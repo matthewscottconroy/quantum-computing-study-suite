@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='How does the number of CNOT gates in a MaxCut QAOA circuit scale with circuit depth p and the number of graph edges |E|?',
     choices=[
-        'O(p·|E|) — each of the p problem-unitary layers applies one ZZ-rotation (2 CNOTs) per edge',
+        'O(p·|E|) — each problem layer applies one ZZ-rotation per edge',
         'O(p·n) where n is the number of nodes — mixer layers dominate',
         'O(p²·|E|) — pairs of layers interfere requiring quadratic gate count',
         'O(|E|) — only one layer of problem unitaries is needed regardless of p',

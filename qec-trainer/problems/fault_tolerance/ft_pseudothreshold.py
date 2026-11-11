@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='The level-1 pseudothreshold p̃ of a fault-tolerant code is defined as the physical error rate below which a single level of encoding reduces the logical error rate. For a code with threshold p_th, p̃ is typically:',
     choices=[
-        'Higher than the true threshold p_th — the pseudothreshold is optimistic because it only considers single-level encoding overhead',
+        'Higher than p_th — a single level is optimistic',
         'Equal to the true threshold p_th by definition',
         'Lower than p_th — encoding always hurts at level 1',
         'Independent of the code — always 1%',

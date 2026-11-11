@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is the entanglement forging technique in VQA?',
     choices=[
-        'Factoring an n-qubit simulation into two n/2-qubit circuits using classical post-processing with bootstrapping weights',
+        'Splitting an n-qubit simulation into two n/2-qubit circuits plus post-processing',
         'Replacing all CNOT gates with classically simulated entanglement maps',
         'Using ancilla qubits to entangle two separate quantum registers',
         'A method to forge (generate) maximally entangled states for use as ansatz inputs',

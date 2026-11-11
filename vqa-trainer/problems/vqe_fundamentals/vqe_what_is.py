@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='What does VQE stand for, and what physical quantity is it primarily used to find?',
     choices=[
-        'Variational Quantum Eigensolver — ground state energies of quantum systems',
+        'Variational Quantum Eigensolver — ground state energies',
         'Variable Quantum Estimator — excited state spectra',
         'Variational Quantum Encoder — quantum state compression',
         'Vectorised Quantum Evaluator — Hamiltonian simulation',

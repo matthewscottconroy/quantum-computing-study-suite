@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='Why does quantum natural gradient (QNG) not solve the barren plateau problem?',
     choices=[
-        'The quantum Fisher information matrix (QFIM) also becomes exponentially ill-conditioned in the same parameter regions where gradients vanish',
+        'The quantum Fisher information matrix becomes ill-conditioned where gradients vanish',
         'QNG increases the circuit depth, making the barren plateau worse',
         'QNG uses gradient information, so if gradients are small, the QNG step is also small',
         'QNG is only applicable to circuits with commuting generators',

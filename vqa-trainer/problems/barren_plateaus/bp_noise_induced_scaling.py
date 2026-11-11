@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='How does the noise-induced barren plateau scale with circuit depth d and qubit count n for a depolarising channel with per-layer error rate p?',
     choices=[
-        'Gradient decays as (1-p)^d with depth d — exponential in depth, not qubit count; unlike shot-noise BPs which scale with n',
+        'Gradient decays as (1-p)^d — exponential in depth, not in qubit count',
         'Gradient decays as (1-p)^n — exponential in qubit count only, independent of depth',
         'Gradient decays as (1-p)^{nd} — exponential in both depth and qubit count simultaneously',
         'Gradient decays polynomially as 1/(pd) for small error rates',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is cycle benchmarking and how does it differ from standard randomized benchmarking?',
     choices=[
-        'Characterises the error per circuit cycle (layer) rather than per gate; applies random Pauli gates before/after each cycle to twirl noise into Pauli channels',
+        'Characterises the error per circuit cycle (layer) rather than per gate, using Pauli twirling',
         'Benchmarks entire quantum circuits (cycles of gates) by running them many times and averaging',
         'Uses a cycle of all Clifford gates in sequence to characterise the full gate set simultaneously',
         'A variant of RB where the sequence length m cycles through fixed values rather than growing',

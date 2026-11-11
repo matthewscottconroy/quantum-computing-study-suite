@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is the fundamental limit of error mitigation without error correction (Takagi et al. 2022)?',
     choices=[
-        'The sampling overhead of any error mitigation protocol grows exponentially in the number of noisy gates T and per-gate noise rate ε: overhead ≥ e^{Ω(Tε)}',
+        'The sampling overhead of any mitigation protocol grows exponentially with the number of noisy gates',
         'Error mitigation can reduce the effective error rate to zero given enough circuit shots',
         'The overhead of error mitigation scales polynomially with qubit count but exponentially with circuit depth',
         'No fundamental limit exists — error mitigation can in principle achieve zero systematic error',

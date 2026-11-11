@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is randomized benchmarking (RB) and what does it measure?',
     choices=[
-        'Applies random sequences of Clifford gates of increasing length m, measures average fidelity decay F(m) = A·p^m + B; the decay rate p gives the average error per Clifford',
+        'Random Clifford sequences of growing length; the fidelity decay gives the error per Clifford',
         'Randomly selects circuit architectures and benchmarks their fidelity against a classical simulator',
         'Applies random Pauli errors and measures the resilience of the output state',
         'Uses random initialisation to benchmark the convergence speed of VQA optimisers',

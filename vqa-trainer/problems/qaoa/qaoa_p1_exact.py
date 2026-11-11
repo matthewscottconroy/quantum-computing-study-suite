@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='For which graph structures is p=1 QAOA guaranteed to find the exact MaxCut solution?',
     choices=[
-        'Graphs where the MaxCut is determined by local 1-hop neighbourhood structure, such as certain trees',
+        'Graphs set by 1-hop structure, e.g. trees',
         'All 3-regular graphs',
         'Complete graphs (all-to-all connectivity)',
         'Bipartite graphs only',

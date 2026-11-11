@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='The toric code exhibits topological order. What does this mean physically?',
     choices=[
-        "The ground state degeneracy depends only on the topology of the manifold, not on the Hamiltonian's local details",
+        'The ground-state degeneracy depends only on the topology of the manifold',
         'The code is defined on a topologically curved space like a sphere',
         'Errors are corrected using topological invariants of particle paths',
         'The code can only be implemented on hardware with a torus geometry',

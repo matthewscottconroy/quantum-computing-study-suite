@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question="What is the key property of a gate's generator that allows the parameter shift rule to give exact (not approximate) gradients?",
     choices=[
-        'The generator has exactly two distinct eigenvalues (e.g. ±½ for Pauli generators)',
+        'The generator has exactly two distinct eigenvalues',
         'The generator is diagonal in the computational basis',
         'The generator commutes with all other gates in the circuit',
         'The generator is a real symmetric matrix',

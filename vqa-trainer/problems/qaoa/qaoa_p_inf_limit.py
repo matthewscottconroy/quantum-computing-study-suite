@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='As p → ∞ with optimal parameters, QAOA is expected to:',
     choices=[
-        'Converge to the exact maximum cut (or ground state of C)',
+        'Converge to the exact maximum cut',
         'Require exponentially many parameters',
         'Fail due to barren plateaus',
         'Produce a uniform superposition',

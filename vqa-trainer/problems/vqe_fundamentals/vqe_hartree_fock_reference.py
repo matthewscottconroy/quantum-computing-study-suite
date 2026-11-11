@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='What is the Hartree-Fock (HF) reference state and how is it used in VQE?',
     choices=[
-        'The mean-field ground state; used to initialise VQE and as reference for UCCSD excitation operators',
+        'The mean-field ground state; it initialises VQE and is the reference for UCCSD excitations',
         'The exact ground state computed classically for small molecules; used to benchmark VQE',
         'A maximally entangled state that provides the best starting point for any VQE problem',
         'The vacuum state |0000...0⟩ prepared by not applying any gates before the ansatz',

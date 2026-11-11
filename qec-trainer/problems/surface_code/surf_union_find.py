@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='The Union-Find decoder for the surface code achieves approximately what time complexity?',
     choices=[
-        "Nearly linear O(n α(n)) where α is the inverse Ackermann function — much faster than MWPM's O(n³)",
+        'O(n α(n)) — almost linear in the number of qubits',
         'O(n²) — quadratic but faster than MWPM',
         'O(n log n) — optimal for comparison-based algorithms',
         'O(n³) — same as MWPM but with smaller constant',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='How does depolarising noise affect the VQE energy estimate — does it give an over-estimate or under-estimate of the true ground state energy?',
     choices=[
-        'Over-estimate — depolarising noise mixes the state toward I/2ⁿ (the maximally mixed state), which has energy Tr(H)/2ⁿ ≥ E₀',
+        'Over-estimate — the state is mixed toward I/2ⁿ, whose energy is at least E₀',
         'Under-estimate — noise introduces negative bias toward the ground state',
         'Unbiased — depolarising noise is symmetric and introduces no systematic shift in the energy',
         'Over-estimate or under-estimate depending on the circuit depth; shallow circuits under-estimate',

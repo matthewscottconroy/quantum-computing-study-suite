@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='In the Jordan-Wigner (JW) transformation, the fermionic creation operator a†_j maps to which qubit operator?',
     choices=[
-        '(Z⊗(j-1)) ⊗ ((X-iY)/2) — a string of Z operators then a raising operator',
+        'Z⊗(j-1) ⊗ (X-iY)/2',
         'X_j (Pauli X on qubit j)',
         '(X+iY)/2 on qubit j only',
         'CNOT between qubit j-1 and j',

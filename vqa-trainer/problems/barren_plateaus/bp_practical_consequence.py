@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='What is the practical consequence of a barren plateau for gradient-based optimisation on a quantum device with finite shot budget?',
     choices=[
-        'Exponentially many shots are needed to resolve the gradient signal, making optimisation infeasible',
+        'Exponentially many shots are needed to resolve the gradient',
         'The optimiser converges to the wrong local minimum instead of the global minimum',
         'The circuit parameters grow unbounded during training',
         'The quantum device overheats due to excessive gate operations',

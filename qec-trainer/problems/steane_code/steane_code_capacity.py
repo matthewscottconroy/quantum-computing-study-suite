@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='The code capacity threshold for the Steane [[7,1,3]] code under independent depolarizing noise (with perfect syndrome measurement) is approximately:',
     choices=[
-        '~11% per-qubit error rate (similar to surface code; both are limited by the channel capacity)',
+        '~11% per-qubit error rate, similar to the surface code',
         '~1% — same as the fault-tolerant threshold with noisy measurement',
         '~50% — any error rate below the classical Shannon limit',
         '~3% — set by the distance-3 correction capacity',

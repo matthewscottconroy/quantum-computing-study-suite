@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='In ADAPT-VQE, how is the ansatz constructed?',
     choices=[
-        'Operators are added one at a time from a pool, greedily selecting those with the largest gradient',
+        'Operators are added one by one from a pool, by largest gradient',
         'A fixed layer structure is repeated p times',
         'The ansatz is the full UCCSD expansion truncated at a fixed depth',
         'Parameters are randomly initialised and pruned based on variance',

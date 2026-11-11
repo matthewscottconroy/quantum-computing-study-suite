@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='The GKP (Gottesman-Kitaev-Preskill) code encodes a qubit into:',
     choices=[
-        'A grid of states evenly spaced in phase space (position and momentum), with codewords being superpositions of squeezed states on a lattice',
+        'A lattice of squeezed states evenly spaced in phase space',
         'The Fock states |0⟩ and |2⟩ of a harmonic oscillator',
         'Two coherent states |α⟩ and |−α⟩ like the cat qubit',
         'A two-mode entangled oscillator state for enhanced protection',

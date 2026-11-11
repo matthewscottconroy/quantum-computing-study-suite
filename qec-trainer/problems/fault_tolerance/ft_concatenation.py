@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is code concatenation in quantum error correction?',
     choices=[
-        'Encoding each physical qubit of one code into another code, recursively',
+        'Encoding each qubit of one code in another, recursively',
         'Using two different codes on alternating time steps',
         'Combining X-type and Z-type stabilizers into a single code',
         'Appending additional ancilla qubits to an existing code',

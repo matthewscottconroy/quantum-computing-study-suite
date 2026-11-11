@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='What is the key difference between a fixed-structure ansatz and an adaptive ansatz like ADAPT-VQE?',
     choices=[
-        'Fixed ansatz: pre-chosen layer structure; adaptive ansatz: operators added greedily during optimisation',
+        'Fixed ansatz: pre-chosen layer structure; adaptive ansatz: operators added greedily',
         'Fixed ansatz: only single-qubit gates; adaptive ansatz: includes entangling gates',
         'Fixed ansatz: hardware-efficient; adaptive ansatz: requires all-to-all connectivity',
         'Fixed ansatz: chemically motivated; adaptive ansatz: uses random gate sequences',

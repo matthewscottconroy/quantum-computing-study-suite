@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is multistate contracted VQE (MC-VQE)?',
     choices=[
-        'Optimises a contracted superposition of multiple VQE states simultaneously to find a set of near-degenerate eigenstates more efficiently',
+        'Optimises a contracted superposition of several states to find near-degenerate eigenstates',
         'Runs VQE independently on multiple quantum processors and contracts the results classically',
         'Applies a multi-reference contracted CI approach where each reference is a VQE state',
         'A VQE variant that contracts the ansatz depth by merging adjacent parameterised layers',

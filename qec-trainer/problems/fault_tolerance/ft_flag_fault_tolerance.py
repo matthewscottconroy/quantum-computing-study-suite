@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is flag fault tolerance, and what problem does it solve?',
     choices=[
-        "A single 'flag' ancilla qubit detects high-weight errors caused by faults in syndrome measurement circuits, without full code-state ancilla preparation",
+        'A flag ancilla detects high-weight errors caused by faults in syndrome circuits',
         'Flag qubits replace the data qubits to reduce physical qubit count',
         'Flag fault tolerance uses multiple layers of error correction to flag when the threshold is exceeded',
         'A syndrome qubit that flags measurement errors by repeating the measurement twice',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is the rotated surface code?',
     choices=[
-        'A 45° rotation of the lattice that reduces total qubit count to d² (data + ancilla combined)',
+        'A 45° rotation of the lattice that needs fewer qubits',
         'A surface code rotated in time for better syndrome extraction',
         'A surface code variant that uses only Z stabilizers',
         'A 3D generalization of the surface code',

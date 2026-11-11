@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question="What is the 'distance' of a surface code, and why does it matter?",
     choices=[
-        'The minimum weight of a logical operator; it determines how many errors the code can correct',
+        'The minimum weight of a logical operator',
         'The physical size of the qubit array in micrometers',
         'The number of syndrome measurement rounds per second',
         'The graph diameter of the Tanner graph',

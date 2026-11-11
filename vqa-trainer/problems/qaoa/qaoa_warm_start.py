@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question="What is the main benefit of 'warm-starting' QAOA with a classical relaxation solution?",
     choices=[
-        'The initial state encodes problem structure, requiring fewer QAOA layers for good solutions',
+        'The initial state already encodes problem structure',
         'It eliminates the need for the mixer unitary',
         'It guarantees the optimal solution at p=1',
         'It reduces the number of Pauli terms in the cost Hamiltonian',

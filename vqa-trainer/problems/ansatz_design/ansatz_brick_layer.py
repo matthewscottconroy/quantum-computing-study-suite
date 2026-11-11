@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What is a brick-layer (alternating-layer) ansatz?',
     choices=[
-        'Alternating layers of single-qubit rotations and nearest-neighbour entangling CNOT/CZ gates in a staggered pattern',
+        'Staggered layers of single-qubit rotations and nearest-neighbour entanglers',
         'A circuit where each qubit has exactly two rotation gates and one CNOT',
         'A deep UCCSD circuit decomposed into repeated Trotter layers',
         'A circuit where brick-shaped blocks of 4 qubits are individually optimised',

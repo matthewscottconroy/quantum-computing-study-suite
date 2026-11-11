@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='For any CSS code (including Steane), the CNOT gate can be implemented:',
     choices=[
-        'Transversally — apply CNOT qubit-by-qubit between two code blocks',
+        'Transversally, qubit by qubit',
         'Only via magic state injection',
         'Only after decoding and re-encoding',
         'By measuring in the Bell basis',

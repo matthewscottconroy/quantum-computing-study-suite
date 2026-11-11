@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='How does the parameter shift rule for quantum circuits compare to backpropagation in classical neural networks?',
     choices=[
-        'Backpropagation uses the chain rule through differentiable operations in O(p) cost; parameter shift uses 2 circuit evaluations per parameter — total O(p) but quantum circuit evaluations',
+        'Backpropagation uses the chain rule in one pass; parameter shift needs 2 circuit runs per parameter',
         'Parameter shift is an approximation analogous to numerical differentiation; backpropagation is exact',
         'Backpropagation requires O(p²) computations; parameter shift requires O(p) quantum circuit evaluations',
         'Both methods have identical computational complexity and neither uses approximations',

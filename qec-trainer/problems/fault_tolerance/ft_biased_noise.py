@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='If the physical noise is highly biased (e.g., Z errors are 100× more likely than X errors), how should this affect code choice?',
     choices=[
-        'Use a code optimized for the dominant error type — e.g., a repetition code along the Z-error direction or a cat qubit with an outer repetition code',
+        'Use a code tailored to the dominant error, e.g. a repetition code against Z',
         'Biased noise has no effect on optimal code choice — any code with sufficient distance works',
         'Always use the surface code regardless of noise bias',
         'Use a code with equal X and Z distance to balance protection',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='The planar surface code has two types of boundaries. What are they and what do they do?',
     choices=[
-        'Rough (smooth Z) boundaries that terminate Z strings, and smooth (rough X) boundaries that terminate X strings',
+        'Rough boundaries where Z strings end and smooth boundaries where X strings end',
         'Top and bottom boundaries for encoding and readout respectively',
         'X-only boundaries and Z-only boundaries that provide error correction at the edges',
         'Periodic boundaries on two sides and open boundaries on the other two',

@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='What role does a cluster state (2D graph state) play in measurement-based quantum computation (MBQC)?',
     choices=[
-        'It serves as a universal resource state: single-qubit measurements in adaptive bases implement any quantum circuit',
+        'It is a universal resource state: adaptive single-qubit measurements run any circuit',
         'It provides a fault-tolerant code for storing logical qubits',
         'It allows classical simulation of all quantum circuits',
         'It implements CNOT gates via its entanglement structure without any measurements',

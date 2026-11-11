@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='The Steane code produces a 3-bit syndrome for X errors and a 3-bit syndrome for Z errors. How does the decoder use these?',
     choices=[
-        'Each 3-bit syndrome encodes the binary index (1–7) of the erroneous qubit; syndrome 000 means no error',
+        'Each 3-bit syndrome is the binary index of the faulty qubit (000: none)',
         'The two syndromes are XORed to find the qubit position',
         'Each syndrome bit tells whether a specific qubit errored or not',
         'The syndromes are averaged to find the most likely error location',

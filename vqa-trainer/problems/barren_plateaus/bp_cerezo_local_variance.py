@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='Cerezo et al. (2021) proved that for a local cost function with an L-layer circuit, the gradient variance scales as what, vs a global cost?',
     choices=[
-        'Local cost: Var ∝ 1/poly(n) for L=O(log n); global cost: Var ∝ 2^{-n} — local costs avoid exponential suppression with logarithmic depth',
+        'Local cost: Var ∝ 1/poly(n) for L=O(log n); global cost: Var ∝ 2^{-n}',
         'Local cost: Var ∝ 2^{-L}; global cost: Var ∝ 2^{-n}',
         'Local cost: Var is constant; global cost: Var ∝ n⁻²',
         "Both local and global costs give Var ∝ 2^{-n} for random circuits — locality doesn't help",

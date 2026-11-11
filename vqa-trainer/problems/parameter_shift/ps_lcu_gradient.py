@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is the linear combination of unitaries (LCU) approach to gradient computation for VQAs?',
     choices=[
-        'Expresses the gradient as a linear combination of quantum circuit expectation values via the Hadamard test, without requiring shifted circuits',
+        'Writes the gradient as expectation values measured with a Hadamard test, without shifted circuits',
         'Decomposes the parameter shift formula into a sum of LCU-weighted unitary channels to reduce circuit depth',
         'Uses ancilla qubits and controlled gates to compute all gradients simultaneously in one circuit run',
         'Applies the LCU Hamiltonian simulation method to compute imaginary-time gradients',

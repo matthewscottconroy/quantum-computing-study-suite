@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question="What is the 'cost-function-dependent' barren plateau result by Cerezo et al. (2021)?",
     choices=[
-        'Local cost functions with L=O(log n) circuit depth have Var[∂C/∂θ] ∝ 1/poly(n) (polynomially small), while global cost functions always give Var ∝ 2^{-n}',
+        'Local costs at O(log n) depth give Var ∝ 1/poly(n); global costs give Var ∝ 2^{-n}',
         'The barren plateau only occurs for cost functions with more than n Pauli terms',
         'Any cost function whose minimum is at E₀ = 0 exhibits a barren plateau',
         'The barren plateau depends only on circuit depth L, not the choice of observable',

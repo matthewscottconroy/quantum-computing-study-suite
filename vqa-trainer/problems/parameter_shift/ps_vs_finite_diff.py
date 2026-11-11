@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question='Compared to central finite differences, the parameter shift rule is advantageous because:',
     choices=[
-        'It is exact (no approximation error), not just an O(ε²) approximation',
+        'It is exact, with no approximation error',
         'It requires only 1 circuit evaluation instead of 2',
         'It works for non-differentiable cost functions',
         'It has zero variance regardless of shot count',

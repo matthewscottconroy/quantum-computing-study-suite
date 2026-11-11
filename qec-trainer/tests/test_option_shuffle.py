@@ -77,21 +77,37 @@ def test_no_choice_refers_to_another_by_position(mc_bank):
         f"another by letter or position: {offenders}")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known: the correct choice is the (joint) longest of the four in "
-           "146 of 170 multiple-choice problems (86%); chance is 25%. "
-           "Shuffling hides position, not length, so 'pick the longest' still "
-           "scores 86% here. The fix is content work: the right choice is a full "
-           "definition and the distractors are one-liners, so either tighten "
-           "the former or flesh out the latter (exam-sim/bank was brought from "
-           "60% to 33% that way). strict=True: this marker must be deleted, "
-           "not left behind, once the bank is balanced.",
-)
 def test_the_correct_choice_is_not_findable_by_length(mc_bank):
-    longest = sum(1 for p in mc_bank
-                  if len(p.choices[p.correct_index]) == max(map(len, p.choices)))
-    assert longest / len(mc_bank) <= 0.40, f"{longest}/{len(mc_bank)}"
+    """Shuffling hides position, not length.
+
+    The right choice used to be the longest of the four in 86% of these
+    problems, because it was a full definition among one-line distractors.  The
+    detail now lives in ``explanation``.  Three things are held here:
+
+    * "pick the longest" (ties split evenly) must score under 40%; chance is 25%;
+    * no length rank - shortest, second, third, longest - may hold the answer
+      more than 40% of the time, so trimming cannot simply move the tell;
+    * the right choice may not stand out by more than 15 characters.
+    """
+    ranks: Counter = Counter()
+    pick_longest = 0.0
+    widest = (0, "")
+    for p in mc_bank:
+        lengths = [len(c) for c in p.choices]
+        mine = lengths[p.correct_index]
+        ranks[sorted(range(len(lengths)), key=lengths.__getitem__).index(p.correct_index)] += 1
+        if mine == max(lengths):
+            pick_longest += 1 / lengths.count(mine)
+        others = max(n for i, n in enumerate(lengths) if i != p.correct_index)
+        widest = max(widest, (mine - others, p.id))
+    n = len(mc_bank)
+    shares = {rank: round(count / n, 3) for rank, count in sorted(ranks.items())}
+    assert pick_longest / n <= 0.40, f"'pick the longest' scores {pick_longest / n:.0%}"
+    assert max(shares.values()) <= 0.40, (
+        f"share of answers by length rank (0 = shortest): {shares}")
+    assert widest[0] <= 15, (
+        f"{widest[1]}: the right choice is {widest[0]} characters longer than "
+        "every distractor - move the justification into `explanation`")
 
 
 # ----------------------------------------------------------------- the screen

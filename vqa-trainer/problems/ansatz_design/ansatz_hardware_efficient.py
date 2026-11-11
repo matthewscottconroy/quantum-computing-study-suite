@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='A hardware-efficient ansatz is designed to:',
     choices=[
-        'Match native gate set and connectivity of the target device',
+        "Match the device's native gates",
         'Minimise the number of parameters',
         'Exactly reproduce UCCSD',
         'Use only Clifford gates',

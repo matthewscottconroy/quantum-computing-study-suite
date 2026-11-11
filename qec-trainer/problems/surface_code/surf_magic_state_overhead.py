@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='In a fault-tolerant quantum computer using surface codes, which resource dominates the physical qubit overhead?',
     choices=[
-        'Magic state distillation factories for T gates — typically requiring ~1000× more qubits than the logical computation',
+        'Magic state distillation factories',
         'The logical qubit code blocks themselves',
         'Syndrome extraction ancilla qubits',
         'Classical decoding hardware',

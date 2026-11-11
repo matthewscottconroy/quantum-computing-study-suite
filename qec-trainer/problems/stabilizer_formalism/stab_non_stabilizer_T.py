@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='Why is T|+⟩ = (|0⟩ + e^{iπ/4}|1⟩)/√2 NOT a stabilizer state?',
     choices=[
-        'No Pauli operator P satisfies P·T|+⟩ = +T|+⟩ — it has no Pauli stabilizer and cannot be described by the stabilizer formalism',
+        'No non-identity Pauli P satisfies P·T|+⟩ = +T|+⟩',
         'T|+⟩ is entangled with the environment',
         'T|+⟩ is not normalized',
         'T|+⟩ is stabilized by TXT† which is not a Pauli operator',

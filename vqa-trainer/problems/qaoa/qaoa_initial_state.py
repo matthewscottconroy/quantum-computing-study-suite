@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='The standard initial state for QAOA is:',
     choices=[
-        '|+⟩^⊗n = H^⊗n|0⟩^⊗n — equal superposition of all bitstrings',
+        '|+⟩^⊗n — equal superposition',
         '|0⟩^⊗n — all zeros',
         '|GHZ⟩ — maximally entangled state',
         'The ground state of U_B',

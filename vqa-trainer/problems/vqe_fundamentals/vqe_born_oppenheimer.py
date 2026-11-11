@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='beginner',
     question='What is the Born-Oppenheimer approximation and why is it used in VQE for quantum chemistry?',
     choices=[
-        'Nuclei are treated as classical fixed points; only the electronic Schrödinger equation is solved quantum-mechanically',
+        'Nuclei are fixed classical points; only the electrons are treated quantum-mechanically',
         'Electrons are treated as classical particles; only nuclear motion is quantised',
         'Both electrons and nuclei are treated quantum-mechanically on an equal footing',
         'The wavefunction is factored into real and imaginary parts to reduce circuit depth',

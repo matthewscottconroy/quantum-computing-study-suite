@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='intermediate',
     question="The 'Quantum Alternating Operator Ansatz' generalisation of QAOA (Hadfield et al. 2019) extends the framework by:",
     choices=[
-        'Allowing general mixer unitaries and initial states beyond |+⟩^n, enabling constrained optimisation',
+        'Allowing general mixers and initial states, which enables constrained optimisation',
         'Replacing the cost unitary with a parameterised hardware-efficient layer',
         'Using a continuous-time quantum walk instead of discrete QAOA layers',
         'Allowing complex-valued parameters γ and β',

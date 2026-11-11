@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='The Steane code supports a transversal S gate (phase gate). Applying S⊗7 to all physical qubits implements which logical operation?',
     choices=[
-        'The logical S̄ gate (up to stabilizers), because the Hamming code is doubly even',
+        'The logical S̄ gate, up to stabilizers',
         'The logical T̄ gate, enabling universal computation',
         'The logical Hadamard H̄',
         'The identity — S⊗7 is in the stabilizer group',

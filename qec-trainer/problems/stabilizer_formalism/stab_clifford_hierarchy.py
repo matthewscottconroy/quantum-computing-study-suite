@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='In the Clifford hierarchy, which level does the T gate belong to?',
     choices=[
-        'Level 3 (P₂): T maps Pauli operators to Clifford operators under conjugation',
+        'Level 3 (P₂): T maps Paulis to Clifford operators',
         'Level 2 (P₁): T is in the Clifford group',
         'Level 1 (P₀): T is a Pauli operator',
         'Level 4 (P₃): T requires two levels of Clifford conjugation',

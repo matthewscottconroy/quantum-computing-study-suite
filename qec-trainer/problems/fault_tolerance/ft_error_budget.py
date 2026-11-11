@@ -8,7 +8,7 @@ PROBLEM = Problem(
     difficulty='advanced',
     question='What is an error budget in fault-tolerant quantum computation, and why is it important?',
     choices=[
-        'An allocation of the total allowed logical error probability across all operations (gates, state prep, measurements) to ensure the computation succeeds',
+        'The total allowed logical error probability, split across all operations',
         'The physical error rate budget assigned to the hardware team',
         'A count of the maximum number of T gates before the computation fails',
         'The overhead ratio of physical to logical qubits',
