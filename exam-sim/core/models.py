@@ -2,6 +2,10 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.choices import resolve_order
+
 
 @dataclass
 class Question:
@@ -24,10 +28,20 @@ class ExamAttempt:
     # (None = not rated / prompt switched off). In-session only; the graded
     # pairing is written to confidence.json when the session is submitted.
     confidence: int | None = None
+    # Display order of the options for this attempt: option_order[row] is the
+    # *bank* index shown in that row (see common.choices). In-session only.
+    # chosen_index above is always a bank index, never a row, so grading and
+    # everything written to disk are independent of the order. Empty = bank
+    # order, which is what an attempt built without one falls back to.
+    option_order: list[int] = field(default_factory=list)
 
     @property
     def answered(self) -> bool:
         return self.chosen_index is not None
+
+    def display_order(self) -> list[int]:
+        """option_order if it is a valid permutation, else bank order."""
+        return resolve_order(self.option_order, len(self.question.options))
 
     @property
     def correct(self) -> bool:

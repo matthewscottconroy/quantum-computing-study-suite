@@ -160,8 +160,20 @@ class MainWindow(QMainWindow):
     def _correct_answer_text(attempt) -> str:
         p = attempt.problem
         if p.choices and 0 <= p.correct_index < len(p.choices):
-            return f"{chr(65 + p.correct_index)}. {p.choices[p.correct_index]}"
+            return p.choices[p.correct_index]
         return attempt.model_answer or p.explanation
+
+    @staticmethod
+    def _your_answer_text(attempt) -> str:
+        """What the learner chose, as text. For multiple choice attempt.answer
+        is a bank letter; the rows are shuffled, so a bare letter in the
+        journal would not say which choice it was."""
+        p = attempt.problem
+        if p.grade_mode == GradeMode.AUTO and p.choices:
+            idx = ord(attempt.answer.strip().upper()[:1] or "?") - 65
+            if 0 <= idx < len(p.choices):
+                return p.choices[idx]
+        return attempt.answer
 
     def _log_confidence(self, attempt) -> None:
         rating, self._pending_confidence = self._pending_confidence, None
@@ -190,7 +202,7 @@ class MainWindow(QMainWindow):
                 item_id=attempt.problem.id,
                 category=attempt.problem.category,
                 question=attempt.problem.question,
-                your_answer=attempt.answer,
+                your_answer=self._your_answer_text(attempt),
                 correct_answer=self._correct_answer_text(attempt),
             ))
         except Exception:

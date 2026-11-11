@@ -27,7 +27,10 @@ def test_grade_mc_rejects_wrong_or_invalid():
     for ans in ("A", "D", "E", "", "2"):
         a = grade_mc(_mc(), ans)
         assert a.verdict is Verdict.INCORRECT and a.score == 0
-        assert "C: RIGHT" in a.feedback
+        # named by its text: the rows are shuffled, so a letter would point
+        # at whatever happened to be shown in that row
+        assert "The right answer was: RIGHT" in a.feedback
+        assert "C: RIGHT" not in a.feedback
 
 
 def test_build_problem_set_filters_by_category_and_difficulty():

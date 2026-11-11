@@ -270,7 +270,8 @@ def test_the_control_is_reachable_from_a_real_session(qapp, monkeypatch,
     try:
         win._setup._start_btn.click()
         assert win._stack.currentIndex() == PAGE_PROBLEM
-        win._problem._radio_btns[1].setChecked(True)
+        # bank choice 1, in whichever row the shuffle put it
+        win._problem._radio_btns[win._problem._order.index(1)].setChecked(True)
         win._problem._validate_mc()
         win._problem._submit_btn.click()
         assert win._stack.currentIndex() == PAGE_RESULT

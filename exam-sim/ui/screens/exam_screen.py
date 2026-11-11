@@ -6,6 +6,10 @@ from PyQt6.QtWidgets import (
     QMessageBox, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QElapsedTimer
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.choices import display_order
+
 from core.models import Question, ExamAttempt, ExamResult
 import persistence
 from ui import theme
@@ -158,7 +162,12 @@ class ExamScreen(QWidget):
 
     # ------------------------------------------------------------- session
     def start_session(self, questions: list[Question], minutes: int, mode: str) -> None:
-        self._attempts = [ExamAttempt(question=q) for q in questions]
+        # Each attempt gets its own shuffled option order, fixed for the whole
+        # session so leaving a question and coming back shows it unchanged.
+        self._attempts = [
+            ExamAttempt(question=q, option_order=display_order(len(q.options)))
+            for q in questions
+        ]
         self._idx = 0
         self._mode = mode
         self._remaining_secs = minutes * 60
@@ -197,13 +206,17 @@ class ExamScreen(QWidget):
         self._section_lbl.setStyleSheet(
             f"font-size: 11px; font-weight: bold; color: {color};")
         self._question_browser.setHtml(question_html(q.question))
-        for i, rb in enumerate(self._radio_btns):
+        # Rows are lettered A-D by position; which option sits in which row is
+        # this attempt's shuffled order. chosen_index stays a bank index.
+        order = attempt.display_order()
+        for row, rb in enumerate(self._radio_btns):
+            shown = row < len(order)
+            text = q.options[order[row]] if shown else ""
             rb.blockSignals(True)
-            rb.setText(f"{chr(65 + i)}.  {q.options[i]}" if i < len(q.options) else "")
-            rb.setVisible(i < len(q.options))
-            rb.setChecked(attempt.chosen_index == i)
-            rb.setAccessibleName(
-                f"Option {chr(65 + i)}: {q.options[i]}" if i < len(q.options) else "")
+            rb.setText(f"{chr(65 + row)}.  {text}" if shown else "")
+            rb.setVisible(shown)
+            rb.setChecked(shown and attempt.chosen_index == order[row])
+            rb.setAccessibleName(f"Option {chr(65 + row)}: {text}" if shown else "")
             rb.blockSignals(False)
         self._confidence.set_value(attempt.confidence)
         self._flag_btn.setText("Unflag" if attempt.flagged else "Flag for review")
@@ -244,12 +257,15 @@ class ExamScreen(QWidget):
 
     # ------------------------------------------------------------- actions
     def _on_option_clicked(self, clicked) -> None:
-        idx = self._btn_group.id(clicked)
+        row = self._btn_group.id(clicked)
         for i, rb in enumerate(self._radio_btns):
             rb.blockSignals(True)
-            rb.setChecked(i == idx)
+            rb.setChecked(i == row)
             rb.blockSignals(False)
-        self._attempts[self._idx].chosen_index = idx
+        attempt = self._attempts[self._idx]
+        order = attempt.display_order()
+        # Record the bank index of the option in the clicked row, not the row.
+        attempt.chosen_index = order[row] if 0 <= row < len(order) else None
         self._refresh_navigator()
 
     def _on_clear(self) -> None:

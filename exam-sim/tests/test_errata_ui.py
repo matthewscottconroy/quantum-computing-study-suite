@@ -52,6 +52,18 @@ def _close(widget, qapp):
     qapp.processEvents()
 
 
+def _click_option(screen, bank_index: int) -> None:
+    """Click the row showing bank option ``bank_index``.
+
+    Rows are shuffled per attempt (common.choices), so the row number is not
+    the bank index: an exam screen keeps the order on the attempt, the review
+    screen on itself.
+    """
+    order = (screen._order if hasattr(screen, "_order")
+             else screen._attempts[screen._idx].display_order())
+    screen._radio_btns[order.index(bank_index)].click()
+
+
 @pytest.fixture
 def accepted(monkeypatch):
     """Make ``ErrataDialog.exec()`` fill in a description and accept."""
@@ -236,7 +248,7 @@ def test_review_screen_shows_the_report_only_after_the_answer_is_checked(
     try:
         assert screen.start() is True
         assert not screen._report_btn.isVisibleTo(screen)
-        screen._radio_btns[wrong].click()
+        _click_option(screen, wrong)
         screen._submit_btn.click()
         assert screen._report_btn.isVisibleTo(screen)
         url = screen._report_btn.report()

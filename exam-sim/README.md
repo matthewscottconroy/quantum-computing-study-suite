@@ -228,16 +228,20 @@ cd exam-sim && python -m pytest        # ~12 s bank/allocation + offscreen Qt sc
 | `test_schema_versioning.py` | the sidecar on every file, an unmarked file reading as v1, forward migration, a newer file refused, backup rotation |
 | `test_errata_ui.py` | the report control: what it quotes, the URL fields, browser stubbed and browser absent, where the button is (and is not) |
 | `test_common_package.py` | the shim is verbatim, every module that imports `common` imports it first, nothing imports `journal_sync`, the palette and journal are the shared ones, and `trim_own` no longer eats another app's rows |
+| `test_option_shuffle.py` | options are shuffled per attempt, a click records the bank index, the order survives navigation, and "always pick the first row" fails a full mock |
 | `test_feedback_ui.py` | the widgets offscreen end to end (rate → miss → tag a cause → answer it correctly → `resolved: true`) plus contrast and focus rings |
 | `test_history_screen.py` / `test_reference_screen.py` | the two read-only screens against the live corpus |
 
 The root suite (`tests/test_common_*.py`, run by `tools/run_tests.sh`) owns the
 unit tests for `common/` itself, so they are not repeated here.
 
-One test is currently marked `xfail`: `correct_index` is 0 for 261 of the
-300 questions and the UI shows options in stored order, so "A" is the right
-answer far more often than in a real exam. Rebalancing the bank (or shuffling
-options per attempt in the UI) will flip it green.
+`correct_index` is 0 for 261 of the 300 questions, which no longer matters:
+the exam and review screens shuffle the options for every attempt
+(`common.choices`), and `chosen_index` is always recorded as a bank index, so
+nothing on disk depends on the order shown. `test_option_shuffle.py` drives
+the real screens — including an "always pick the first row" run of a full
+mock, which must fail the 47 pass mark — and `test_bank.py` rejects any
+option that refers to another by letter or position.
 
 ---
 

@@ -87,6 +87,7 @@ import ast
 import json
 import math
 import os
+import random
 import sys
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -3873,10 +3874,15 @@ def run_diagnostic(state: dict) -> None:
     answers: list[Optional[int]] = []
     for i, q in enumerate(DIAGNOSTIC_QUESTIONS, 1):
         _line(console, f"Q{i}/20 [{q['rung']}]  {q['q']}", "bold")
-        for j, choice in enumerate(q["choices"]):
-            _line(console, f"    {'abcd'[j]}) {choice}")
-        ans = _read_choice(len(q["choices"]))
-        answers.append(ans)
+        # Shown in a shuffled order, lettered by row.  14 of the 20 keys sit
+        # at index 1, so in stored order answering "b" throughout scored 70%
+        # and placed the learner at the top of the ladder.  `answers` holds
+        # stored indices, which is what score_diagnostic() compares.
+        order = _shuffled_order(len(q["choices"]))
+        for row, stored in enumerate(order):
+            _line(console, f"    {'abcd'[row]}) {q['choices'][stored]}")
+        row = _read_choice(len(order))
+        answers.append(None if row is None else order[row])
         print()
 
     rungs = score_diagnostic(answers)
@@ -3904,6 +3910,13 @@ def run_diagnostic(state: dict) -> None:
           f"-> {rung_docs_dir(rec)}", "bold")
     _line(console, "Future plans will bias toward your weak rungs.", "dim")
     print()
+
+
+def _shuffled_order(n_choices: int) -> list[int]:
+    """A random display order: order[row] is the stored index shown there."""
+    order = list(range(n_choices))
+    random.shuffle(order)
+    return order
 
 
 def _read_choice(n_choices: int) -> Optional[int]:

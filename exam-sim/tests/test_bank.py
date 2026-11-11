@@ -15,6 +15,10 @@ from pathlib import Path
 
 import pytest
 
+import common_path  # noqa: F401  (puts the repo root on sys.path)
+
+from common.choices import positional_reference
+
 import bank
 from bank import question_by_id, questions_by_section
 from config import BANK_SIZE, SECTIONS, SPRINT_QUESTION_COUNT
@@ -233,22 +237,43 @@ def test_no_two_questions_share_code_and_answer(questions):
 
 # ---- answer-position balance -----------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="Known: 261/300 questions store the correct answer at index 0 and the UI "
-           "shows options in stored order, so 'A' is right ~87% of the time. Either "
-           "rebalance correct_index across the bank or shuffle options per attempt. "
-           "Remove this marker once fixed.",
-)
-def test_correct_answer_position_is_not_predictable(questions):
-    overall = Counter(q.correct_index for q in questions)
-    assert max(overall.values()) / len(questions) <= 0.5, dict(overall)
-    per_section = {s: Counter() for s in SECTIONS}
+# The bank keys most answers at index 0 (authors write the right option first).
+# That is harmless now: the screens shuffle the options per attempt, so where
+# the answer sits *in the bank* says nothing about where it is shown.  The
+# position the learner sees is tested in test_option_shuffle.py; what the bank
+# itself has to guarantee is that no option depends on its position.
+
+def test_the_correct_option_is_not_findable_by_length(questions):
+    """Shuffling hides position, not length.
+
+    The right option used to be the longest one in 181 of 300 questions (60%,
+    chance is 25%), because it alone carried its justification after a dash.
+    The justification belongs in ``explanation``.  With four options each
+    length rank should hold the answer about a quarter of the time; 40% leaves
+    room for honest variation and still fails long before the old 60%.
+    """
+    ranks = Counter()
     for q in questions:
-        per_section[q.section][q.correct_index] += 1
-    skewed = {s: dict(c) for s, c in per_section.items()
-              if max(c.values()) / sum(c.values()) > 0.6}
-    assert not skewed, skewed
+        by_length = sorted(range(len(q.options)), key=lambda i: len(q.options[i]))
+        ranks[by_length.index(q.correct_index)] += 1
+    shares = {rank: round(n / len(questions), 3) for rank, n in sorted(ranks.items())}
+    assert max(shares.values()) <= 0.40, (
+        f"share of answers by length rank (0 = shortest): {shares}")
+    longest = sum(1 for q in questions
+                  if len(q.options[q.correct_index]) == max(map(len, q.options)))
+    assert longest / len(questions) <= 0.40, f"{longest} answers are (joint) longest"
+
+
+def test_no_option_refers_to_another_by_position(questions):
+    offenders = {
+        q.id: hit
+        for q in questions
+        for hit in [next(filter(None, map(positional_reference, q.options)), None)]
+        if hit
+    }
+    assert not offenders, (
+        "options are shuffled when shown, so an option must not point at "
+        f"another by letter or position: {offenders}")
 
 
 # ---- lookup ---------------------------------------------------------------------

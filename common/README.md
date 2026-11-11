@@ -255,6 +255,24 @@ Targets `.github/ISSUE_TEMPLATE/content_error.yml` and mirrors its field ids
 (`file`, `quote`, `why_wrong`, `correction`, `severity`), so the report lands in
 the right boxes. `template=None` falls back to a plain prefilled body.
 
+### `common.choices` — display order for multiple-choice options
+
+```python
+display_order(n_options, rng=None) -> list[int]   # order[row] = bank index shown in that row
+resolve_order(order, n_options) -> list[int]      # order if a valid permutation, else bank order
+row_of(order, bank_index) -> int | None           # the row a bank index is shown in
+positional_reference(option) -> str | None        # "Both A and C", "all of the above", …
+```
+
+The banks key most answers at index 0, so a screen that shows options in
+stored order makes "always pick A" a passing strategy. Shuffle at **display**
+time only: the bank, the history files, the journal and the graders keep
+speaking in bank indices, and the screen translates through `order`. Nothing
+on disk changes shape. Used by exam-sim (exam and review screens),
+qec-trainer and vqa-trainer (problem screens); `coach.py --diagnostic` does
+the same thing inline. Each bank's tests call `positional_reference` so an
+option can never depend on where it is shown.
+
 ### `common.jsonio` / `common.locking`
 
 ```python
@@ -420,6 +438,7 @@ app and is therefore safe to run in one process:
 | `test_common_flags.py` | toggle, legacy bare-id upgrade, unknown-row preservation, atomicity |
 | `test_common_schema.py` | migration up, refusal to write a newer file, backup rotation, and `coach.py` / `dashboard.py` still reading a directory with sidecars |
 | `test_common_errata.py` | URL shape, field ids, escaping, truncation |
+| `test_common_choices.py` | permutation, uniformity, seeded reproducibility, fallback to bank order, position-dependent option detection |
 | `test_common_reference.py` | docs discovery, titles, labels, `$$`/`<details>` rewriting, slugs, cross-reference resolution |
 
 Run them with `bash tools/run_tests.sh` (all eleven suites) or

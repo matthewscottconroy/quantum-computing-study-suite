@@ -34,6 +34,18 @@ def _close(widget, qapp):
     qapp.processEvents()
 
 
+def _click_option(screen, bank_index: int) -> None:
+    """Click the row showing bank option ``bank_index``.
+
+    Rows are shuffled per attempt (common.choices), so the row number is not
+    the bank index: an exam screen keeps the order on the attempt, the review
+    screen on itself.
+    """
+    order = (screen._order if hasattr(screen, "_order")
+             else screen._attempts[screen._idx].display_order())
+    screen._radio_btns[order.index(bank_index)].click()
+
+
 # --------------------------------------------------------- ConfidenceStrip
 def test_confidence_strip_chips_are_keyboard_reachable_and_named(qapp):
     strip = ConfidenceStrip()
@@ -208,7 +220,7 @@ def _finished_session(win, attempts_spec):
     for i, (_, chosen, conf) in enumerate(attempts_spec):
         win._exam._goto(i)
         if chosen is not None:
-            win._exam._radio_btns[chosen].click()
+            _click_option(win._exam, chosen)
         if conf is not None:
             win._exam._confidence._buttons[conf].click()
     win._exam._timer.stop()
@@ -322,7 +334,7 @@ def test_review_screen_journals_a_miss_then_resolves_it(qapp, data_dir, question
 
         # miss it again: journalled, cause row appears, pairing recorded
         screen._confidence._buttons[3].click()
-        screen._radio_btns[wrong].click()
+        _click_option(screen, wrong)
         screen._submit_btn.click()
         assert screen._cause_row.isVisibleTo(screen)
         assert "Incorrect" in screen._feedback_lbl.text()
@@ -338,7 +350,7 @@ def test_review_screen_journals_a_miss_then_resolves_it(qapp, data_dir, question
 
         # now get it right: every row for the item resolves
         screen._show_current()
-        screen._radio_btns[q.correct_index].click()
+        _click_option(screen, q.correct_index)
         screen._submit_btn.click()
         assert "Correct" in screen._feedback_lbl.text()
         assert "✓" in screen._feedback_lbl.text()
