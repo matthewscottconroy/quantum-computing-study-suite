@@ -12,7 +12,7 @@
 PyQt6>=6.6
 
 # --- Claude API (dynamic questions, free-form grading; apps launch without a key)
-anthropic>=1.0,<2           # validated on the 1.x SDK (httpx2 transport); app code only uses messages.create. A future 2.x is untested
+anthropic>=1.0,<3           # validated on the 1.x SDK (httpx2 transport); app code only uses messages.create. A future 2.x is untested
 
 # --- Qiskit stack (quantum-quiz, circuit-trainer, qiskit-dojo, notebooks, labs)
 qiskit>=2.0,<3              # the suite is written against Qiskit 2.x (CONTRIBUTING.md: retired 1.x APIs are bugs); 3.x is untested
