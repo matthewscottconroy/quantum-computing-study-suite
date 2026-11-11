@@ -5,15 +5,15 @@ Unitary-equivalence spot check: 60 circuits (width <= 5), **0 mismatches**.
 
 | population | n | CX removed (pooled) | CX removed (mean per circuit) | depth removed | fusions | annihilations | mean pass time |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| planted | 180 | 25.3% | 25.9% | 11.5% | 5182 | 4 | 7.14 ms |
-| unplanted | 180 | 0.0% | 0.0% | 0.0% | 3 | 0 | 2.22 ms |
+| planted | 180 | 25.3% | 25.9% | 11.5% | 5182 | 4 | 4.39 ms |
+| unplanted | 180 | 0.0% | 0.0% | 0.0% | 3 | 0 | 1.44 ms |
 
 Pass runtime vs gate count (DAG-level, best of two runs):
 
 | population | slope | intercept | R^2 |
 |---|---:|---:|---:|
-| planted | 8.89 us/gate | -2043 us | 0.808 |
-| unplanted | 2.78 us/gate | -185 us | 0.888 |
+| planted | 5.10 us/gate | -881 us | 0.916 |
+| unplanted | 1.82 us/gate | -128 us | 0.976 |
 
 ## By width and depth (planted)
 
