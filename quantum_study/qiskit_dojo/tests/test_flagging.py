@@ -1,0 +1,187 @@
+"""Flag-for-review contract (dojo_flagged.json): entry schema, toggle
+semantics, robustness against corrupt/foreign files, and coach.py discovery.
+
+Everything goes through the ``data_dir`` fixture — the real
+~/.local/share/quantum-study is never touched.
+"""
+from __future__ import annotations
+
+import fnmatch
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import pytest
+
+from quantum_study.qiskit_dojo import persistence
+from quantum_study.qiskit_dojo.core.models import Kata
+
+APP_ROOT = Path(__file__).resolve().parent.parent
+COACH = APP_ROOT.parent.parent / "coach.py"
+CONTRACT_KEYS = {"id", "label", "category", "app", "timestamp"}
+
+#: What a written dojo_flagged.json leaves behind: the file itself, the advisory
+#: lock sidecar (common.locking) and the schema-version sidecar (common.schema).
+FLAG_FILES = ["dojo_flagged.json", "dojo_flagged.json.lock",
+              "dojo_flagged.json.schema.json"]
+
+
+def _kata(kid: str = "cc_bell_state", title: str = "Build a Bell state",
+          section: str = "Create circuits") -> Kata:
+    return Kata(id=kid, section=section, title=title, difficulty="beginner",
+                prompt="p", starter_code="", test_code="", solution_code="")
+
+
+def _read(data_dir: Path) -> list:
+    return json.loads((data_dir / "dojo_flagged.json").read_text())
+
+
+def test_flagged_file_follows_suite_naming(data_dir):
+    assert persistence.FLAGGED_FILE == data_dir / "dojo_flagged.json"
+    assert persistence.flagged_path() == data_dir / "dojo_flagged.json"
+    # coach.py --review discovers review files with this glob; the prefix is
+    # the app's history-file prefix ("dojo").
+    assert fnmatch.fnmatch(persistence.FLAGGED_FILE.name, "*_flagged.json")
+    assert persistence.HISTORY_FILE.name.split("_")[0] == "dojo"
+
+
+def test_toggle_writes_exactly_the_contract_entry(data_dir):
+    k = _kata()
+    before = time.time()
+    assert not persistence.FLAGGED_FILE.exists()
+
+    assert persistence.toggle_flag(k) is True
+
+    entries = _read(data_dir)
+    assert len(entries) == 1
+    e = entries[0]
+    assert set(e) == CONTRACT_KEYS
+    assert e["id"] == k.id
+    assert e["label"] == k.title
+    assert e["category"] == k.section
+    assert e["app"] == "qiskit-dojo"
+    assert isinstance(e["timestamp"], float)
+    assert before - 1 <= e["timestamp"] <= time.time() + 1
+    assert persistence.is_flagged(k.id) is True
+    assert persistence.flagged_ids() == {k.id}
+
+
+def test_second_toggle_unflags_and_leaves_empty_list(data_dir):
+    k = _kata()
+    assert persistence.toggle_flag(k) is True
+    assert persistence.toggle_flag(k) is False
+    assert _read(data_dir) == []
+    assert persistence.is_flagged(k.id) is False
+    assert persistence.load_flagged() == []
+
+
+def test_toggle_keeps_other_entries_in_insertion_order(data_dir):
+    for kid in ("a", "b", "c"):
+        assert persistence.toggle_flag(_kata(kid)) is True
+    assert persistence.toggle_flag(_kata("b")) is False
+    assert [e["id"] for e in _read(data_dir)] == ["a", "c"]
+    assert [e["id"] for e in persistence.load_flagged()] == ["a", "c"]  # oldest first
+    assert persistence.flagged_ids() == {"a", "c"}
+
+
+def test_unflag_is_a_noop_for_absent_ids(data_dir):
+    persistence.unflag("nothing")
+    assert not persistence.FLAGGED_FILE.exists()      # no file conjured up
+
+    persistence.toggle_flag(_kata("a"))
+    raw = persistence.FLAGGED_FILE.read_text()
+    persistence.unflag("nothing")
+    assert persistence.FLAGGED_FILE.read_text() == raw  # byte-identical
+
+    persistence.unflag("a")
+    assert _read(data_dir) == []
+    assert persistence.is_flagged("a") is False
+
+
+def test_corrupt_file_reads_as_empty_and_is_recreated_on_flag(data_dir):
+    data_dir.mkdir(parents=True)
+    persistence.FLAGGED_FILE.write_text("{not json at all")
+    assert persistence.load_flagged() == []
+    assert persistence.flagged_ids() == set()
+    assert persistence.is_flagged("a") is False
+
+    assert persistence.toggle_flag(_kata("a")) is True
+    assert [e["id"] for e in _read(data_dir)] == ["a"]
+
+
+def test_foreign_shapes_are_filtered_not_fatal(data_dir):
+    data_dir.mkdir(parents=True)
+    persistence.FLAGGED_FILE.write_text(json.dumps({"id": "x"}))   # dict, not list
+    assert persistence.load_flagged() == []
+
+    persistence.FLAGGED_FILE.write_text(json.dumps([
+        {"id": "keep", "label": "K", "category": "S", "app": "qiskit-dojo", "timestamp": 1.0},
+        {"label": "no id"}, "legacy-id", None, 42, {"id": ""},
+    ]))
+    # A bare string is the suite's LEGACY flag shape (flashcard-drill,
+    # qec-trainer and vqa-trainer still write it and coach.py parses it), so
+    # common.flags reads it as an id rather than as junk; everything genuinely
+    # unusable is still skipped.
+    assert [e["id"] for e in persistence.load_flagged()] == ["keep", "legacy-id"]
+    assert persistence.is_flagged("keep") is True
+    assert persistence.is_flagged("legacy-id") is True
+
+
+def test_unreadable_rows_are_kept_in_the_file_not_deleted(data_dir):
+    """A rewrite puts back rows this app does not understand.
+
+    Five of the ten copies rebuilt the file from the *filtered* list, which
+    silently deleted anything they could not parse.  common.flags rewrites from
+    the raw list.
+    """
+    data_dir.mkdir(parents=True)
+    persistence.FLAGGED_FILE.write_text(json.dumps([
+        {"id": "keep", "label": "K", "category": "S", "app": "qiskit-dojo",
+         "timestamp": 1.0, "future_key": {"nested": True}},
+    ]))
+    persistence.toggle_flag(_kata("added"))
+    rows = _read(data_dir)
+    assert [e["id"] for e in rows] == ["keep", "added"]
+    assert rows[0]["label"] == "K" and rows[0]["category"] == "S"
+
+
+def test_a_legacy_bare_id_file_upgrades_itself_on_the_first_write(data_dir):
+    data_dir.mkdir(parents=True)
+    persistence.FLAGGED_FILE.write_text(json.dumps(["old_one"]))
+    assert persistence.flagged_ids() == {"old_one"}
+    persistence.toggle_flag(_kata("new_one"))
+    rows = _read(data_dir)
+    assert [e["id"] for e in rows] == ["old_one", "new_one"]
+    assert all(set(e) == CONTRACT_KEYS for e in rows)
+    assert rows[0]["app"] == "qiskit-dojo"
+    assert rows[0]["timestamp"] == 0.0        # not "now": no queue-jumping
+
+
+def test_data_dir_is_created_on_first_flag(data_dir):
+    assert not data_dir.exists()
+    persistence.toggle_flag(_kata("a"))
+    assert data_dir.is_dir()
+    assert sorted(p.name for p in data_dir.iterdir()) == FLAG_FILES
+
+
+@pytest.mark.skipif(not COACH.exists(), reason="coach.py not present in this checkout")
+def test_coach_review_discovers_dojo_flags(data_dir):
+    """Integration: coach.py --review (pointed at the temp dir) lists our flag."""
+    k = _kata()
+    persistence.toggle_flag(k)
+    env = {kk: v for kk, v in os.environ.items() if kk != "ANTHROPIC_API_KEY"}
+    env["QUANTUM_STUDY_DATA_DIR"] = str(data_dir)
+    proc = subprocess.run(
+        [sys.executable, str(COACH), "--review"],
+        cwd=str(COACH.parent), env=env, capture_output=True, text=True, timeout=120,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "qiskit-dojo" in proc.stdout
+    assert k.title in proc.stdout
+    # read-only: the coach must not have added files to the data dir, and the
+    # two sidecars beside dojo_flagged.json must not confuse its *_flagged.json
+    # discovery glob either.
+    assert sorted(p.name for p in data_dir.iterdir()) == FLAG_FILES

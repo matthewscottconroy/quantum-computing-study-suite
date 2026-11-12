@@ -19,8 +19,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from common import journal, schema                  # noqa: E402
-from common.jsonio import read_json_list            # noqa: E402
+from quantum_study.common import journal, schema                  # noqa: E402
+from quantum_study.common.jsonio import read_json_list            # noqa: E402
 
 
 @pytest.fixture
@@ -276,8 +276,8 @@ def test_the_real_dashboard_and_coach_loaders_still_see_every_row(
     all do ``return data if isinstance(data, list) else []`` — a wrapper object
     would make each of them read the journal as empty.
     """
-    import coach
-    import dashboard
+    from quantum_study import coach
+    from quantum_study import dashboard
 
     data = _populated(tmp_path)
     monkeypatch.setenv("QUANTUM_STUDY_DATA_DIR", str(data))

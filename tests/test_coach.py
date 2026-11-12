@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-import coach
+from quantum_study import coach
 
 ROOT = Path(__file__).resolve().parent.parent
 DAY = 86400.0
@@ -342,7 +342,7 @@ class TestDiagnostic:
         assert len({q["q"] for q in qs}) == 20
 
     def test_no_choice_refers_to_another_by_position(self):
-        from common.choices import positional_reference
+        from quantum_study.common.choices import positional_reference
         for q in coach.DIAGNOSTIC_QUESTIONS:
             for choice in q["choices"]:
                 assert positional_reference(choice) is None, (q["q"], choice)
@@ -898,7 +898,7 @@ class TestCLI:
                               timeout=60)
 
     def test_env_var_selects_data_dir(self, tmp_path):
-        r = self._run(["-c", "import coach; print(coach.DATA_DIR)"], tmp_path)
+        r = self._run(["-c", "from quantum_study import coach; print(coach.DATA_DIR)"], tmp_path)
         assert r.returncode == 0, r.stderr
         assert Path(r.stdout.strip()) == tmp_path
 
@@ -1054,7 +1054,7 @@ class TestReadinessWeights:
             assert coach._SECTION_ACTIONS[name].strip()
 
     def test_canonical_section_matches_the_real_apps(self):
-        # exam-sim/config.py SECTIONS and qiskit-dojo kata sections
+        # quantum_study/exam_sim/config.py SECTIONS and qiskit-dojo kata sections
         for name, _w in coach.EXAM_SECTION_WEIGHTS:
             assert coach.canonical_section(name) == name
         assert coach.canonical_section("openqasm") == "OpenQASM"

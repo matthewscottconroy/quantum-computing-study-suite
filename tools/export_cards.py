@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Export the flashcard-drill deck to portable formats.
 
-The 550 cards live one-per-file under ``flashcard-drill/cards/``.  That is the
+The 550 cards live one-per-file under ``quantum_study/flashcard_drill/cards/``.  That is the
 single source of truth; this script never copies card text into itself.  It
 imports flashcard-drill's own loader (``cards.all_cards``) and re-emits the
 deck as:
@@ -50,7 +50,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-APP_DIR = REPO_ROOT / "flashcard-drill"
+APP_DIR = REPO_ROOT / "quantum_study" / "flashcard_drill"
 CARD_DIR = APP_DIR / "cards"
 THEME_FILE = APP_DIR / "ui" / "theme.py"
 WEBDECK_DIR = Path(__file__).resolve().parent / "webdeck"
@@ -100,28 +100,20 @@ def _expected_card_count() -> int:
 def load_cards() -> list[Card]:
     """Load the deck through flashcard-drill's own registry.
 
-    ``cards/__init__.py`` does ``from core.models import Flashcard``, so the app
-    directory has to be the import root — hence the sys.path insert rather than
-    a package-relative import.
+    The deck is whatever ``quantum_study.flashcard_drill.cards.all_cards()``
+    returns - the same call the app makes - never a copy of the card text.
     """
     if not CARD_DIR.is_dir():
         raise ExportError(f"card directory not found: {CARD_DIR}")
 
-    app_dir = str(APP_DIR)
-    inserted = app_dir not in sys.path
-    if inserted:
-        sys.path.insert(0, app_dir)
+    # Run as `python tools/<script>.py`, sys.path[0] is tools/, not the repo.
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
     try:
-        from cards import all_cards  # type: ignore[import-not-found]
+        from quantum_study.flashcard_drill.cards import all_cards
         raw = all_cards()
     except ImportError as exc:  # pragma: no cover - defensive
         raise ExportError(f"could not import flashcard-drill's card registry: {exc}") from exc
-    finally:
-        if inserted:
-            try:
-                sys.path.remove(app_dir)
-            except ValueError:
-                pass
 
     expected = _expected_card_count()
     if len(raw) != expected:
@@ -226,7 +218,7 @@ def human_size(n: int) -> str:
 def export_json(cards: list[Card], out_dir: Path) -> Path:
     payload = {
         "schema": "quantum-study/cards@1",
-        "source": "flashcard-drill/cards",
+        "source": "quantum_study/flashcard_drill/cards",
         "count": len(cards),
         "categories": [name for name, _ in category_counts(cards)],
         "cards": [c.as_dict() for c in cards],

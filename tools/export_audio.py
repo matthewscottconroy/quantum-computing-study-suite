@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turn the flashcard deck into an audio deck you can drill while walking.
 
-The deck lives one-card-per-file under ``flashcard-drill/cards/``.  That is the
+The deck lives one-card-per-file under ``quantum_study/flashcard_drill/cards/``.  That is the
 single source of truth; this script never copies card text into itself.  It
 imports flashcard-drill's own registry (``cards.all_cards``), rewrites each
 card's front and back from mathematical notation into *spoken English*, and
@@ -69,7 +69,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-APP_DIR = REPO_ROOT / "flashcard-drill"
+APP_DIR = REPO_ROOT / "quantum_study" / "flashcard_drill"
 CARD_DIR = APP_DIR / "cards"
 DEFAULT_OUT = REPO_ROOT / "exports" / "audio"
 
@@ -749,22 +749,17 @@ class Card:
 
 
 def load_cards() -> list[Card]:
-    """Import ``cards.all_cards`` the way tools/export_cards.py does."""
+    """Load the deck the way tools/export_cards.py does."""
     if not CARD_DIR.is_dir():
         raise AudioError(f"card directory not found: {CARD_DIR}")
-    app_dir = str(APP_DIR)
-    inserted = app_dir not in sys.path
-    if inserted:
-        sys.path.insert(0, app_dir)
+    # Run as `python tools/<script>.py`, sys.path[0] is tools/, not the repo.
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
     try:
-        from cards import all_cards  # type: ignore[import-not-found]
+        from quantum_study.flashcard_drill.cards import all_cards
         raw = all_cards()
     except ImportError as exc:  # pragma: no cover - defensive
         raise AudioError(f"could not import flashcard-drill's card registry: {exc}") from exc
-    finally:
-        if inserted:
-            with contextlib.suppress(ValueError):
-                sys.path.remove(app_dir)
 
     expected = sum(1 for p in CARD_DIR.glob("*/*.py") if p.stem != "__init__")
     if len(raw) != expected:

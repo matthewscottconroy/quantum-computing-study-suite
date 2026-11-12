@@ -168,7 +168,7 @@ Both scripts pass `bash -n` and `shellcheck -S style` cleanly.
 
 ## `export_cards.py` — take the flashcards off this desktop
 
-The 550 flashcards live one-per-file under `flashcard-drill/cards/`, which is
+The 550 flashcards live one-per-file under `quantum_study/flashcard_drill/cards/`, which is
 great for review and terrible for drilling on a train. `export_cards.py` reads
 that directory through flashcard-drill's own loader — the card text is never
 duplicated anywhere — and re-emits the deck in three portable formats.
@@ -216,7 +216,7 @@ its category (`Gate_Unitaries`, `States_and_Measurement`, …).
 
 **Re-importing updates in place; it does not duplicate.** The deck ids, the
 model id and every note GUID are derived from stable names (the note GUID *is*
-the flashcard id), so after you edit a card under `flashcard-drill/cards/`,
+the flashcard id), so after you edit a card under `quantum_study/flashcard_drill/cards/`,
 re-export and re-import: Anki matches the GUIDs, rewrites those notes, and
 leaves your review history alone. Never change `stable_id()`, `APKG_TIMESTAMP`
 or the card ids themselves — that would orphan every note already in Anki and
@@ -235,7 +235,7 @@ or a plane-mode laptop and it works. Built from the templates in
 | File | Role |
 |---|---|
 | `tools/webdeck/index.html` | page skeleton; the exporter substitutes `/*{{DECK_CSS}}*/`, `/*{{DECK_JS}}*/`, `{{DECK_DATA}}`, `{{CARD_COUNT}}`, `{{CATEGORY_COUNT}}` |
-| `tools/webdeck/deck.css` | mobile-first dark theme (same palette as `flashcard-drill/ui/theme.py`) |
+| `tools/webdeck/deck.css` | mobile-first dark theme (same palette as `quantum_study/flashcard_drill/ui/theme.py`) |
 | `tools/webdeck/deck.js` | queue building, reveal/rate, Leitner scheduling, localStorage |
 
 Edit those three, never the generated `exports/index.html`. A missing
@@ -261,7 +261,7 @@ Progress is per-browser and never leaves the device. It is **separate from the
 desktop app's history** — `~/.local/share/quantum-study/flashcard_history.json`
 is untouched, and the web deck does not read it.
 
-The category colours are read out of `flashcard-drill/ui/theme.py` by parsing
+The category colours are read out of `quantum_study/flashcard_drill/ui/theme.py` by parsing
 the `CATEGORY_COLORS` literal with `ast` (importing it would pull in PyQt6), so
 a palette change on the desktop shows up in the web deck on the next export.
 
@@ -359,7 +359,7 @@ history file literally stores:
 | App | `category` is | Why |
 |---|---|---|
 | Math Quiz / Quantum Quiz | the **subject** (`"Linear Algebra"`) | the history stores subject *and* topic; the graph works at subject level and `concept_map.py` folds each topic back to its subject via `<app>/core/topics.py` |
-| Problem Trainer | the problem **topic** (`"Algorithms"`) | `problems_history.json` stores only `{problem_id, kind}`, so the id is mapped back to its topic via `problem-trainer/problems/**` |
+| Problem Trainer | the problem **topic** (`"Algorithms"`) | `problems_history.json` stores only `{problem_id, kind}`, so the id is mapped back to its topic via `quantum_study/problem_trainer/problems/**` |
 | everything else | exactly what the history stores | flashcard/qec/vqa category, dojo & exam section, circuit-trainer `ProblemCategory` value |
 
 Derivation attempts land in Problem Trainer's `"derivation"` bucket, which
@@ -629,7 +629,7 @@ FRONT  Grover operator:  G = ______
 BACK   G = (2|s⟩⟨s| - I)(I - 2|x*⟩⟨x*|)  ·  Source: docs/04_quantum_algorithms/05_grover_search.md — Grover's Search Algorithm
 ```
 
-The cards land one-per-file in `flashcard-drill/cards/cloze/` under the
+The cards land one-per-file in `quantum_study/flashcard_drill/cards/cloze/` under the
 category **Cloze**, in exactly the `Flashcard` shape the hand-written cards use,
 so `cards.all_cards()`, the SM-2 scheduler, `export_cards.py` and the web deck
 pick them up with no changes. The source chapter is always on the back, so a
@@ -686,11 +686,11 @@ directory, returning the deck to exactly its hand-written size.
 Adding a chapter to `docs/` adds cards, which moves numbers that live outside
 this tool. After a `--write` that changes the count, update:
 
-* `flashcard-drill/tests/test_cards.py` — `EXPECTED_CARD_COUNT` and
+* `quantum_study/flashcard_drill/tests/test_cards.py` — `EXPECTED_CARD_COUNT` and
   `EXPECTED_CATEGORY_COUNT` (15 with the Cloze category present).
-* the card counts in `README.md`, `flashcard-drill/README.md`,
+* the card counts in `README.md`, `quantum_study/flashcard_drill/README.md`,
   `GETTING_STARTED.md`, `tools/README.md`, `launch.py` and `CONTRIBUTING.md`.
-* `flashcard-drill/ui/theme.py` — `CATEGORY_COLORS` needs a `"Cloze"` entry, or
+* `quantum_study/flashcard_drill/ui/theme.py` — `CATEGORY_COLORS` needs a `"Cloze"` entry, or
   the category falls back to the accent colour in the app and to
   `FALLBACK_COLOR` (`#58a6ff`, already used by Qiskit API) in the web deck.
 

@@ -21,7 +21,7 @@
 -->
 
 ```
-$ bash tools/run_tests.sh
+$ pytest
 ...
 $ python tools/verify_docs.py --all
 ...
@@ -30,7 +30,7 @@ $ python tools/verify_docs.py --all
 ## Checklist
 
 - [ ] Branched from `main`; one topic in this PR (a bank addition, a docs fix, an app change).
-- [ ] `bash tools/run_tests.sh` passes locally — or the affected app's suite plus the root suite — and the tally is pasted above.
+- [ ] `pytest` passes locally — or `pytest tests quantum_study/<app>` for a change to one app — and the summary line is pasted above.
 - [ ] `python tools/verify_docs.py --all` exits 0 (required if `docs/` or `lesson-plans/` changed).
 - [ ] **Every number added or changed was verified by a script**, and the script or snippet is shown above or in the diff.
 - [ ] Qiskit code is 2.x-current and was actually executed; the version is stated.

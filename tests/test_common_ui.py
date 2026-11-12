@@ -20,8 +20,8 @@ if str(ROOT) not in sys.path:
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from common import errata                           # noqa: E402
-from common.ui import theme, widgets                # noqa: E402
+from quantum_study.common import errata                           # noqa: E402
+from quantum_study.common.ui import theme, widgets                # noqa: E402
 
 APPS = sorted(p.parent.name for p in ROOT.glob("*/main.py"))
 
@@ -257,7 +257,7 @@ def test_widgets_paint_offscreen(host):
 # ---------------------------------------------------------------------------
 
 def test_the_dialog_builds_the_url_from_what_was_typed(qapp):
-    from common.ui.errata_dialog import ErrataDialog
+    from quantum_study.common.ui.errata_dialog import ErrataDialog
     dialog = ErrataDialog(app="exam-sim", item_id="ex_017",
                           item_text="Which primitive returns expectations?")
     assert dialog._open_btn.isEnabled() is False, (
@@ -279,7 +279,7 @@ def test_the_dialog_builds_the_url_from_what_was_typed(qapp):
 
 
 def test_issue_url_is_none_until_accepted(qapp):
-    from common.ui.errata_dialog import ErrataDialog
+    from quantum_study.common.ui.errata_dialog import ErrataDialog
     dialog = ErrataDialog(app="exam-sim", item_id="x")
     assert dialog.issue_url is None
     dialog._why.setPlainText("wrong")
@@ -289,7 +289,7 @@ def test_issue_url_is_none_until_accepted(qapp):
 
 
 def test_the_button_opens_the_dialog_and_emits_the_url(qapp, monkeypatch, host):
-    from common.ui import errata_dialog as ed
+    from quantum_study.common.ui import errata_dialog as ed
 
     class _Accepted(ed.ErrataDialog):
         def exec(self):                             # noqa: A003 (Qt naming)
@@ -309,7 +309,7 @@ def test_the_button_opens_the_dialog_and_emits_the_url(qapp, monkeypatch, host):
 
 
 def test_the_button_emits_nothing_when_cancelled(qapp, monkeypatch, host):
-    from common.ui import errata_dialog as ed
+    from quantum_study.common.ui import errata_dialog as ed
 
     class _Cancelled(ed.ErrataDialog):
         def exec(self):                             # noqa: A003 (Qt naming)

@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from common import flags, schema                    # noqa: E402
+from quantum_study.common import flags, schema                    # noqa: E402
 
 APP = "qec-trainer"
 
@@ -184,7 +184,7 @@ def test_flagged_path_resolves_per_app(monkeypatch, tmp_path):
 def test_coach_can_read_what_this_module_writes(path, monkeypatch, tmp_path):
     """The flagged files feed coach.py's review queue; its contract is
     {id, label, category, app, timestamp}."""
-    import coach
+    from quantum_study import coach
     target = tmp_path / "qec_flagged.json"
     flags.flag(target, "qec_steane", "The Steane code", "Codes", app=APP)
     monkeypatch.setattr(coach, "DATA_DIR", tmp_path)

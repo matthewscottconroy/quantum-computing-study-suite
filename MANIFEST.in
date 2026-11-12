@@ -1,40 +1,13 @@
-# MANIFEST.in — extra files for the source distribution.
-#
-# setuptools already puts pyproject.toml, README.md, LICENSE, the three
-# py-modules (launch.py, coach.py, dashboard.py) and the `common` package into
-# the sdist.  This file adds the bootstrap and maintenance scripts so
-# `pip download --no-binary :all:` gives something you can actually re-create
-# the environment from, and the two pieces of `common/` that are documentation
-# rather than code.
-#
-# The ten PyQt6 apps, the docs corpus, lesson-plans, notebooks, labs and projects
-# are deliberately NOT shipped: they are not Python packages (see the note at the
-# top of pyproject.toml), they are large, and they are only useful inside a git
-# checkout.  Get them from
-# https://github.com/matthewscottconroy/quantum-computing-study-suite
-
-# The shared package.  The .py files come from [tool.setuptools] packages, but
-# an sdist should also carry the migration contract (README.md) that says how
-# the ten apps import it and which of the ten diverging copies each decision
-# came from, and the tests that hold it to that contract.
-include common/README.md
-recursive-include common *.py
-include tests/test_common_*.py
-
-include requirements.txt
-include requirements-dev.txt
-include pytest.ini
-include setup.sh
-include Makefile
-include tools/run_tests.sh
-include tools/verify_docs.py
-include tools/README.md
-
-# Never ship caches or the local virtualenv, whatever else matches above.
+# What the source distribution carries beyond the package itself.
+include LICENSE README.md GETTING_STARTED.md CONTRIBUTING.md ROADMAP.md
+include requirements.txt requirements-dev.txt pytest.ini conftest.py
+include setup.sh Makefile
+include launch.py coach.py dashboard.py
+recursive-include quantum_study *.md
+recursive-include tests *.py
+recursive-include tools *.py *.sh *.md *.json
+recursive-include tools/webdeck *
 global-exclude *.py[cod]
 global-exclude .DS_Store
 prune .venv
 prune **/__pycache__
-include tools/export_cards.py
-recursive-include tools/webdeck *
-include tools/daily_nudge.sh tools/install_nudge.sh

@@ -1,0 +1,200 @@
+# Qiskit Dojo
+
+A desktop "coding dojo" for the IBM Certified Quantum Developer exam
+(C1000-179): you **write real Qiskit 2.x code** in an editor, the app
+executes it in an isolated subprocess, and assertion-based tests grade it
+automatically — fully offline.
+
+Part of the quantum-study suite. Everything cross-cutting — the data
+directory, the mistake journal, the confidence log, the flag store, the
+palette and the Reference browser — comes from the repository's shared
+[`quantum_study/common/`](../common/README.md) package rather than from a copy in this
+tree; see *Shared code* below.
+
+## Run
+
+```bash
+python launch.py dojo                 # from the repository root (or: quantum-study dojo)
+python -m quantum_study.qiskit_dojo
+```
+
+Runs offline. A Claude API key (`ANTHROPIC_API_KEY`, or `~/.config/quantum-study/api_key.txt`) adds the Claude-graded parts.
+Setup is covered in [GETTING_STARTED.md](../../GETTING_STARTED.md).
+
+## What a session looks like
+
+1. **Setup** — pick sections, kata count, and order (shuffled or
+   curriculum order). Katas you have failed recently are weighted to
+   reappear. The per-section pass rates shown here refresh every time
+   you return to this screen.
+2. **Kata** — task statement on the left; code editor (monospace,
+   Tab = 4 spaces) and output pane on the right. Buttons:
+   - **Run** — executes your code + the kata's tests in a subprocess
+     (20 s timeout, `MPLBACKEND=Agg`), shows pass/fail plus stdout and
+     tracebacks. Skip and End Session are disabled until the run
+     finishes, so a result always lands on the kata it graded.
+   - **Hint** — progressive hints (2–3 per kata).
+   - **Reveal Solution** — shows the reference solution.
+   - **Claude Review** — optional: sends the task + your code to Claude
+     for style/idiom feedback. Needs an Anthropic API key
+     (`ANTHROPIC_API_KEY` env var or `~/.config/quantum-study/api_key.txt`);
+     everything else works with no key and no network.
+   - **⚑ Flag for review** — toggles the current kata on the shared review
+     list (`dojo_flagged.json`, see Data files). Click again to unflag.
+     The button shows the saved state whenever a kata opens, so a kata
+     flagged in an earlier session lights up immediately.
+   - **Confidence strip** — *"How sure are you this passes?"*, four
+     buttons (1 Guessing … 4 Certain) above the output pane, asked
+     **before** your first Run so the rating can never be hindsight. It
+     is optional; **Don't ask again** turns it off for good. See
+     *Confidence calibration* below.
+   - **⚠ Report a problem** — the kata itself is wrong? One click opens a
+     GitHub issue that is already filled in with the kata id, the prompt as
+     you saw it, what you say is wrong, an optional correction and a
+     severity. See *Reporting a bad kata* below.
+   - **✎ What went wrong?** — appears under the output pane when you
+     reveal the solution on a kata you could not pass. See *Mistake
+     journal* below.
+3. **Summary** — pass rate and per-section breakdown.
+4. **History** — lifetime stats, per-section pass-rate charts, the
+   **Mistake journal** card (open mistakes by cause, plus your confidence
+   calibration and how often you were confidently wrong), and the
+   **Flagged for review** list (section badge, title, date flagged) with a
+   per-row **Unflag** button.
+5. **Reference** — the **Browse Reference** button on the setup screen opens
+   the in-app docs browser (see below); **← Back** returns to setup.
+
+## Reference browser
+
+The Reference screen is the suite's shared one — `quantum_study/common/ui/reference.py`,
+one implementation for all ten apps instead of ten forks of the same ~900
+lines. This app supplies exactly two things, as constructor arguments in
+`ui/main_window.py` (both defined in `config.py`):
+
+```python
+ReferenceScreen(default_chapter=DOCS_DEFAULT_CHAPTER,   # 03_quantum_gates_and_circuits
+                category_docs=DOCS_FOR_SECTION)         # kata section -> chapter
+```
+
+- **`DOCS_DEFAULT_CHAPTER`** — the dojo opens on
+  `docs/03_quantum_gates_and_circuits/`, its own rung of the ladder; the
+  whole corpus is still listed.
+- **`DOCS_FOR_SECTION`** — one chapter per kata section, behind a
+  **Jump to topic** picker in the top bar: *Sampler* → quantum
+  measurements, *Estimator* → VQE fundamentals, *Results analysis* →
+  probability and statistics, *Debugging* → tensor products and
+  multipartite systems, and so on. `tests/test_screens.py` fails if a
+  section is added to `katas/` without a chapter, or if a chapter is
+  renamed out from under the map.
+
+The docs root is resolved **at call time** (package location → cwd →
+`sys.argv[0]`), so the app finds `<repo>/docs` from any working directory;
+`QUANTUM_STUDY_DOCS_DIR` overrides it. Everything the old local screen did
+still works — the chapter list, the live filter, Markdown rendering with
+tables and fenced code, relative `.md` links, `#fragment` heading links,
+`http(s)` links to the system browser, **Open externally** — plus what came
+with the shared version: full-text search, a chapter filter, `$$…$$`
+display-math rendering, resolved bare cross-references, and a **Show
+solutions** checkbox that hides `<details>` exercise answers so you can try
+them first.
+
+Fully offline; nothing here touches the network or the API key.
+
+## Sections (72 katas)
+
+The 8 C1000-179 exam areas, weighted like the exam blueprint, plus two
+dojo-specific practice styles:
+
+| Section            | Katas | Notes |
+|--------------------|-------|-------|
+| Create circuits    | 10    | Bell/GHZ, registers (incl. cross-register Toffoli), Parameter/ParameterVector sweeps, compose, `to_gate` + control, dynamic `if_test`, inverse/uncompute, W state |
+| Quantum operations | 9     | Operator identities, SparsePauliOp (little-endian) and Hamiltonian simplification, Statevector evolve, global phase vs equality, partial_trace/purity/fidelity, commuting groups, random_clifford |
+| Run circuits       | 8     | AerSimulator run and one-job batches, generate_preset_pass_manager/ISA compliance, optimization level vs depth, Target queries, lowest-error qubit chain |
+| Sampler            | 7     | SamplerV2 PUBs, parameterized and multi-PUB jobs, named- and two-creg BitArrays, post-selection, parameter broadcasting/PUB shape |
+| Estimator          | 7     | EstimatorV2 PUBs, parameter sweeps, Hamiltonian energies, estimate vs exact diagonalisation, precision/shots/stds, observable broadcasting |
+| Visualization      | 6     | plot_histogram (one and two datasets), plot_bloch_multivector, plot_state_city, `draw()` return types, `idle_wires`/`fold`/`cregbundle` |
+| Results analysis   | 6     | per-qubit probabilities (endianness), ⟨ZZ⟩ and ⟨Z2 Z0⟩ from counts, marginal_counts, BitArray basics, shot-noise error bars |
+| OpenQASM           | 3     | qasm2 round-trip, qasm3 loads/dumps, qasm3 round-trip that preserves the unitary |
+| Debugging          | 8     | starter contains a REAL bug you must find and fix |
+| Modernization      | 8     | starter uses retired 0.x APIs you must rewrite for 2.x |
+
+Debugging bugs: wrong bit order, `enumerate()` reading a counts key
+big-endian, measured circuit passed to the Estimator, observable not mapped
+to the transpiled layout, non-ISA circuit submitted to a backend,
+off-by-one in a parameter loop, wrong measurement basis, mutating `qc.data`
+while iterating.
+
+Modernization targets: `qiskit.execute`, `from qiskit import Aer`,
+`BasicAer`, V1 primitives (`quasi_dists`), `bind_parameters`, `qc.qasm()`,
+`CXCancellation`, and a full `execute` + V1-Sampler script that has to
+become a preset pass manager + SamplerV2. Their tests fail on the legacy
+starter and pass on a correct 2.x rewrite.
+
+## Kata file format
+
+One file per kata under `katas/<section_dir>/`, auto-discovered at
+startup. Each file exposes a `KATA` object:
+
+```python
+from core.models import Kata
+
+KATA = Kata(
+    id="my_kata",                  # unique, stable (used in history)
+    section="Sampler",             # must match a section name
+    title="Short imperative title",
+    difficulty="intermediate",     # beginner | intermediate | advanced
+    prompt="Task statement…",      # markdown-ish plain text
+    starter_code="…",              # what the editor opens with
+    test_code="…",                 # plain asserts w/ helpful messages;
+                                   # runs in the SAME namespace as the
+                                   # user's code (their variables are in scope)
+    solution_code="…",             # reference solution; must pass test_code
+    hints=["…", "…"],              # 2–3 progressive hints
+)
+```
+
+### Adding a kata
+
+1. Drop a new file in the right `katas/` subdirectory (create a new
+   directory for a new section and add it to `SECTION_ORDER` in
+   `katas/__init__.py`).
+2. Write `test_code` as bare asserts with actionable messages — the
+   harness reports the first failing assert to the user.
+3. Verify: the `solution_code` must pass, and the `starter_code` must not
+   (for Debugging/Modernization katas it must fail with a test failure or
+   an error in the user's code - never a timeout). Quick check from the
+   app dir:
+
+```python
+import sys; sys.path.insert(0, ".")
+from katas import all_katas
+from core.runner import run_kata
+k = next(k for k in all_katas() if k.id == "my_kata")
+print(run_kata(k.solution_code, k.test_code))
+```
+
+   Then run the fast suite (it will tell you if the file failed to import,
+   sits in the wrong directory, or has the wrong number of hints) and the
+   sweep for just your kata:
+   `../.venv/bin/python -m pytest -m slow tests/test_sweep.py -k my_kata`.
+   Section floors live in `tests/test_katas.py::SECTION_TARGETS`; raise
+   the floor when a section grows and you want the new count locked in.
+
+## Data files
+
+Written under `~/.local/share/quantum-study/`, or `$QUANTUM_STUDY_DATA_DIR` if set:
+
+| File | Holds |
+|---|---|
+| `dojo_history.json` | every finished session; read by `coach.py` and `dashboard.py` |
+| `dojo_flagged.json` | items you flagged for review (the coach's review queue) |
+| `dojo_settings.json` | preferences |
+| `mistakes.json`, `confidence.json` | the mistake journal and the confidence ratings, shared by all ten apps |
+
+## Code and tests
+
+The app is the package `quantum_study/qiskit_dojo/`. What it shares with the other nine (the data directory, the journals, the theme, the Reference screen) is in [`quantum_study/common/`](../common/README.md).
+
+```bash
+pytest quantum_study/qiskit_dojo        # this app's tests
+```

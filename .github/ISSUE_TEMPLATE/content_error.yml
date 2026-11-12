@@ -13,14 +13,14 @@ body:
         patch already; a report that says "chapter 4 seems off" is not.
 
         If the error is in a bank item, the file stem is the item `id`
-        (e.g. `exam-sim/bank/<section_dir>/<id>.py`).
+        (e.g. `quantum_study/exam_sim/bank/<section_dir>/<id>.py`).
 
   - type: input
     id: file
     attributes:
       label: File
       description: Repository-relative path, and the heading or item id if the file is long.
-      placeholder: docs/ch04-measurement.md — section "Expectation values", or flashcard-drill/cards/gates/hadamard_matrix.py
+      placeholder: docs/ch04-measurement.md — section "Expectation values", or quantum_study/flashcard_drill/cards/gates/hadamard_matrix.py
     validations:
       required: true
 

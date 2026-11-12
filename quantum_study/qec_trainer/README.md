@@ -1,0 +1,301 @@
+# QEC Trainer
+
+A focused problem trainer for quantum error correction. 178 curated problems across 6
+categories — from 3-qubit repetition codes through the surface code and fault tolerance
+thresholds. Multiple choice and free-form questions; free-form answers are graded by
+Claude (`claude-sonnet-4-6`).
+
+## Run
+
+```bash
+python launch.py qec                 # from the repository root (or: quantum-study qec)
+python -m quantum_study.qec_trainer
+```
+
+Runs offline. A Claude API key (`ANTHROPIC_API_KEY`, or `~/.config/quantum-study/api_key.txt`) adds the Claude-graded parts.
+Setup is covered in [GETTING_STARTED.md](../../GETTING_STARTED.md).
+
+## Features
+
+- **178 curated problems** across 6 QEC categories
+- **Two answer modes** — multiple choice (auto-graded instantly) and free-form
+  (Claude-graded with detailed feedback)
+- **3 difficulty levels** — beginner, intermediate, advanced
+- **Hint system** — each problem has 1–2 hints, revealed progressively
+- **Grading failure recovery** — if Claude grading fails, a dialog offers to skip
+  with score 0 and continue the session
+- **Session history** — past sessions with per-category score breakdown
+- **Result screen** — shows worked explanation and model answer after each submission
+- **Decoder Game** — interactive syndrome-decoding rounds with a difficulty ladder
+  (3-qubit repetition → 5-qubit repetition → distance-3 surface code), verified
+  locally with GF(2)/symplectic arithmetic — no API key needed
+- **Reference browser** — the suite's shared `docs/**/*.md` corpus rendered inside
+  the app: chapter filter, full-text search, jump-to-topic for every QEC category,
+  in-app cross-reference links — no API key needed
+- **Mistake journal** — a wrong answer is not just a bookmark: one tap files it under
+  a cause (misread / didn't know / knew but slipped / confused / out of time / other)
+  in the suite-wide `mistakes.json`, and re-answering the item correctly resolves it
+- **Confidence calibration** — an optional 1–4 "how sure are you?" strip shown *before*
+  you submit, paired with the grade in `confidence.json`, so "certain and wrong"
+  becomes visible instead of invisible
+- **Report a problem with this item** — the bank is public and imperfect. One
+  keyboard-reachable button on the result screen opens a *prefilled* GitHub issue for
+  the item on screen (its id, its exact text, your description and a suggested fix), so
+  "this answer is wrong" turns into a filed report instead of a memory you lose
+- **Versioned, backed-up data** — every file the app writes carries a schema version in
+  a sidecar, migrates forward when it is read, is refused rather than corrupted by a
+  build that does not understand it, and is copied to a rotating `.bak` before the first
+  write of each session
+- **Keyboard and screen-reader friendly** — every control is tab-reachable with a
+  visible focus ring and an accessible name, and no state is carried by colour alone
+- **Shared code, not ten copies** — the theme, the docs browser, the journal, the flag
+  store and the data-directory rule come from the repository's [`quantum_study/common/`](../common/README.md)
+  package, so a fix reaches every app in the suite at once
+
+## Usage
+
+### Setup Screen
+
+1. **Select categories** — all 6 checked by default
+2. **Difficulty** — Beginner / Intermediate / Advanced / Mixed
+3. **Problem count** — default 10
+4. Click **Start Session**
+
+### Problem Screen
+
+- Question is displayed in a card
+- **Multiple choice**: four radio buttons (A–D)
+- **Free-form**: multi-line text box
+- **Hint** button — click to reveal the next hint (button shows remaining hint count)
+- **Confidence strip** (optional) — *1 Guessing · 2 Unsure · 3 Fairly sure · 4 Certain*,
+  just above Submit. Rate before you submit or ignore it entirely; **Don't ask again**
+  retires it permanently. `python coach.py --calibration` reads the ratings back.
+- **Submit** enables once a selection or non-empty text is entered
+
+### Result Screen
+
+After submission:
+- **Verdict badge** — ✓ Correct / ◐ Partially correct / ✗ Incorrect (glyph + colour)
+- **Feedback** — explanation of the correct answer
+- **Model answer** — what an ideal answer looks like (free-form only)
+- **"What went wrong?"** (wrong answers only) — six cause pills and an optional note.
+  The mistake is already journalled by the time the row appears, so skipping it costs
+  nothing; tapping a pill files it under a cause.
+- **⚑ Flag for Review** — adds the problem to `qec_flagged.json`, with its question
+  text and category, so `python coach.py --review` lists the question rather than a
+  bare id
+- **⚠ Report a problem with this item** — opens a prefilled GitHub issue for the item
+- **Next Problem** or **Finish Session**
+
+### Summary and History
+
+Session summary with accuracy rate and per-category scores. History table shows all past
+sessions.
+
+### Reference Screen
+
+**Browse Reference** on the setup screen opens the in-app docs browser for the
+repository's shared `docs/` corpus. It is now literally the same browser every app in
+the suite ships — [`common.ui.reference.ReferenceScreen`](../common/README.md), which
+this app subclasses to supply two constants (the chapter to open first and the
+topic → doc map). No API key needed. The docs folder is resolved **at call time**:
+`QUANTUM_STUDY_DOCS_DIR` if set, else the `docs/` beside the `common` package, else
+upwards from the working directory or the launching script — so it works from a
+checkout, from `launch.py`, and from a test pointed at a temp corpus.
+
+- **Chapter list** (left) — every `docs/**/*.md` file grouped by chapter and numbered in
+  ladder order (`5.6  The Surface Code`). The screen opens on
+  `05_quantum_error_correction/01_why_qec_is_hard.md`, this trainer's rung; the whole
+  corpus stays listed. Files added, removed or edited while the app is running
+  are picked up the next time the screen is used.
+- **Jump to topic** — opens the chapter that backs a problem category:
+
+  | Category | Doc |
+  |---|---|
+  | Repetition Code | `05_quantum_error_correction/03_repetition_code.md` |
+  | Stabilizer Formalism | `05_quantum_error_correction/04_stabilizer_formalism.md` |
+  | Steane Code | `05_quantum_error_correction/05_css_codes_and_steane.md` |
+  | Surface Code, Decoder Game | `05_quantum_error_correction/06_surface_code.md` |
+  | Fault Tolerance | `05_quantum_error_correction/07_fault_tolerance.md` |
+  | Bosonic Codes | `05_quantum_error_correction/08_bosonic_codes.md` |
+
+- **Chapter filter** and **search** — the search box matches titles and full text, shows
+  a hit count per document, and highlights the first hit in the reader.
+- **Reader** (right) — Markdown rendered in-app with dark-theme styling for code, tables,
+  quotes and links. Relative links between docs — including the bare
+  `NN_chapter/NN_file.md` cross-references the chapters use in prose (a bare `NN_file.md`
+  means the sibling file, or the one file of that name anywhere in the corpus) —
+  navigate inside the browser (a `#heading` suffix on a cross-reference is honoured),
+  `#heading` links scroll to that heading — headings get GitHub-style anchors
+  (`## Key Formulas` → `#key-formulas`; a repeated heading gets `-1`, `-2`, …) —
+  `http(s)` links open in the system browser, and files outside `docs/` open with the
+  system default application. `$$ … $$` display math is shown as a monospace block that
+  soft-wraps long lines (kept inside its block quote when quoted); fenced code keeps its
+  layout. `<details><summary>Solution</summary>` blocks become "▸ Solution" sections.
+- **Show solutions** — untick to hide exercise solutions for self-testing.
+- **Open externally** — opens the current `.md` file with the system default application.
+- **← Back** returns to the setup screen; the reader keeps its place when you return.
+
+Programmatic entry points (for tests and other screens):
+`open_doc("05_quantum_error_correction/06_surface_code.md")`, `show_chapter("05_quantum_error_correction")`,
+`show_category("Surface Code")`.
+
+## Decoder Game
+
+Launched with **Play Decoder Game** on the setup screen. 12 rounds of hands-on
+syndrome decoding climbing a difficulty ladder (3 rounds per level):
+
+1. **3-qubit repetition code** — a random X error (weight ≤ 1) is applied; the
+   Z₁Z₂ / Z₂Z₃ syndrome is shown; pick the correction from 4 choices
+   (including "no error").
+2. **5-qubit repetition code** — weight-1 or weight-2 X errors; distance 5
+   corrects both unambiguously from the 4-bit syndrome.
+3. **Distance-3 rotated surface code, weight-1 errors** — 9 data qubits on a
+   3×3 grid with 4 X-checks and 4 Z-checks drawn as squares (lit red when
+   fired). Click data qubits to cycle a proposed correction (· → X → Z → Y),
+   then submit.
+4. **Surface code, weight-2 errors** — same grid, harder syndromes.
+
+**Verification is exact GF(2)/symplectic computation** (`core/decoder_game.py`):
+a correction succeeds iff `correction ⊕ error` lies in the stabilizer group —
+it must commute with every stabilizer generator *and* act trivially on the
+logical operators. Degenerate corrections (differing from the error by a
+stabilizer) are therefore accepted on the surface code. The hardcoded surface
+layout (X-checks {1,2}, {0,1,3,4}, {4,5,7,8}, {6,7}; Z-checks {0,3},
+{1,2,4,5}, {3,4,6,7}, {5,8}; logical X = X₀X₃X₆, logical Z = Z₀Z₁Z₂ — 0-indexed)
+was verified to be a [[9,1,3]] code by exhaustive symplectic checks.
+
+Every round also gets the confidence strip (before **Submit Correction**), and a failed
+round is journalled under the id `decoder_<level>` — code plus round type — with your
+placed Pauli as `your_answer` and the true error as `correct_answer`; the
+"What went wrong?" row appears inside the feedback card. Decoding that level correctly
+later resolves the entry.
+
+Score and streaks are tracked during the game; the end screen shows the total,
+accuracy, best streak, and a per-level breakdown. Each game is saved to
+`qec_history.json` in the standard session schema under the category
+**"Decoder Game"**, so it appears in the history screen and the repo-level
+dashboard alongside the quiz categories.
+
+## Problem Bank
+
+178 problems: Repetition Code (34), Stabilizer Formalism (34), Fault Tolerance (33),
+Steane Code (32), Surface Code (30), and Bosonic Codes (15). The tables below show a
+representative sample from each category.
+
+### Repetition Code (34 problems, sample below)
+
+| ID | Difficulty | Type | Topic |
+|---|---|---|---|
+| rep_encode_0 | Beginner | MC | 3-qubit bit-flip encoding: |0⟩ → |000⟩ |
+| rep_syndrome_10 | Beginner | MC | Syndrome (1,0): Z₁Z₂=−1, Z₂Z₃=+1 → qubit 1 flipped |
+| rep_syndrome_11 | Beginner | MC | Syndrome (1,1): both stabilizers −1 → qubit 2 flipped |
+| rep_syndrome_01 | Beginner | MC | Syndrome (0,1): Z₁Z₂=+1, Z₂Z₃=−1 → qubit 3 flipped |
+| rep_no_error | Intermediate | MC | Syndrome (0,0): no error — what does this mean? |
+| rep_phase_flip | Intermediate | MC | 3-qubit phase-flip code — how is |+⟩ encoded? |
+| rep_5qubit | Advanced | MC | 5-qubit perfect code: parameters [[5,1,3]] |
+| shor_9 | Advanced | Free-form | Shor's 9-qubit code — concatenation structure |
+
+### Stabilizer Formalism (34 problems, sample below)
+
+| ID | Difficulty | Type | Topic |
+|---|---|---|---|
+| stab_definition | Beginner | MC | Stabilizer definition: S|ψ⟩ = |ψ⟩ |
+| stab_bell | Intermediate | MC | Stabilizers of a Bell state: XX, ZZ |
+| stab_generators | Intermediate | MC | Minimum generator count for an [[n,k]] code |
+| stab_clifford | Advanced | MC | Clifford group maps Pauli → Pauli under conjugation |
+| stab_logical_x | Advanced | MC | Logical X̄ for 3-qubit bit-flip code |
+| stab_commute | Intermediate | MC | Stabilizers must commute — why? |
+| stab_freeform | Advanced | Free-form | Derive the syndrome measurement circuit for a stabilizer |
+
+### Steane Code (32 problems, sample below)
+
+| ID | Difficulty | Type | Topic |
+|---|---|---|---|
+| steane_params | Beginner | MC | [[7,1,3]] Steane code parameters |
+| steane_css | Intermediate | MC | CSS code construction: Calderbank-Shor-Steane |
+| steane_xstabs | Intermediate | MC | X stabilizers of the Steane code |
+| steane_zstabs | Intermediate | MC | Z stabilizers of the Steane code |
+| eastin_knill | Advanced | Free-form | Eastin-Knill theorem statement and implications |
+
+### Surface Code (30 problems, sample below)
+
+| ID | Difficulty | Type | Topic |
+|---|---|---|---|
+| surface_threshold | Beginner | MC | Fault tolerance threshold ~1% |
+| surface_logical | Intermediate | MC | Logical error rate scaling with code distance |
+| surface_decoder | Intermediate | MC | MWPM (minimum weight perfect matching) decoder |
+| surface_plaquette | Advanced | MC | Plaquette and vertex stabilizers in the toric code |
+| surface_freeform | Advanced | Free-form | Why does the surface code threshold improve with distance? |
+
+### Fault Tolerance (33 problems, sample below)
+
+| ID | Difficulty | Type | Topic |
+|---|---|---|---|
+| ft_threshold | Beginner | MC | Threshold theorem statement |
+| ft_transversal | Intermediate | MC | Transversal gates — why they prevent error propagation |
+| ft_magic | Advanced | MC | Magic state distillation for T gate |
+| ft_cat | Advanced | MC | Cat qubits — bias-preserving operations |
+| ft_syndrome_rep | Advanced | Free-form | Why must syndrome measurements be repeated? |
+
+## Grading Details
+
+### Multiple Choice (local, no API)
+
+The user's letter selection (A–D) is mapped to an index and compared against
+`correct_index`. Score is 10 for correct, 0 for incorrect. Feedback includes the
+explanation stored in the problem record.
+
+### Free-Form (Claude-graded)
+
+The grading prompt includes the question, the user's answer, and the stored explanation.
+Claude returns:
+- `score` — 0–10
+- `verdict` — "Correct" / "Partially correct" / "Incorrect"
+- `feedback` — prose explanation
+- `model_answer` — ideal answer
+
+Verdict mapping: score ≥7 → Correct, ≥4 → Partially correct, <4 → Incorrect.
+
+## Adding Problems
+
+Add a new Python file inside the appropriate `problems/<category>/` directory, defining
+a single module-level `PROBLEM`:
+
+```python
+from core.models import Problem, GradeMode
+
+PROBLEM = Problem(
+    id="unique_snake_case_id",
+    category="Category Name",          # must match an existing category string
+    difficulty="beginner",             # "beginner" | "intermediate" | "advanced"
+    question="Question text here.",
+    choices=["A text", "B text", "C text", "D text"],   # empty list for CLAUDE mode
+    correct_index=0,                   # 0-based; -1 for CLAUDE mode
+    explanation="Explanation shown after answering.",
+    hints=["First hint.", "Second hint."],
+    grade_mode=GradeMode.AUTO,         # or GradeMode.CLAUDE for free-form
+)
+```
+
+`problems/__init__.py` auto-discovers every problem file, so no registration step
+is needed.
+
+## Data files
+
+Written under `~/.local/share/quantum-study/`, or `$QUANTUM_STUDY_DATA_DIR` if set:
+
+| File | Holds |
+|---|---|
+| `qec_history.json` | every finished session; read by `coach.py` and `dashboard.py` |
+| `qec_flagged.json` | items you flagged for review (the coach's review queue) |
+| `qec_settings.json` | preferences |
+| `mistakes.json`, `confidence.json` | the mistake journal and the confidence ratings, shared by all ten apps |
+
+## Code and tests
+
+The app is the package `quantum_study/qec_trainer/`. What it shares with the other nine (the data directory, the journals, the theme, the Reference screen) is in [`quantum_study/common/`](../common/README.md).
+
+```bash
+pytest quantum_study/qec_trainer        # this app's tests
+```

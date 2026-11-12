@@ -23,7 +23,8 @@ just shells out to the script it names, so nothing can drift.
 `python launch.py flashcard-drill` (or an alias such as `python launch.py dojo`) starts
 one app directly; `python launch.py --list` prints the names, aliases and which apps
 use an API key for their full feature set (section 2 lists what each does without one). If you would rather not use the launcher, every app also runs as
-`cd <app> && python main.py` from the activated venv.
+`python -m quantum_study.<app>` (underscores for hyphens: `python -m quantum_study.exam_sim`)
+from the activated venv.
 
 Python 3.12+ is recommended (developed on 3.14; CI runs 3.12 and 3.14); `setup.sh` accepts
 3.11 as its minimum, but that path is untested. On a
@@ -254,7 +255,7 @@ schedule and a self-assessment checklist. Support tools:
   breakdowns, 10-minute section sprints, a review mode for missed questions, and a
   History screen with your score trend against the pass mark
 - `python coach.py --readiness` — the projected score and 95 % band once you have
-  about 40 exam-sim/dojo observations covering 60 % of the exam weight (one full mock
+  about 40 quantum_study/exam_sim/dojo observations covering 60 % of the exam weight (one full mock
   gets you most of the way); below that it lists what each section still needs
 - flashcard-drill's **Qiskit API** category (45 exam-aligned cards)
 - quantum-quiz's **Qiskit Certification (C1000-179)** subject (needs API key)
@@ -268,7 +269,7 @@ cert track — the exam assumes the concepts, and tests the API.
 
 - After any content edit, run the regression gate: `make docs` (`python
   tools/verify_docs.py --all` from the venv). The full test suite is `make test`
-  (`tools/run_tests.sh`) after `./setup.sh --dev`; see [CONTRIBUTING.md](CONTRIBUTING.md).
+  (`pytest`) after `./setup.sh --dev`; see [CONTRIBUTING.md](CONTRIBUTING.md).
 - Your history lives in `~/.local/share/quantum-study/`, including the SM-2 schedule
   (`flashcard_schedule.json`) and the two cross-app journals (`mistakes.json`,
   `confidence.json`). Back it up like any other data; nothing in the suite deletes it.

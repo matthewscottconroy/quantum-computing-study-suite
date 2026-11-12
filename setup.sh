@@ -262,6 +262,12 @@ step "Installing runtime dependencies (requirements.txt)"
 pip_install -r requirements.txt || die "$PIP_HINT"
 ok "runtime dependencies installed"
 
+# The suite itself, editable: `quantum_study` becomes importable from anywhere and
+# the quantum-study / quantum-coach / quantum-dashboard commands are created.
+step "Installing the suite itself (editable)"
+"$VENV_PY" -m pip install --quiet --no-deps -e . || die "$PIP_HINT"
+ok "quantum_study installed in editable mode"
+
 if (( DEV )); then
   step "Installing developer extras (requirements-dev.txt)"
   pip_install -r requirements-dev.txt || die "$PIP_HINT"
@@ -300,21 +306,22 @@ then
 fi
 ok "all core imports work"
 
-# Every app, one interpreter per app (never import two apps in one process), the
-# same check CI runs.  Importing main.py builds no windows and writes no study data.
-step "Smoke check: importing every app (offscreen Qt, one subprocess each)"
+# Every app, one interpreter each so a failure names its app.  Importing an app
+# builds no windows and writes no study data.
+step "Smoke check: importing every app (offscreen Qt)"
 APP_COUNT=0; APP_LIST=""
-for main_py in */main.py; do
+for main_py in quantum_study/*/main.py; do
   [[ -f "$main_py" ]] || continue
-  app="${main_py%/main.py}"
-  if ! out="$(cd "$app" && QT_QPA_PLATFORM=offscreen MPLBACKEND=Agg "$VENV_PY" -c 'import main' 2>&1)"; then
+  app="$(basename "$(dirname "$main_py")")"
+  if ! out="$(QT_QPA_PLATFORM=offscreen MPLBACKEND=Agg "$VENV_PY" -c "import quantum_study.$app.main" 2>&1)"; then
     printf '%s\n' "$out" >&2
-    die "'import main' failed in $app/ (traceback above). If the other apps passed this is a bug in
-       that app rather than in the environment; reproduce it with:  cd $app && python -c 'import main'"
+    die "'import quantum_study.$app.main' failed (traceback above). If the other apps passed this is a
+       bug in that app rather than in the environment; reproduce it with:
+       python -c 'import quantum_study.$app.main'"
   fi
   APP_COUNT=$((APP_COUNT + 1)); APP_LIST="$APP_LIST $app"
 done
-(( APP_COUNT > 0 )) || die "no <app>/main.py found under $REPO_ROOT -- is the checkout complete?"
+(( APP_COUNT > 0 )) || die "no quantum_study/<app>/main.py found under $REPO_ROOT -- is the checkout complete?"
 ok "$APP_COUNT apps import cleanly:$APP_LIST"
 
 # ---------------------------------------------------------------------------
@@ -350,12 +357,12 @@ Next steps
 
   4. Launch an app:
        python launch.py
-     (or run one directly, e.g.  cd flashcard-drill && python main.py)
+     (or run one directly, e.g.  python -m quantum_study.flashcard_drill)
 EOT
 if (( DEV )); then
   cat <<EOT
   5. Developer extras are installed:
-       pytest                       (run inside any app directory)
+       pytest                       (everything; pytest quantum_study/exam_sim for one app)
        jupyter lab notebooks/       (choose the "$KERNEL_LABEL" kernel)
 EOT
 else

@@ -5,7 +5,7 @@
 # or:  pip install -r requirements-dev.txt
 -r requirements.txt
 
-# --- Tests (each app has a tests/ directory and its own pytest.ini) -----------
+# --- Tests (tests/ and quantum_study/<app>/tests/, one pytest run) -------------
 pytest>=8.0
 pytest-timeout>=2.3
 
@@ -18,4 +18,4 @@ jupyterlab>=4.2
 # --- Flashcard export (tools/export_cards.py --apkg) --------------------------
 # Only the Anki package needs it; --json and --html are standard library only,
 # which is why .github/workflows/pages.yml installs nothing.
-genanki>=0.13
+genanki>=0.13.1

@@ -46,8 +46,8 @@ body:
       label: Steps to reproduce
       description: The exact commands, starting from the repository root.
       placeholder: |
-        1. cd quantum-quiz
-        2. QT_QPA_PLATFORM=offscreen python main.py
+        1. QT_QPA_PLATFORM=offscreen python -m quantum_study.quantum_quiz
+        2. Pick the subject "Qubits" and start a session
         3. Open "Bloch sphere" and click Check
       render: shell
     validations:

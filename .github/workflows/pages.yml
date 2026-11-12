@@ -52,7 +52,7 @@ jobs:
           missing=()
           for p in tools/export_cards.py tools/webdeck/index.html \
                    tools/webdeck/deck.css tools/webdeck/deck.js \
-                   flashcard-drill/cards flashcard-drill/core/models.py; do
+                   quantum_study/flashcard_drill/cards quantum_study/flashcard_drill/core/models.py; do
             [ -e "$p" ] || missing+=("$p")
           done
           if [ ${#missing[@]} -gt 0 ]; then
@@ -86,7 +86,7 @@ jobs:
 
           site = pathlib.Path("_site")
           page = site / "index.html"
-          expected = sum(1 for p in pathlib.Path("flashcard-drill/cards").glob("*/*.py")
+          expected = sum(1 for p in pathlib.Path("quantum_study/flashcard_drill/cards").glob("*/*.py")
                          if p.stem != "__init__")
 
           def fail(msg):

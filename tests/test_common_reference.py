@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from common.ui import reference                     # noqa: E402
+from quantum_study.common.ui import reference                     # noqa: E402
 
 REAL_DOCS = ROOT / "docs"
 
@@ -65,10 +65,9 @@ def test_a_blank_override_is_no_override(monkeypatch):
 
 
 def test_resolution_works_from_inside_every_app_directory(monkeypatch):
-    """Each app hard-coded ``parents[3] / "docs"``; this is the replacement,
-    and it has to hold from all ten working directories."""
+    """Found from the package's own location, whatever the working directory."""
     monkeypatch.delenv(reference.DOCS_ENV_VAR, raising=False)
-    apps = sorted(p.parent for p in ROOT.glob("*/main.py"))
+    apps = sorted(p.parent for p in (ROOT / "quantum_study").glob("*/main.py"))
     assert len(apps) == 10
     for app in apps:
         monkeypatch.chdir(app)

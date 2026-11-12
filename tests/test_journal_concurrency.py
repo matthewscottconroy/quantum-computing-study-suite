@@ -8,16 +8,15 @@ second writer replaces the file with a list that never contained the first
 writer's new row.  Measured before the fix, three processes appending 60 rows
 each kept 103 of 180 rows; 43 % of the journal was lost.
 
-The fix is ``journal_sync`` (a byte-identical copy in every app tree): an
+The fix lives in ``quantum_study.common`` (``locking`` and ``journal``): an
 ``fcntl.flock`` on a ``<file>.lock`` sidecar held across the whole
 read-modify-write, plus ``merge_foreign``, which puts rows owned by another app
 back exactly as they were read.
 
-These tests run the real thing: one **process per app**, each importing that
-app's own store module from its own tree by path (no two apps can share a
-process — several define the same top-level ``config`` and ``core`` modules),
-all of them hammering one temp data directory through the public logging
-helpers.  Nothing here touches ``~/.local/share/quantum-study``.
+These tests run the real thing: one **process per app**, as when ten windows
+are open, each importing that app's own store module and all of them hammering
+one temp data directory through the public logging helpers.  Nothing here
+touches ``~/.local/share/quantum-study``.
 
 Run it standalone for the reproduction in the bug report::
 
@@ -26,7 +25,7 @@ Run it standalone for the reproduction in the bug report::
 
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import json
 import multiprocessing
 import os
@@ -38,19 +37,23 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
-#: app directory -> store module inside it (the names differ per app).
+#: app id -> store module inside its package (the names differ per app).
 STORES = {
-    "flashcard-drill": "persistence/review_store.py",
-    "math-quiz":       "persistence.py",
-    "quantum-quiz":    "persistence.py",
-    "circuit-trainer": "persistence.py",
-    "qec-trainer":     "persistence.py",
-    "vqa-trainer":     "persistence.py",
-    "paper-drill":     "persistence.py",
-    "qiskit-dojo":     "persistence.py",
-    "exam-sim":        "persistence.py",
-    "problem-trainer": "persistence.py",
+    "flashcard-drill": "persistence.review_store",
+    "math-quiz":       "persistence",
+    "quantum-quiz":    "persistence",
+    "circuit-trainer": "persistence",
+    "qec-trainer":     "persistence",
+    "vqa-trainer":     "persistence",
+    "paper-drill":     "persistence",
+    "qiskit-dojo":     "persistence",
+    "exam-sim":        "persistence",
+    "problem-trainer": "persistence",
 }
+
+
+def _package(app: str) -> str:
+    return "quantum_study." + app.replace("-", "_")
 
 #: A foreign row, seeded before the run, carrying keys no app's schema knows.
 #: It must come back byte for byte however many apps rewrite the file.
@@ -77,27 +80,17 @@ JOIN_TIMEOUT = 120.0       # a wedged child fails the test instead of hanging it
 # ---------------------------------------------------------------------------
 
 def _load_store(app: str):
-    """Import *app*'s store module from its own tree, by path.
-
-    The app directory goes on ``sys.path`` first so the module's own
-    ``import config`` / ``import journal_sync`` resolve inside that tree.  Only
-    ever one app per process: ten trees define ten different ``config``
-    modules under the same name.
-    """
-    app_dir = ROOT / app
-    sys.path.insert(0, str(app_dir))
-    path = app_dir / STORES[app]
-    spec = importlib.util.spec_from_file_location(
-        f"store_{app.replace('-', '_')}", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """Import *app*'s store module (in the child process, after the data
+    directory has been set)."""
+    if str(ROOT) not in sys.path:               # a spawned child starts bare
+        sys.path.insert(0, str(ROOT))
+    return importlib.import_module(f"{_package(app)}.{STORES[app]}")
 
 
 def _log_mistake(app: str, store, item_id: str) -> None:
     """Append one mistake through *app*'s own public helper."""
     if app == "math-quiz":                       # takes a Question, not an id
-        from core.models import Question         # noqa: PLC0415 (per-process)
+        from quantum_study.math_quiz.core.models import Question  # noqa: PLC0415
         store.log_mistake(
             Question(subject="Linear Algebra", topic="spectral theorem",
                      difficulty="beginner", question_type="conceptual",
@@ -118,7 +111,7 @@ def _log_mistake(app: str, store, item_id: str) -> None:
 def _log_confidence(app: str, store, item_id: str) -> None:
     """Append one calibration row through *app*'s own public helper."""
     if app == "math-quiz":
-        from core.models import Question         # noqa: PLC0415 (per-process)
+        from quantum_study.math_quiz.core.models import Question  # noqa: PLC0415
         store.log_confidence(
             Question(subject="Linear Algebra", topic="spectral theorem",
                      difficulty="beginner", question_type="conceptual",
@@ -253,11 +246,7 @@ def test_two_windows_of_one_app_lose_no_rows(tmp_path):
 
 def test_the_lock_is_really_taken_and_is_released_on_a_hard_exit(tmp_path):
     """flock, not hope: the sidecar exists, and a killed holder frees it."""
-    sys.path.insert(0, str(ROOT / "flashcard-drill"))
-    spec = importlib.util.spec_from_file_location(
-        "journal_sync_probe", ROOT / "flashcard-drill" / "journal_sync.py")
-    journal_sync = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(journal_sync)
+    from quantum_study.common import locking as journal_sync
 
     data_dir = tmp_path / "quantum-study"
     data_dir.mkdir(parents=True)
@@ -279,24 +268,22 @@ def test_the_lock_is_really_taken_and_is_released_on_a_hard_exit(tmp_path):
 
 def _die_holding_the_lock(target: str) -> None:
     """Child: take the lock, then die without unwinding (kernel must free it)."""
-    sys.path.insert(0, str(ROOT / "flashcard-drill"))
-    spec = importlib.util.spec_from_file_location(
-        "journal_sync_probe", ROOT / "flashcard-drill" / "journal_sync.py")
-    journal_sync = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(journal_sync)
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from quantum_study.common import locking as journal_sync
     with journal_sync.lock(target, create=True):
         os._exit(0)
 
 
-def test_every_app_ships_the_same_journal_sync():
-    """Ten copies, one implementation: a fix here must reach every app."""
-    copies = {app: (ROOT / app / "journal_sync.py") for app in STORES}
-    missing = [app for app, path in copies.items() if not path.exists()]
-    assert not missing, f"journal_sync.py is missing from: {missing}"
-    texts = {app: path.read_text() for app, path in copies.items()}
-    reference = texts["flashcard-drill"]
-    drifted = [app for app, text in texts.items() if text != reference]
-    assert not drifted, f"journal_sync.py has drifted in: {drifted}"
+def test_there_is_one_locking_implementation_and_every_app_uses_it():
+    """There used to be a byte-identical ``journal_sync.py`` in each of the ten
+    app trees.  Now there is one, in ``quantum_study.common``, and no copies."""
+    package = ROOT / "quantum_study"
+    copies = sorted(str(p.relative_to(ROOT)) for p in package.rglob("journal_sync.py"))
+    assert not copies, f"a private copy of the locking code is back: {copies}"
+    for app, module in STORES.items():
+        source = (package / app.replace("-", "_") / (module.replace(".", "/") + ".py")).read_text()
+        assert "quantum_study.common" in source, f"{app}: store does not use the shared package"
 
 
 if __name__ == "__main__":          # forkserver/spawn need this guard
