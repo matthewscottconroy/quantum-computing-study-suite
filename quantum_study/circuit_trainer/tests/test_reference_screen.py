@@ -18,7 +18,8 @@ def test_docs_root_is_the_repo_docs_dir_and_scan_finds_the_corpus():
 
     root = docs_root()
     assert root.is_dir() and root.name == "docs"
-    assert root.parent.name == "Quantum-Computing" or (root.parent / "circuit-trainer").is_dir()
+    # the repository root, whatever the checkout directory is called
+    assert (root.parent / "quantum_study" / "circuit_trainer").is_dir()
 
     entries = scan_docs()
     assert len(entries) >= 50

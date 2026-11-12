@@ -1089,7 +1089,7 @@ class ReferenceScreen(QWidget):
             "# No documentation found\n\n"
             f"Expected Markdown chapters under:\n\n`{root}`\n\n"
             "The reference browser reads the shared `docs/` corpus at the root of "
-            "the Quantum-Computing repository — run the app from inside a checkout, "
+            "the study-suite repository — run the app from inside a checkout, "
             f"or set `{DOCS_ENV_VAR}` to the corpus directory."
         )
 
